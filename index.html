@@ -39,6 +39,10 @@
           <span class="status-label">Rounds Applied</span>
           <strong id="roundCounter">0</strong>
         </div>
+        <div class="status-block">
+          <span class="status-label">Field Notes</span>
+          <strong id="battleHighlight">Awaiting the clash</strong>
+        </div>
       </div>
 
       <div class="panel-section import-panel">
@@ -46,7 +50,7 @@
           <h2>Queue Data</h2>
           <span>CSV in, CSV out</span>
         </div>
-        <p class="hint">CSV columns: <code>title,coverUrl,armySize,submissionType,archer,mage,knight,fledReserve</code></p>
+        <p class="hint">CSV columns: <code>title,coverUrl,armySize,submissionType,archer,mage,knight,medic,bomber,fledReserve</code></p>
         <input id="csvFileInput" type="file" accept=".csv,text/csv">
         <textarea id="csvInput" rows="7" spellcheck="false"></textarea>
         <div class="button-row">
@@ -160,3 +164,6 @@
   <script src="app.js"></script>
 </body>
 </html>
+
+
+

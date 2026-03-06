@@ -2,16 +2,20 @@
 const STORAGE_KEY = "tbr-warfare-state-v1";
 const FIELD = { width: 1180, height: 760 };
 const SPEED_OPTIONS = [0.35, 0.65, 1, 1.4, 1.85];
-const DEFAULT_COMPOSITION = { archer: 1, mage: 1, knight: 1 };
+const DEFAULT_COMPOSITION = { archer: 1, mage: 1, knight: 1, medic: 0, bomber: 0 };
 const UNIT_LIBRARY = [
   { id: "archer", name: "Archer", keywords: ["bow", "ranged", "arrow"] },
   { id: "mage", name: "Mage", keywords: ["magic", "orb", "beam", "wizard"] },
   { id: "knight", name: "Knight", keywords: ["melee", "sword", "tank"] },
+  { id: "medic", name: "Medic", keywords: ["heal", "support", "frail"] },
+  { id: "bomber", name: "Bomber", keywords: ["explosive", "grenade", "suicide"] },
 ];
 const UNIT_STATS = {
   archer: { maxHealth: 58, speed: 48, range: 210, damage: 14, cooldown: 1.65 },
   mage: { maxHealth: 52, speed: 44, range: 180, abductRange: 310, damage: 16, cooldown: 2.05 },
   knight: { maxHealth: 210, speed: 28, range: 26, damage: 38, cooldown: 1.05 },
+  medic: { maxHealth: 36, speed: 56, range: 96, heal: 18, cooldown: 1.9 },
+  bomber: { maxHealth: 62, speed: 40, range: 175, damage: 24, splash: 72, deathSplash: 96, cooldown: 2.3, fuse: 1.6 },
 };
 const SAMPLE_BOOKS = [
   {
@@ -80,6 +84,7 @@ const els = {
   battleState: document.getElementById("battleState"),
   winnerLabel: document.getElementById("winnerLabel"),
   roundCounter: document.getElementById("roundCounter"),
+  battleHighlight: document.getElementById("battleHighlight"),
   battleTicker: document.getElementById("battleTicker"),
   winnerCard: document.getElementById("winnerCard"),
   speedControls: document.getElementById("speedControls"),
@@ -219,7 +224,7 @@ function saveState() {
 }
 function syncCsvInput() {
   const rows = [
-    ["title", "coverUrl", "armySize", "submissionType", "archer", "mage", "knight", "fledReserve"].join(","),
+    ["title", "coverUrl", "armySize", "submissionType", "archer", "mage", "knight", "medic", "bomber", "fledReserve"].join(","),
     ...state.factions.map((faction) => [
       csvEscape(faction.title),
       csvEscape(faction.coverUrl),
@@ -228,6 +233,8 @@ function syncCsvInput() {
       faction.composition.archer,
       faction.composition.mage,
       faction.composition.knight,
+      faction.composition.medic,
+      faction.composition.bomber,
       faction.fledReserve,
     ].join(",")),
   ];
@@ -252,7 +259,7 @@ function parseCsv(text) {
       coverUrl: row.coverUrl,
       armySize: row.armySize,
       submissionType: row.submissionType,
-      composition: { archer: row.archer ?? row.archers, mage: row.mage ?? row.mages, knight: row.knight ?? row.knights },
+      composition: { archer: row.archer ?? row.archers, mage: row.mage ?? row.mages, knight: row.knight ?? row.knights, medic: row.medic ?? row.medics, bomber: row.bomber ?? row.bombers },
       fledReserve: row.fledReserve,
     }, index);
   });
@@ -484,6 +491,7 @@ function resetBattle() {
   els.winnerLabel.textContent = "None yet";
   els.winnerCard.classList.add("hidden");
   setTicker(state.factions.length ? "Armies are awaiting the signal." : "Add at least one army to begin.");
+  setHighlight("Awaiting the clash");
 }
 
 function resetCamera() {
@@ -506,6 +514,7 @@ function startBattle() {
   state.running = true;
   els.battleState.textContent = "Battling";
   setTicker("The war for the next read has begun.");
+  setHighlight("Scouts report movement across the field");
 }
 
 function buildBattle() {
@@ -523,7 +532,7 @@ function buildBattle() {
       image: getFactionImage(faction.coverUrl),
     };
   });
-  return { field, factions, projectiles: [], particles: [], spells: [], swipes: [], stuckArrows: [], pendingWinner: null, time: 0 };
+  return { field, factions, projectiles: [], particles: [], spells: [], swipes: [], stuckArrows: [], bombs: [], pendingWinner: null, time: 0, notes: { dwindled: {}, slaughter: {}, killstreaks: {} } };
 }
 
 function factionColor(index) {
@@ -590,6 +599,8 @@ function makeUnit(factionId, type, x, y) {
     fleeing: false,
     liftedBySpellId: null,
     activeSpellId: null,
+    killStreak: 0,
+    walkTilt: 0,
   };
 }
 
@@ -626,6 +637,7 @@ function stepBattle(battle, dt) {
   updateSpells(battle, dt);
   updateSwipes(battle, dt);
   updateStuckArrows(battle, dt);
+  updateBattleHighlights(battle);
 
   const contenders = battle.factions.filter((faction) => faction.units.some((unit) => !unit.dead && !unit.fled));
   if (contenders.length <= 1 && !battle.pendingWinner) {
@@ -656,31 +668,36 @@ function updateUnit(unit, faction, battle, dt) {
   if (unit.liftedBySpellId) {
     unit.vx = 0;
     unit.vy = 0;
+    unit.walkTilt += (0 - unit.walkTilt) * 0.24;
     return;
   }
 
   unit.z += (0 - unit.z) * 0.18;
+  const allies = findFaction(battle, faction.id).units.filter((ally) => !ally.dead && !ally.fled);
   const enemies = battle.factions.filter((entry) => entry.id !== faction.id).flatMap((entry) => entry.units.filter((enemy) => !enemy.dead && !enemy.fled));
-  if (!enemies.length) return;
-  const target = findTarget(unit, enemies);
-  const distance = Math.hypot(target.x - unit.x, target.y - unit.y);
+  if (!enemies.length && unit.type !== "medic") return;
+  const target = unit.type === "medic" ? findMedicTarget(unit, allies) : findTarget(unit, enemies);
+  const distance = target ? Math.hypot(target.x - unit.x, target.y - unit.y) : 9999;
   const panicThreshold = unit.maxHealth * (0.28 + (1 - unit.bravery) * 0.3);
   unit.fleeing = unit.health < panicThreshold && Math.random() > unit.bravery * 0.86;
 
-  let desiredX = target.x;
-  let desiredY = target.y;
+  let desiredX = target ? target.x : unit.x;
+  let desiredY = target ? target.y : unit.y;
   if (unit.fleeing) {
     const awayX = unit.x - battle.field.centerX;
     const awayY = unit.y - battle.field.centerY;
     const awayLength = Math.max(0.001, Math.hypot(awayX, awayY));
     desiredX = unit.x + (awayX / awayLength) * 120;
     desiredY = unit.y + (awayY / awayLength) * 120;
-  } else if (unit.type === "archer" && distance < 120) {
+  } else if (unit.type === "archer" && target && distance < 120) {
     desiredX = unit.x - (target.x - unit.x);
     desiredY = unit.y - (target.y - unit.y);
-  } else if (unit.type === "mage" && distance < 110) {
+  } else if (unit.type === "mage" && target && distance < 110) {
     desiredX = unit.x - (target.x - unit.x) * 0.85;
     desiredY = unit.y - (target.y - unit.y) * 0.85;
+  } else if (unit.type === "medic" && target && distance < 44) {
+    desiredX = unit.x;
+    desiredY = unit.y;
   }
 
   const dx = desiredX - unit.x;
@@ -695,9 +712,10 @@ function updateUnit(unit, faction, battle, dt) {
   unit.vx += (((dx / length) * moveSpeed * moveScale) - unit.vx) * 0.12;
   unit.vy += (((dy / length) * moveSpeed * moveScale * 0.75) - unit.vy) * 0.12;
   updateStableFacing(unit, dt);
+  updateWalkTilt(unit, dt);
 
-  const attackRange = unit.type === "mage" ? Math.max(UNIT_STATS.mage.range, UNIT_STATS.mage.abductRange) : UNIT_STATS[unit.type].range;
-  if (!unit.fleeing && distance <= attackRange) {
+  const attackRange = getAttackRange(unit);
+  if (!unit.fleeing && target && distance <= attackRange) {
     unit.vx *= 0.84;
     unit.vy *= 0.84;
     unit.cooldown -= dt;
@@ -715,9 +733,29 @@ function updateUnit(unit, faction, battle, dt) {
   if (unit.fleeing && distFromCenter > battle.field.radius + 150) {
     unit.fled = true;
     setTicker(`${faction.title} has a routed survivor who may return next round.`);
+    setHighlight(`${faction.title} breaks and vanishes in dust`);
+    spawnBurst(battle, unit.x, unit.y - 8, "#f6e4b7", 26);
   }
 }
 
+function getAttackRange(unit) {
+  if (unit.type === "mage") return Math.max(UNIT_STATS.mage.range, UNIT_STATS.mage.abductRange);
+  return UNIT_STATS[unit.type].range;
+}
+
+function findMedicTarget(unit, allies) {
+  const wounded = allies.filter((ally) => ally.id !== unit.id && ally.health < ally.maxHealth && !ally.liftedBySpellId);
+  if (wounded.length) {
+    return wounded.sort((a, b) => (a.health / a.maxHealth) - (b.health / b.maxHealth))[0];
+  }
+  return allies.filter((ally) => ally.id !== unit.id)[0] || unit;
+}
+
+function updateWalkTilt(unit, dt) {
+  const speed = Math.hypot(unit.vx, unit.vy);
+  const targetTilt = speed > 10 ? clamp(unit.vx / 80, -1, 1) * 0.12 : 0;
+  unit.walkTilt += (targetTilt - unit.walkTilt) * Math.min(1, dt * 10);
+}
 function updateStableFacing(unit, dt) {
   const desired = Math.abs(unit.vx) < 4 ? unit.displayFacingX : (unit.vx >= 0 ? 1 : -1);
   if (desired === unit.displayFacingX) {
@@ -762,7 +800,7 @@ function fireAttack(unit, target, battle) {
     const endX = target.x + (Math.random() - 0.5) * 30;
     const endY = target.y + (Math.random() - 0.5) * 26;
     const distance = Math.hypot(endX - unit.x, endY - unit.y);
-    battle.projectiles.push({ kind: "arrow", progress: 0, duration: clamp(0.35 + distance / 230 + Math.random() * 0.15, 0.38, 1.3), startX: unit.x, startY: unit.y - 18, endX, endY, impactAngle: Math.atan2(endY - unit.y, endX - unit.x), targetId: target.id, damage: UNIT_STATS.archer.damage * (0.85 + Math.random() * 0.5) });
+    battle.projectiles.push({ kind: "arrow", sourceId: unit.id, progress: 0, duration: clamp(0.35 + distance / 230 + Math.random() * 0.15, 0.38, 1.3), startX: unit.x, startY: unit.y - 18, endX, endY, impactAngle: Math.atan2(endY - unit.y, endX - unit.x), targetId: target.id, damage: UNIT_STATS.archer.damage * (0.85 + Math.random() * 0.5) });
     return;
   }
   if (unit.type === "mage") {
@@ -773,18 +811,33 @@ function fireAttack(unit, target, battle) {
       const endX = unit.x - Math.cos(pullAngle) * 58;
       const endY = unit.y - Math.sin(pullAngle) * 58;
       const spellId = `spell-${Math.random().toString(36).slice(2, 8)}`;
-      battle.spells.push({ id: spellId, kind: "levitate", sourceId: unit.id, targetId: target.id, time: 0, duration: 1.15, startX: target.x, startY: target.y, endX, endY });
+      battle.spells.push({ id: spellId, kind: "levitate", sourceId: unit.id, targetId: target.id, time: 0, duration: 1.15, startX: target.x, startY: target.y, endX, endY, color: findFaction(battle, unit.factionId).color });
       unit.activeSpellId = spellId;
       target.liftedBySpellId = spellId;
       return;
     }
     if (Math.hypot(target.x - unit.x, target.y - unit.y) <= UNIT_STATS.mage.range) {
-      battle.projectiles.push({ kind: "orb", progress: 0, duration: 0.44 + Math.random() * 0.24, startX: unit.x, startY: unit.y - 24, endX: target.x, endY: target.y, targetId: target.id, damage: UNIT_STATS.mage.damage * (1.05 + Math.random() * 0.65), radius: 44 });
+      battle.projectiles.push({ kind: "orb", sourceId: unit.id, progress: 0, duration: 0.44 + Math.random() * 0.24, startX: unit.x, startY: unit.y - 24, endX: target.x, endY: target.y, targetId: target.id, damage: UNIT_STATS.mage.damage * (1.05 + Math.random() * 0.65), radius: 44 });
     }
     return;
   }
+  if (unit.type === "medic") {
+    const healTarget = target;
+    if (healTarget && healTarget.health < healTarget.maxHealth) {
+      healTarget.health = Math.min(healTarget.maxHealth, healTarget.health + UNIT_STATS.medic.heal * (0.9 + Math.random() * 0.35));
+      battle.particles.push({ x: healTarget.x, y: healTarget.y - 10, vx: 0, vy: -20, life: 0.55, age: 0, color: "#b8ffbf", size: 7 });
+      setHighlight(`${findFaction(battle, unit.factionId).title}'s medic stabilizes a soldier`);
+    }
+    return;
+  }
+  if (unit.type === "bomber") {
+    const endX = target.x + (Math.random() - 0.5) * 24;
+    const endY = target.y + (Math.random() - 0.5) * 24;
+    battle.projectiles.push({ kind: "bomb", sourceId: unit.id, progress: 0, duration: 0.55 + Math.random() * 0.18, startX: unit.x, startY: unit.y - 16, endX, endY, targetId: target.id, damage: UNIT_STATS.bomber.damage, radius: UNIT_STATS.bomber.splash, fuse: UNIT_STATS.bomber.fuse, landed: false, timer: 0 });
+    return;
+  }
   if (Math.hypot(target.x - unit.x, target.y - unit.y) <= UNIT_STATS.knight.range + 4) {
-    applyDamage(target, UNIT_STATS.knight.damage * (0.92 + Math.random() * 0.46), battle);
+    applyDamage(target, UNIT_STATS.knight.damage * (0.92 + Math.random() * 0.46), battle, unit);
     battle.swipes.push({ x: target.x, y: target.y - 12, angle: unit.facing, life: 0.22, maxLife: 0.22, color: shadeColor(findFaction(battle, unit.factionId).color, 0.35) });
     spawnBurst(battle, target.x, target.y, "#ffd59b", 10);
   }
@@ -796,8 +849,22 @@ function findFaction(battle, factionId) {
 
 function updateProjectiles(battle, dt) {
   battle.projectiles = battle.projectiles.filter((projectile) => {
+    if (projectile.kind === "bomb" && projectile.landed) {
+      projectile.timer += dt;
+      if (projectile.timer >= projectile.fuse) {
+        resolveProjectile(projectile, battle);
+        return false;
+      }
+      return true;
+    }
     projectile.progress += dt / projectile.duration;
     if (projectile.progress >= 1) {
+      if (projectile.kind === "bomb") {
+        projectile.landed = true;
+        projectile.timer = 0;
+        projectile.progress = 1;
+        return true;
+      }
       resolveProjectile(projectile, battle);
       return false;
     }
@@ -809,7 +876,7 @@ function resolveProjectile(projectile, battle) {
   if (projectile.kind === "arrow") {
     const target = findUnitById(battle, projectile.targetId);
     if (target && !target.dead && Math.random() > 0.18) {
-      applyDamage(target, projectile.damage, battle);
+      applyDamage(target, projectile.damage, battle, findUnitById(battle, projectile.sourceId));
       spawnBurst(battle, projectile.endX, projectile.endY, "#f5d087", 8);
     } else {
       spawnBurst(battle, projectile.endX, projectile.endY, "#7d5f35", 5);
@@ -817,11 +884,16 @@ function resolveProjectile(projectile, battle) {
     battle.stuckArrows.push({ x: projectile.endX, y: projectile.endY, angle: projectile.impactAngle, life: 1.2, maxLife: 1.2 });
     return;
   }
+  if (projectile.kind === "bomb") {
+    explodeAt(battle, projectile.endX, projectile.endY, projectile.radius, projectile.damage, findUnitById(battle, projectile.sourceId), "#ffbb66", 32);
+    setHighlight(`${findFaction(battle, findUnitById(battle, projectile.sourceId)?.factionId || "")?.title || "A bomber"} detonates a charge`);
+    return;
+  }
   battle.factions.forEach((faction) => {
     faction.units.forEach((unit) => {
       if (unit.dead || unit.fled) return;
       const dist = Math.hypot(unit.x - projectile.endX, unit.y - projectile.endY);
-      if (dist <= projectile.radius) applyDamage(unit, projectile.damage * Math.max(0.3, 1 - dist / projectile.radius), battle);
+      if (dist <= projectile.radius) applyDamage(unit, projectile.damage * Math.max(0.3, 1 - dist / projectile.radius), battle, findUnitById(battle, projectile.sourceId));
     });
   });
   spawnBurst(battle, projectile.endX, projectile.endY, "#7ce7ff", 18);
@@ -884,16 +956,36 @@ function findUnitById(battle, id) {
   return null;
 }
 
-function applyDamage(unit, amount, battle) {
+function explodeAt(battle, x, y, radius, damage, attacker, color, burstCount) {
+  battle.factions.forEach((faction) => {
+    faction.units.forEach((unit) => {
+      if (unit.dead || unit.fled) return;
+      const dist = Math.hypot(unit.x - x, unit.y - y);
+      if (dist <= radius) {
+        applyDamage(unit, damage * Math.max(0.35, 1 - dist / radius), battle, attacker);
+      }
+    });
+  });
+  spawnBurst(battle, x, y, color, burstCount);
+  battle.particles.push({ x, y, vx: 0, vy: 0, life: 0.45, age: 0, color, size: radius * 0.42 });
+}
+
+function applyDamage(unit, amount, battle, attacker = null) {
   unit.health -= amount;
   if (unit.health <= 0) {
     unit.dead = true;
     unit.health = 0;
     unit.liftedBySpellId = null;
+    if (unit.type === "bomber") {
+      explodeAt(battle, unit.x, unit.y, UNIT_STATS.bomber.deathSplash, UNIT_STATS.bomber.damage * 1.55, attacker || unit, "#ff8b4a", 44);
+      setHighlight(`${findFaction(battle, unit.factionId).title} loses a bomber in a huge blast`);
+    }
+    if (attacker && !attacker.dead) {
+      attacker.killStreak = (attacker.killStreak || 0) + 1;
+    }
     spawnBurst(battle, unit.x, unit.y, "#f3c58a", 16);
   }
 }
-
 function spawnBurst(battle, x, y, color, count) {
   for (let i = 0; i < count; i += 1) {
     battle.particles.push({ x, y, vx: (Math.random() - 0.5) * 90, vy: (Math.random() - 0.5) * 90, life: 0.35 + Math.random() * 0.5, age: 0, color, size: 2 + Math.random() * 5 });
@@ -956,6 +1048,34 @@ function applyWinnerToQueue() {
 
 function setTicker(text) {
   els.battleTicker.textContent = text;
+}
+
+function setHighlight(text) {
+  els.battleHighlight.textContent = text;
+}
+
+function updateBattleHighlights(battle) {
+  const activeFactions = battle.factions.map((faction) => ({ faction, active: faction.units.filter((unit) => !unit.dead && !unit.fled).length }));
+  const sorted = activeFactions.filter((entry) => entry.active > 0).sort((a, b) => b.active - a.active);
+  if (sorted.length > 1 && sorted[0].active >= Math.max(6, sorted[1].active * 2) && !battle.notes.slaughter[sorted[0].faction.id]) {
+    battle.notes.slaughter[sorted[0].faction.id] = true;
+    setHighlight(`${sorted[0].faction.title} is carving through the field`);
+  }
+  activeFactions.forEach(({ faction, active }) => {
+    const threshold = Math.max(2, Math.ceil(faction.armySize * 0.15));
+    if (active > 0 && active <= threshold && !battle.notes.dwindled[faction.id]) {
+      battle.notes.dwindled[faction.id] = true;
+      setHighlight(`${faction.title} is down to ${active} remaining`);
+    }
+  });
+  battle.factions.forEach((faction) => {
+    faction.units.forEach((unit) => {
+      if ((unit.killStreak || 0) >= 3 && !battle.notes.killstreaks[unit.id]) {
+        battle.notes.killstreaks[unit.id] = true;
+        setHighlight(`${faction.title} has a ${unit.type} on a ${unit.killStreak}-unit streak`);
+      }
+    });
+  });
 }
 
 function onCanvasPointerDown(event) {
@@ -1147,6 +1267,16 @@ function drawProjectiles(viewport, projectiles) {
       ctx.closePath();
       ctx.fill();
       ctx.restore();
+    } else if (projectile.kind === "bomb" && projectile.landed) {
+      ctx.fillStyle = "#2f2519";
+      ctx.beginPath();
+      ctx.arc(point.x, point.y, 7 * point.scale / 2.1, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "#ffb25a";
+      ctx.lineWidth = 2 * point.scale / 2.1;
+      ctx.beginPath();
+      ctx.arc(point.x, point.y, (9 + Math.sin(projectile.timer * 10) * 1.5) * point.scale / 2.1, 0, Math.PI * 2);
+      ctx.stroke();
     } else {
       const gradient = ctx.createRadialGradient(point.x, point.y, 1, point.x, point.y, 10 * point.scale / 2.1);
       gradient.addColorStop(0, "#e0ffff");
@@ -1162,7 +1292,7 @@ function drawProjectiles(viewport, projectiles) {
 function getProjectilePoint(projectile, progress) {
   const x = lerp(projectile.startX, projectile.endX, progress);
   const yBase = lerp(projectile.startY, projectile.endY, progress);
-  return { x, y: yBase - Math.sin(progress * Math.PI) * (projectile.kind === "arrow" ? 70 : 26) };
+  return { x, y: yBase - Math.sin(progress * Math.PI) * (projectile.kind === "arrow" ? 70 : projectile.kind === "bomb" ? 44 : 26) };
 }
 function drawStuckArrows(viewport, arrows) {
   arrows.forEach((arrow) => {
@@ -1196,11 +1326,13 @@ function drawUnits(viewport, factions) {
     ctx.fill();
     ctx.save();
     ctx.translate(point.x, bodyY);
-    ctx.rotate(unit.facing * 0.15);
+    ctx.rotate(unit.walkTilt);
     ctx.scale(unit.displayFacingX, 1);
     if (unit.type === "archer") drawArcher(main, dark, light, scale);
     if (unit.type === "mage") drawMage(main, dark, light, scale);
     if (unit.type === "knight") drawKnight(main, dark, light, scale);
+    if (unit.type === "medic") drawMedic(main, dark, light, scale);
+    if (unit.type === "bomber") drawBomber(main, dark, light, scale);
     ctx.restore();
     const hpWidth = unit.type === "knight" ? 30 : 20;
     ctx.fillStyle = "rgba(37,24,16,0.5)";
@@ -1255,6 +1387,50 @@ function drawMage(main, dark, light, scale) {
   ctx.fill();
 }
 
+function drawMedic(main, dark, light, scale) {
+  ctx.fillStyle = main;
+  ctx.beginPath();
+  ctx.moveTo(0, -11 * scale / 2.1);
+  ctx.lineTo(9 * scale / 2.1, -1 * scale / 2.1);
+  ctx.lineTo(6 * scale / 2.1, 11 * scale / 2.1);
+  ctx.lineTo(-6 * scale / 2.1, 11 * scale / 2.1);
+  ctx.lineTo(-9 * scale / 2.1, -1 * scale / 2.1);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = light;
+  ctx.beginPath();
+  ctx.arc(0, -13 * scale / 2.1, 4.8 * scale / 2.1, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = dark;
+  ctx.lineWidth = 2 * scale / 2.1;
+  ctx.beginPath();
+  ctx.moveTo(0, -2 * scale / 2.1);
+  ctx.lineTo(0, 6 * scale / 2.1);
+  ctx.moveTo(-4 * scale / 2.1, 2 * scale / 2.1);
+  ctx.lineTo(4 * scale / 2.1, 2 * scale / 2.1);
+  ctx.stroke();
+}
+
+function drawBomber(main, dark, light, scale) {
+  ctx.fillStyle = main;
+  ctx.beginPath();
+  ctx.ellipse(0, 1 * scale / 2.1, 10 * scale / 2.1, 12 * scale / 2.1, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = light;
+  ctx.beginPath();
+  ctx.arc(0, -12 * scale / 2.1, 5.2 * scale / 2.1, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#2c2217";
+  ctx.beginPath();
+  ctx.arc(11 * scale / 2.1, 2 * scale / 2.1, 5 * scale / 2.1, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "#f0ad62";
+  ctx.lineWidth = 2 * scale / 2.1;
+  ctx.beginPath();
+  ctx.moveTo(12 * scale / 2.1, -2 * scale / 2.1);
+  ctx.lineTo(16 * scale / 2.1, -8 * scale / 2.1);
+  ctx.stroke();
+}
 function drawKnight(main, dark, light, scale) {
   ctx.fillStyle = main;
   ctx.beginPath();
@@ -1294,8 +1470,8 @@ function drawSpells(viewport, battle) {
     const target = findUnitById(battle, spell.targetId);
     if (!source || !target) return;
     const start = worldToScreen(source.x, source.y - 18, viewport);
-    const end = worldToScreen(target.x, target.y - target.z - 10, viewport);
-    ctx.strokeStyle = "rgba(137, 225, 255, 0.8)";
+    const end = worldToScreen(target.x, target.y - target.z, viewport);
+    ctx.strokeStyle = hexToRgba(spell.color || "#89e1ff", 0.82);
     ctx.lineWidth = 3 * start.scale / 2.1;
     ctx.beginPath();
     ctx.moveTo(start.x, start.y);
@@ -1329,3 +1505,21 @@ function shadeColor(hex, amount) {
   const b = clamp(Math.round((num & 255) * (1 + amount)), 0, 255);
   return `rgb(${r}, ${g}, ${b})`;
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
