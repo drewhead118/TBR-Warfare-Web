@@ -1,4 +1,4 @@
-﻿
+
 const STORAGE_KEY = "tbr-warfare-state-v1";
 const FIELD = { width: 1180, height: 760 };
 const SPEED_OPTIONS = [0.35, 0.65, 1, 1.4, 1.85];
@@ -14,8 +14,8 @@ const UNIT_STATS = {
   archer: { maxHealth: 58, speed: 48, range: 210, damage: 14, cooldown: 1.65 },
   mage: { maxHealth: 52, speed: 44, range: 180, abductRange: 310, damage: 16, cooldown: 2.05 },
   knight: { maxHealth: 210, speed: 28, range: 26, damage: 38, cooldown: 1.05 },
-  medic: { maxHealth: 36, speed: 56, range: 96, heal: 18, cooldown: 1.9 },
-  bomber: { maxHealth: 62, speed: 40, range: 175, damage: 24, splash: 72, deathSplash: 96, cooldown: 2.3, fuse: 1.6 },
+  medic: { maxHealth: 36, speed: 56, range: 16, heal: 18, cooldown: 1.9 },
+  bomber: { maxHealth: 62, speed: 40, range: 175, damage: 34, splash: 94, deathSplash: 192, cooldown: 2.3, fuse: 1.6 },
 };
 const SAMPLE_BOOKS = [
   {
@@ -331,7 +331,7 @@ function renderArmyEditors() {
   state.factions.forEach((faction) => {
     const fragment = els.template.content.cloneNode(true);
     fragment.querySelector(".army-title").textContent = faction.title;
-    fragment.querySelector(".army-meta").textContent = `${faction.armySize} troops • ${faction.submissionType}`;
+    fragment.querySelector(".army-meta").textContent = `${faction.armySize} troops � ${faction.submissionType}`;
     const thumb = fragment.querySelector(".cover-thumb");
     thumb.src = faction.coverUrl;
     thumb.alt = `${faction.title} cover`;
@@ -695,7 +695,7 @@ function updateUnit(unit, faction, battle, dt) {
   } else if (unit.type === "mage" && target && distance < 110) {
     desiredX = unit.x - (target.x - unit.x) * 0.85;
     desiredY = unit.y - (target.y - unit.y) * 0.85;
-  } else if (unit.type === "medic" && target && distance < 44) {
+  } else if (unit.type === "medic" && target && distance < 12) {
     desiredX = unit.x;
     desiredY = unit.y;
   }
@@ -748,7 +748,7 @@ function findMedicTarget(unit, allies) {
   if (wounded.length) {
     return wounded.sort((a, b) => (a.health / a.maxHealth) - (b.health / b.maxHealth))[0];
   }
-  return allies.filter((ally) => ally.id !== unit.id)[0] || unit;
+  return allies.find((ally) => ally.id !== unit.id && !ally.liftedBySpellId) || null;
 }
 
 function updateWalkTilt(unit, dt) {
@@ -823,7 +823,7 @@ function fireAttack(unit, target, battle) {
   }
   if (unit.type === "medic") {
     const healTarget = target;
-    if (healTarget && healTarget.health < healTarget.maxHealth) {
+    if (healTarget && healTarget.id !== unit.id && healTarget.health < healTarget.maxHealth) {
       healTarget.health = Math.min(healTarget.maxHealth, healTarget.health + UNIT_STATS.medic.heal * (0.9 + Math.random() * 0.35));
       battle.particles.push({ x: healTarget.x, y: healTarget.y - 10, vx: 0, vy: -20, life: 0.55, age: 0, color: "#b8ffbf", size: 7 });
       setHighlight(`${findFaction(battle, unit.factionId).title}'s medic stabilizes a soldier`);
@@ -833,7 +833,8 @@ function fireAttack(unit, target, battle) {
   if (unit.type === "bomber") {
     const endX = target.x + (Math.random() - 0.5) * 24;
     const endY = target.y + (Math.random() - 0.5) * 24;
-    battle.projectiles.push({ kind: "bomb", sourceId: unit.id, progress: 0, duration: 0.55 + Math.random() * 0.18, startX: unit.x, startY: unit.y - 16, endX, endY, targetId: target.id, damage: UNIT_STATS.bomber.damage, radius: UNIT_STATS.bomber.splash, fuse: UNIT_STATS.bomber.fuse, landed: false, timer: 0 });
+    const throwDistance = Math.hypot(endX - unit.x, endY - unit.y);
+    battle.projectiles.push({ kind: "bomb", sourceId: unit.id, progress: 0, duration: clamp(0.48 + throwDistance / 250 + Math.random() * 0.12, 0.5, 1.15), startX: unit.x, startY: unit.y - 16, endX, endY, targetId: target.id, damage: UNIT_STATS.bomber.damage, radius: UNIT_STATS.bomber.splash, fuse: UNIT_STATS.bomber.fuse, landed: false, timer: 0 });
     return;
   }
   if (Math.hypot(target.x - unit.x, target.y - unit.y) <= UNIT_STATS.knight.range + 4) {
@@ -1277,6 +1278,25 @@ function drawProjectiles(viewport, projectiles) {
       ctx.beginPath();
       ctx.arc(point.x, point.y, (9 + Math.sin(projectile.timer * 10) * 1.5) * point.scale / 2.1, 0, Math.PI * 2);
       ctx.stroke();
+    } else if (projectile.kind === "bomb") {
+      ctx.save();
+      ctx.translate(point.x, point.y);
+      ctx.rotate(projectile.progress * 8);
+      ctx.fillStyle = "#443323";
+      ctx.beginPath();
+      ctx.arc(0, 0, 7 * point.scale / 2.1, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "#20150f";
+      ctx.lineWidth = Math.max(1.2, 2 * point.scale / 2.1);
+      ctx.beginPath();
+      ctx.moveTo(-2 * point.scale / 2.1, -6 * point.scale / 2.1);
+      ctx.lineTo(4 * point.scale / 2.1, -10 * point.scale / 2.1);
+      ctx.stroke();
+      ctx.fillStyle = "#ffb25a";
+      ctx.beginPath();
+      ctx.arc(4 * point.scale / 2.1, -10 * point.scale / 2.1, 2.2 * point.scale / 2.1, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
     } else {
       const gradient = ctx.createRadialGradient(point.x, point.y, 1, point.x, point.y, 10 * point.scale / 2.1);
       gradient.addColorStop(0, "#e0ffff");
@@ -1505,6 +1525,9 @@ function shadeColor(hex, amount) {
   const b = clamp(Math.round((num & 255) * (1 + amount)), 0, 255);
   return `rgb(${r}, ${g}, ${b})`;
 }
+
+
+
 
 
 
