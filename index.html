@@ -1,0 +1,162 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TBR Warfare</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;800&family=Manrope:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="control-panel">
+      <div class="panel-section hero-panel">
+        <p class="eyebrow">Book Queue Battle Simulator</p>
+        <h1>TBR Warfare</h1>
+        <p class="lede">Let the unread books settle the queue order in a lively 2.5D battlefield.</p>
+        <div class="button-row">
+          <button id="runBattleBtn" class="primary">Run Battle</button>
+          <button id="resetBattleBtn" class="secondary">Reset Battle</button>
+        </div>
+        <div class="button-row">
+          <button id="advanceQueueBtn" class="accent">Apply Winner To Queue</button>
+          <button id="seedSampleBtn" class="ghost">Load Sample Armies</button>
+        </div>
+      </div>
+
+      <div class="panel-section status-panel">
+        <div class="status-block">
+          <span class="status-label">Battle State</span>
+          <strong id="battleState">Idle</strong>
+        </div>
+        <div class="status-block">
+          <span class="status-label">Winner</span>
+          <strong id="winnerLabel">None yet</strong>
+        </div>
+        <div class="status-block">
+          <span class="status-label">Rounds Applied</span>
+          <strong id="roundCounter">0</strong>
+        </div>
+      </div>
+
+      <div class="panel-section import-panel">
+        <div class="section-heading">
+          <h2>Queue Data</h2>
+          <span>CSV in, CSV out</span>
+        </div>
+        <p class="hint">CSV columns: <code>title,coverUrl,armySize,submissionType,archer,mage,knight,fledReserve</code></p>
+        <input id="csvFileInput" type="file" accept=".csv,text/csv">
+        <textarea id="csvInput" rows="7" spellcheck="false"></textarea>
+        <div class="button-row">
+          <button id="importCsvBtn" class="secondary">Import CSV</button>
+          <button id="downloadCsvBtn" class="ghost">Download CSV</button>
+        </div>
+      </div>
+
+      <div class="panel-section roster-panel">
+        <div class="section-heading">
+          <h2>Army Workshop</h2>
+          <span>Moderator controls</span>
+        </div>
+        <div id="armyList" class="army-list"></div>
+      </div>
+    </aside>
+
+    <main class="battle-panel">
+      <div class="battle-header">
+        <div>
+          <p class="eyebrow">Arena View</p>
+          <h2>Last Book Standing Wins</h2>
+          <p class="camera-hint">Drag to pan. Mousewheel to zoom. The camera recenters after a few seconds of inactivity.</p>
+        </div>
+        <div class="battle-header-controls">
+          <div class="legend">
+            <span><i class="legend-swatch archers"></i>Archers</span>
+            <span><i class="legend-swatch mages"></i>Mages</span>
+            <span><i class="legend-swatch knights"></i>Knights</span>
+          </div>
+          <div class="speed-panel">
+            <span class="speed-label">Combat Speed</span>
+            <div id="speedControls" class="speed-controls"></div>
+          </div>
+        </div>
+      </div>
+      <div class="battle-stage">
+        <canvas id="battleCanvas" width="1400" height="900"></canvas>
+        <div class="battle-overlay">
+          <div id="battleTicker" class="ticker">Awaiting armies.</div>
+        </div>
+      </div>
+      <div id="winnerCard" class="winner-card hidden"></div>
+    </main>
+  </div>
+
+  <div id="compositionModal" class="modal hidden">
+    <div class="modal-backdrop" data-close="true"></div>
+    <div class="modal-card">
+      <div class="section-heading">
+        <h2>Edit Army Composition</h2>
+        <button id="closeCompositionModalBtn" class="ghost small">Close</button>
+      </div>
+      <input id="compositionSearch" type="text" placeholder="Search units...">
+      <div id="compositionResults" class="composition-results"></div>
+      <div id="compositionSelected" class="composition-selected"></div>
+      <div class="button-row">
+        <button id="saveCompositionBtn" class="primary">Save Composition</button>
+        <button id="cancelCompositionBtn" class="ghost">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <template id="armyEditorTemplate">
+    <article class="army-card">
+      <div class="army-card-header">
+        <div class="army-title-wrap">
+          <img class="cover-thumb" alt="">
+          <div>
+            <h3 class="army-title"></h3>
+            <p class="army-meta"></p>
+          </div>
+        </div>
+        <button class="remove-army ghost small">Remove</button>
+      </div>
+      <label>
+        <span>Title</span>
+        <input class="title-input" type="text">
+      </label>
+      <label>
+        <span>Cover URL</span>
+        <input class="cover-input" type="url">
+      </label>
+      <div class="field-grid">
+        <label>
+          <span>Army Size</span>
+          <input class="size-input" type="number" min="1" max="250">
+        </label>
+        <label>
+          <span>Submission</span>
+          <select class="submission-input">
+            <option value="digital">Digital</option>
+            <option value="paperback">Paperback</option>
+          </select>
+        </label>
+        <label>
+          <span>Fled Reserve</span>
+          <input class="reserve-input" type="number" min="0" max="250">
+        </label>
+      </div>
+      <div class="composition-summary-row">
+        <div>
+          <span>Composition</span>
+          <p class="composition-summary"></p>
+        </div>
+        <button class="edit-composition ghost small">Edit Composition</button>
+      </div>
+    </article>
+  </template>
+
+  <script src="app.js"></script>
+</body>
+</html>
