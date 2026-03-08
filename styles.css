@@ -443,8 +443,18 @@ canvas.is-dragging { cursor: grabbing; }
   display: grid;
   place-items: center;
   color: var(--accent-soft);
-  font-weight: 800;
+  overflow: hidden;
 }
+.unit-icon-svg {
+  width: 28px;
+  height: 28px;
+  display: block;
+}
+.unit-icon-knight { color: #d8c28e; }
+.unit-icon-archer { color: #d96e54; }
+.unit-icon-mage { color: #7cc6db; }
+.unit-icon-medic { color: #9fdda1; }
+.unit-icon-bomber { color: #e49b58; }
 .selected-unit input {
   width: 84px;
 }

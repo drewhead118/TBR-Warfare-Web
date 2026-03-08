@@ -200,6 +200,52 @@ function compositionSummary(composition) {
     .join(" : ") || "No units selected";
 }
 
+
+function getUnitIconMarkup(unitId) {
+  return `
+    <svg class="unit-icon-svg unit-${unitId}" viewBox="-24 -24 48 48" aria-hidden="true" focusable="false">
+      ${getUnitIconSvgPaths(unitId)}
+    </svg>
+  `;
+}
+
+function getUnitIconSvgPaths(unitId) {
+  if (unitId === "archer") {
+    return `
+      <path fill="currentColor" d="M0 -13 L10 -3 L8 12 L-8 12 L-10 -3 Z"></path>
+      <circle cx="0" cy="-15" r="5.2" fill="rgba(255,255,255,0.58)"></circle>
+      <path d="M10 -1 A8 8 0 0 1 10 11" fill="none" stroke="rgba(78,40,18,0.92)" stroke-width="2.2" stroke-linecap="round"></path>
+    `;
+  }
+  if (unitId === "mage") {
+    return `
+      <path fill="currentColor" d="M0 -15 L11 10 L-11 10 Z"></path>
+      <circle cx="0" cy="-15" r="5" fill="rgba(255,255,255,0.58)"></circle>
+      <path d="M8 -4 L15 -16" fill="none" stroke="rgba(78,40,18,0.92)" stroke-width="2.2" stroke-linecap="round"></path>
+      <circle cx="16" cy="-18" r="3" fill="#c4f2ff"></circle>
+    `;
+  }
+  if (unitId === "medic") {
+    return `
+      <path fill="currentColor" d="M0 -12 L9 -2 L6 11 L-6 11 L-9 -2 Z"></path>
+      <circle cx="0" cy="-13" r="4.7" fill="rgba(255,255,255,0.58)"></circle>
+      <path d="M0 -2 L0 6 M-4 2 L4 2" fill="none" stroke="rgba(78,40,18,0.92)" stroke-width="2.2" stroke-linecap="round"></path>
+    `;
+  }
+  if (unitId === "bomber") {
+    return `
+      <ellipse cx="0" cy="1" rx="10" ry="12" fill="currentColor"></ellipse>
+      <circle cx="0" cy="-12" r="5" fill="rgba(255,255,255,0.58)"></circle>
+      <circle cx="11" cy="2" r="5" fill="#2c2217"></circle>
+      <path d="M12 -2 L16 -8" fill="none" stroke="#f0ad62" stroke-width="2.2" stroke-linecap="round"></path>
+    `;
+  }
+  return `
+    <ellipse cx="0" cy="1" rx="11" ry="14" fill="currentColor"></ellipse>
+    <circle cx="0" cy="-13" r="5.6" fill="rgba(255,255,255,0.58)"></circle>
+    <path d="M9 -3 L16 -17" fill="none" stroke="rgba(78,40,18,0.92)" stroke-width="2.4" stroke-linecap="round"></path>
+  `;
+}
 function clampInt(value, min, max) {
   return Math.min(max, Math.max(min, Math.round(Number(value) || 0)));
 }
@@ -331,7 +377,7 @@ function renderArmyEditors() {
   state.factions.forEach((faction) => {
     const fragment = els.template.content.cloneNode(true);
     fragment.querySelector(".army-title").textContent = faction.title;
-    fragment.querySelector(".army-meta").textContent = `${faction.armySize} troops • ${faction.submissionType}`;
+    fragment.querySelector(".army-meta").textContent = `${faction.armySize} troops - ${faction.submissionType}`;
     const thumb = fragment.querySelector(".cover-thumb");
     thumb.src = faction.coverUrl;
     thumb.alt = `${faction.title} cover`;
@@ -422,7 +468,7 @@ function renderCompositionModal() {
   els.compositionResults.innerHTML = available.map((unit) => `
     <div class="unit-result">
       <div class="unit-chip">
-        <div class="unit-icon">${unit.name[0]}</div>
+        <div class="unit-icon unit-icon-${unit.id}">${getUnitIconMarkup(unit.id)}</div>
         <div>
           <strong>${unit.name}</strong>
           <p>${unit.keywords.join(", ")}</p>
@@ -435,7 +481,7 @@ function renderCompositionModal() {
   els.compositionSelected.innerHTML = UNIT_LIBRARY.filter((unit) => draft[unit.id] > 0).map((unit) => `
     <div class="selected-unit">
       <div class="unit-chip">
-        <div class="unit-icon">${unit.name[0]}</div>
+        <div class="unit-icon unit-icon-${unit.id}">${getUnitIconMarkup(unit.id)}</div>
         <strong>${unit.name}</strong>
       </div>
       <div class="button-row">
@@ -601,6 +647,9 @@ function makeUnit(factionId, type, x, y) {
     activeSpellId: null,
     killStreak: 0,
     walkTilt: 0,
+    gaitPhase: Math.random() * Math.PI * 2,
+    stride: 0,
+    bob: 0,
   };
 }
 
@@ -669,6 +718,8 @@ function updateUnit(unit, faction, battle, dt) {
     unit.vx = 0;
     unit.vy = 0;
     unit.walkTilt += (0 - unit.walkTilt) * 0.24;
+    unit.stride += (0 - unit.stride) * 0.24;
+    unit.bob += (0 - unit.bob) * 0.2;
     return;
   }
 
@@ -754,7 +805,13 @@ function findMedicTarget(unit, allies) {
 function updateWalkTilt(unit, dt) {
   const speed = Math.hypot(unit.vx, unit.vy);
   const targetTilt = speed > 10 ? clamp(unit.vx / 80, -1, 1) * 0.12 : 0;
+  const gaitSpeed = clamp(speed / 38, 0, 2.4);
+  unit.gaitPhase += dt * (7 + gaitSpeed * 7.5);
+  const targetStride = speed > 8 ? Math.sin(unit.gaitPhase) * Math.min(1, gaitSpeed) : 0;
+  const targetBob = speed > 8 ? (0.5 - Math.cos(unit.gaitPhase * 2) * 0.5) * Math.min(1, gaitSpeed) : 0;
   unit.walkTilt += (targetTilt - unit.walkTilt) * Math.min(1, dt * 10);
+  unit.stride += (targetStride - unit.stride) * Math.min(1, dt * 12);
+  unit.bob += (targetBob - unit.bob) * Math.min(1, dt * 12);
 }
 function updateStableFacing(unit, dt) {
   const desired = Math.abs(unit.vx) < 4 ? unit.displayFacingX : (unit.vx >= 0 ? 1 : -1);
@@ -931,6 +988,9 @@ function updateParticles(battle, dt) {
     particle.x += particle.vx * dt;
     particle.y += particle.vy * dt;
     particle.vy += 40 * dt;
+    if (particle.kind === "shockwave") {
+      particle.size = lerp(particle.startSize ?? particle.size, particle.maxSize ?? particle.size, clamp(particle.age / particle.life, 0, 1));
+    }
     return particle.age < particle.life;
   });
 }
@@ -968,7 +1028,9 @@ function explodeAt(battle, x, y, radius, damage, attacker, color, burstCount) {
     });
   });
   spawnBurst(battle, x, y, color, burstCount);
-  battle.particles.push({ x, y, vx: 0, vy: 0, life: 0.45, age: 0, color, size: radius * 0.42 });
+  battle.particles.push({ kind: "blast-glow", x, y, vx: 0, vy: 0, life: 0.28, age: 0, color, size: radius * 0.9 });
+  battle.particles.push({ kind: "shockwave", x, y, vx: 0, vy: 0, life: 0.42, age: 0, color, size: radius * 0.22, startSize: radius * 0.22, maxSize: radius, lineWidth: clamp(radius * 0.09, 8, 20) });
+  battle.particles.push({ kind: "ring", x, y, vx: 0, vy: 0, life: 0.55, age: 0, color, size: radius, lineWidth: clamp(radius * 0.025, 3, 8) });
 }
 
 function applyDamage(unit, amount, battle, attacker = null) {
@@ -1336,23 +1398,25 @@ function drawUnits(viewport, factions) {
   units.forEach((unit) => {
     const point = worldToScreen(unit.x, unit.y, viewport);
     const scale = point.scale;
-    const bodyY = point.y - unit.z * scale / 2.1;
+    const gaitBob = unit.bob * 5.5 * scale / 2.1;
+    const bodyY = point.y - unit.z * scale / 2.1 - gaitBob;
+    const strideOffset = unit.stride * 2.8 * scale / 2.1;
     const main = unit.factionColor;
     const dark = shadeColor(main, -0.28);
     const light = shadeColor(main, 0.26);
     ctx.fillStyle = "rgba(0,0,0,0.22)";
     ctx.beginPath();
-    ctx.ellipse(point.x, point.y + 10 * scale / 2.1, 10 * scale / 2.1, 5 * scale / 2.1, 0, 0, Math.PI * 2);
+    ctx.ellipse(point.x, point.y + 10 * scale / 2.1, (10 + Math.abs(unit.stride) * 1.6) * scale / 2.1, (5 - unit.bob * 0.9) * scale / 2.1, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.save();
-    ctx.translate(point.x, bodyY);
+    ctx.translate(point.x + strideOffset * unit.displayFacingX * 0.35, bodyY);
     ctx.rotate(unit.walkTilt);
     ctx.scale(unit.displayFacingX, 1);
-    if (unit.type === "archer") drawArcher(main, dark, light, scale);
-    if (unit.type === "mage") drawMage(main, dark, light, scale);
-    if (unit.type === "knight") drawKnight(main, dark, light, scale);
-    if (unit.type === "medic") drawMedic(main, dark, light, scale);
-    if (unit.type === "bomber") drawBomber(main, dark, light, scale);
+    if (unit.type === "archer") drawArcher(main, dark, light, scale, unit);
+    if (unit.type === "mage") drawMage(main, dark, light, scale, unit);
+    if (unit.type === "knight") drawKnight(main, dark, light, scale, unit);
+    if (unit.type === "medic") drawMedic(main, dark, light, scale, unit);
+    if (unit.type === "bomber") drawBomber(main, dark, light, scale, unit);
     ctx.restore();
     const hpWidth = unit.type === "knight" ? 30 : 20;
     ctx.fillStyle = "rgba(37,24,16,0.5)";
@@ -1362,7 +1426,22 @@ function drawUnits(viewport, factions) {
   });
 }
 
-function drawArcher(main, dark, light, scale) {
+function drawStepLegs(dark, scale, unit, spread = 7, back = 10) {
+  const stride = (unit?.stride || 0) * scale / 2.1;
+  const lift = Math.abs(unit?.stride || 0) * 1.4 * scale / 2.1;
+  ctx.strokeStyle = dark;
+  ctx.lineWidth = 2 * scale / 2.1;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(-4 * scale / 2.1, back * scale / 2.1);
+  ctx.lineTo((-spread - stride) * scale / 2.1, (back + 7) * scale / 2.1 - lift);
+  ctx.moveTo(4 * scale / 2.1, back * scale / 2.1);
+  ctx.lineTo((spread - stride) * scale / 2.1, (back + 7) * scale / 2.1 + lift * 0.45);
+  ctx.stroke();
+}
+
+function drawArcher(main, dark, light, scale, unit) {
+  drawStepLegs(dark, scale, unit, 6.4, 10);
   ctx.fillStyle = main;
   ctx.beginPath();
   ctx.moveTo(0, -12 * scale / 2.1);
@@ -1383,7 +1462,8 @@ function drawArcher(main, dark, light, scale) {
   ctx.stroke();
 }
 
-function drawMage(main, dark, light, scale) {
+function drawMage(main, dark, light, scale, unit) {
+  drawStepLegs(dark, scale, unit, 5.5, 9);
   ctx.fillStyle = main;
   ctx.beginPath();
   ctx.moveTo(0, -14 * scale / 2.1);
@@ -1407,7 +1487,8 @@ function drawMage(main, dark, light, scale) {
   ctx.fill();
 }
 
-function drawMedic(main, dark, light, scale) {
+function drawMedic(main, dark, light, scale, unit) {
+  drawStepLegs(dark, scale, unit, 5.8, 9.5);
   ctx.fillStyle = main;
   ctx.beginPath();
   ctx.moveTo(0, -11 * scale / 2.1);
@@ -1431,7 +1512,8 @@ function drawMedic(main, dark, light, scale) {
   ctx.stroke();
 }
 
-function drawBomber(main, dark, light, scale) {
+function drawBomber(main, dark, light, scale, unit) {
+  drawStepLegs(dark, scale, unit, 6.1, 11);
   ctx.fillStyle = main;
   ctx.beginPath();
   ctx.ellipse(0, 1 * scale / 2.1, 10 * scale / 2.1, 12 * scale / 2.1, 0, 0, Math.PI * 2);
@@ -1451,7 +1533,8 @@ function drawBomber(main, dark, light, scale) {
   ctx.lineTo(16 * scale / 2.1, -8 * scale / 2.1);
   ctx.stroke();
 }
-function drawKnight(main, dark, light, scale) {
+function drawKnight(main, dark, light, scale, unit) {
+  drawStepLegs(dark, scale, unit, 7.5, 12);
   ctx.fillStyle = main;
   ctx.beginPath();
   ctx.ellipse(0, 1 * scale / 2.1, 11 * scale / 2.1, 14 * scale / 2.1, 0, 0, Math.PI * 2);
@@ -1504,9 +1587,17 @@ function drawParticles(viewport, particles) {
   particles.forEach((particle) => {
     const point = worldToScreen(particle.x, particle.y, viewport);
     const alpha = 1 - particle.age / particle.life;
-    ctx.fillStyle = hexToRgba(particle.color, alpha);
+    if (particle.kind === "shockwave" || particle.kind === "ring") {
+      ctx.strokeStyle = hexToRgba(particle.color, particle.kind === "shockwave" ? alpha * 0.85 : alpha * 0.45);
+      ctx.lineWidth = (particle.lineWidth || 4) * point.scale / 2.1 * (particle.kind === "shockwave" ? (1 - alpha * 0.25) : 1);
+      ctx.beginPath();
+      ctx.arc(point.x, point.y, particle.size * point.scale / 2.1, 0, Math.PI * 2);
+      ctx.stroke();
+      return;
+    }
+    ctx.fillStyle = hexToRgba(particle.color, particle.kind === "blast-glow" ? alpha * 0.22 : alpha);
     ctx.beginPath();
-    ctx.arc(point.x, point.y, particle.size * point.scale / 2.1 * alpha, 0, Math.PI * 2);
+    ctx.arc(point.x, point.y, particle.size * point.scale / 2.1 * (particle.kind === "blast-glow" ? 1 : alpha), 0, Math.PI * 2);
     ctx.fill();
   });
 }
@@ -1525,24 +1616,3 @@ function shadeColor(hex, amount) {
   const b = clamp(Math.round((num & 255) * (1 + amount)), 0, 255);
   return `rgb(${r}, ${g}, ${b})`;
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
