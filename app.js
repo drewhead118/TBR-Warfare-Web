@@ -15,8 +15,9 @@ const UNIT_STATS = {
   mage: { maxHealth: 52, speed: 44, range: 180, abductRange: 310, damage: 16, cooldown: 2.05 },
   knight: { maxHealth: 210, speed: 28, range: 26, damage: 38, cooldown: 1.05 },
   medic: { maxHealth: 36, speed: 56, range: 16, heal: 18, cooldown: 1.9 },
-  bomber: { maxHealth: 62, speed: 40, range: 175, damage: 34, splash: 94, deathSplash: 192, cooldown: 2.3, fuse: 1.6 },
+  bomber: { maxHealth: 62, speed: 40, range: 175, damage: 50, splash: 50, deathSplash: 70, cooldown: 2.3, fuse: 1.6 },
 };
+const EXPLOSION_READABILITY_INSET = 5;
 const SAMPLE_BOOKS = [
   {
     title: "The Spear of Starlight",
@@ -1017,20 +1018,31 @@ function findUnitById(battle, id) {
   return null;
 }
 
-function explodeAt(battle, x, y, radius, damage, attacker, color, burstCount) {
+function getExplosionReadableRadius(radius) {
+  return Math.max(0, radius - EXPLOSION_READABILITY_INSET);
+}
+
+function explodeAt(battle, x, y, radius, damage, attacker, color, burstCount, showDebugRings = false) {
   battle.factions.forEach((faction) => {
     faction.units.forEach((unit) => {
       if (unit.dead || unit.fled) return;
+      const readableRadius = getExplosionReadableRadius(radius);
+      if (readableRadius <= 0) return;
       const dist = Math.hypot(unit.x - x, unit.y - y);
-      if (dist <= radius) {
-        applyDamage(unit, damage * Math.max(0.35, 1 - dist / radius), battle, attacker);
+      if (dist <= readableRadius) {
+        applyDamage(unit, damage * Math.max(0.70, 1 - dist / readableRadius), battle, attacker);
       }
     });
   });
+  const readableRadius = getExplosionReadableRadius(radius);
   spawnBurst(battle, x, y, color, burstCount);
   battle.particles.push({ kind: "blast-glow", x, y, vx: 0, vy: 0, life: 0.28, age: 0, color, size: radius * 0.9 });
-  battle.particles.push({ kind: "shockwave", x, y, vx: 0, vy: 0, life: 0.42, age: 0, color, size: radius * 0.22, startSize: radius * 0.22, maxSize: radius, lineWidth: clamp(radius * 0.09, 8, 20) });
+  battle.particles.push({ kind: "shockwave", x, y, vx: 0, vy: 0, life: 0.42, age: 0, color, size: radius * 0.4, startSize: radius * 0.4, maxSize: radius, lineWidth: clamp(radius * 0.09, 8, 20) });
   battle.particles.push({ kind: "ring", x, y, vx: 0, vy: 0, life: 0.55, age: 0, color, size: radius, lineWidth: clamp(radius * 0.025, 3, 8) });
+  if (showDebugRings) {
+    battle.particles.push({ kind: "debug-ring", x, y, vx: 0, vy: 0, life: 1.4, age: 0, color: "#ff3b30", size: radius, lineWidth: 6 });
+    battle.particles.push({ kind: "debug-ring", x, y, vx: 0, vy: 0, life: 1.4, age: 0, color: "#34c759", size: readableRadius, lineWidth: 6 });
+  }
 }
 
 function applyDamage(unit, amount, battle, attacker = null) {
@@ -1040,7 +1052,7 @@ function applyDamage(unit, amount, battle, attacker = null) {
     unit.health = 0;
     unit.liftedBySpellId = null;
     if (unit.type === "bomber") {
-      explodeAt(battle, unit.x, unit.y, UNIT_STATS.bomber.deathSplash, UNIT_STATS.bomber.damage * 1.55, attacker || unit, "#ff8b4a", 44);
+      explodeAt(battle, unit.x, unit.y, UNIT_STATS.bomber.deathSplash, UNIT_STATS.bomber.damage * 1.2, attacker || unit, "#ff8b4a", 44);
       setHighlight(`${findFaction(battle, unit.factionId).title} loses a bomber in a huge blast`);
     }
     if (attacker && !attacker.dead) {
@@ -1396,10 +1408,8 @@ function drawStuckArrows(viewport, arrows) {
 function drawUnits(viewport, factions) {
   const units = factions.flatMap((faction) => faction.units.filter((unit) => !unit.dead && !unit.fled).map((unit) => ({ ...unit, factionColor: faction.color }))).sort((a, b) => a.y - b.y);
   units.forEach((unit) => {
-    const point = worldToScreen(unit.x, unit.y, viewport);
-    const scale = point.scale;
-    const gaitBob = unit.bob * 5.5 * scale / 2.1;
-    const bodyY = point.y - unit.z * scale / 2.1 - gaitBob;
+    const pose = getUnitRenderPose(unit, viewport);
+    const { point, scale, bodyY } = pose;
     const strideOffset = unit.stride * 2.8 * scale / 2.1;
     const main = unit.factionColor;
     const dark = shadeColor(main, -0.28);
@@ -1572,8 +1582,18 @@ function drawSpells(viewport, battle) {
     const source = findUnitById(battle, spell.sourceId);
     const target = findUnitById(battle, spell.targetId);
     if (!source || !target) return;
-    const start = worldToScreen(source.x, source.y - 18, viewport);
-    const end = worldToScreen(target.x, target.y - target.z, viewport);
+    const sourcePose = getUnitRenderPose(source, viewport);
+    const targetPose = getUnitRenderPose(target, viewport);
+    const start = {
+      x: sourcePose.point.x,
+      y: sourcePose.bodyY - 18 * sourcePose.scale / 2.1,
+      scale: sourcePose.scale,
+    };
+    const end = {
+      x: targetPose.point.x,
+      y: targetPose.bodyY,
+      scale: targetPose.scale,
+    };
     ctx.strokeStyle = hexToRgba(spell.color || "#89e1ff", 0.82);
     ctx.lineWidth = 3 * start.scale / 2.1;
     ctx.beginPath();
@@ -1583,21 +1603,29 @@ function drawSpells(viewport, battle) {
   });
 }
 
+function getUnitRenderPose(unit, viewport) {
+  const point = worldToScreen(unit.x, unit.y, viewport);
+  const scale = point.scale;
+  const gaitBob = unit.bob * 5.5 * scale / 2.1;
+  const bodyY = point.y - unit.z * scale / 2.1 - gaitBob;
+  return { point, scale, bodyY };
+}
+
 function drawParticles(viewport, particles) {
   particles.forEach((particle) => {
     const point = worldToScreen(particle.x, particle.y, viewport);
     const alpha = 1 - particle.age / particle.life;
-    if (particle.kind === "shockwave" || particle.kind === "ring") {
-      ctx.strokeStyle = hexToRgba(particle.color, particle.kind === "shockwave" ? alpha * 0.85 : alpha * 0.45);
-      ctx.lineWidth = (particle.lineWidth || 4) * point.scale / 2.1 * (particle.kind === "shockwave" ? (1 - alpha * 0.25) : 1);
+    if (particle.kind === "shockwave" || particle.kind === "ring" || particle.kind === "debug-ring") {
+      ctx.strokeStyle = hexToRgba(particle.color, particle.kind === "shockwave" ? alpha * 0.85 : particle.kind === "debug-ring" ? alpha : alpha * 0.45);
+      ctx.lineWidth = (particle.lineWidth || 4) * point.scale / (particle.kind === "debug-ring" ? 1 : 2.1) * (particle.kind === "shockwave" ? (1 - alpha * 0.25) : 1);
       ctx.beginPath();
-      ctx.arc(point.x, point.y, particle.size * point.scale / 2.1, 0, Math.PI * 2);
+      ctx.arc(point.x, point.y, particle.size * point.scale, 0, Math.PI * 2);
       ctx.stroke();
       return;
     }
     ctx.fillStyle = hexToRgba(particle.color, particle.kind === "blast-glow" ? alpha * 0.22 : alpha);
     ctx.beginPath();
-    ctx.arc(point.x, point.y, particle.size * point.scale / 2.1 * (particle.kind === "blast-glow" ? 1 : alpha), 0, Math.PI * 2);
+    ctx.arc(point.x, point.y, particle.size * point.scale * (particle.kind === "blast-glow" ? 1 : alpha), 0, Math.PI * 2);
     ctx.fill();
   });
 }
@@ -1616,3 +1644,5 @@ function shadeColor(hex, amount) {
   const b = clamp(Math.round((num & 255) * (1 + amount)), 0, 255);
   return `rgb(${r}, ${g}, ${b})`;
 }
+
+
