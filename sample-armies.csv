@@ -1,5 +1,4 @@
-﻿title,coverUrl,armySize,submissionType,archer,mage,knight,medic,bomber,fledReserve
-"The Spear of Starlight","https://images.unsplash.com/photo-1512820790803-83ca734da794?auto=format&fit=crop&w=300&q=80",22,paperback,3,2,5,1,1,0
-"Salt of the Citadel","https://images.unsplash.com/photo-1516979187457-637abb4f9353?auto=format&fit=crop&w=300&q=80",19,digital,5,2,3,1,1,0
-"Moonlit Cartographer","https://images.unsplash.com/photo-1495446815901-a7297e633e8d?auto=format&fit=crop&w=300&q=80",16,digital,2,4,3,1,1,0
-
+title,coverUrl,armySize,submissionType,composition,fledReserve
+"The Spear of Starlight","https://images.unsplash.com/photo-1512820790803-83ca734da794?auto=format&fit=crop&w=300&q=80",22,paperback,"archer:3, mage:2, knight:5",0
+"Salt of the Citadel","https://images.unsplash.com/photo-1516979187457-637abb4f9353?auto=format&fit=crop&w=300&q=80",19,digital,"archer:5, mage:2, knight:3",0
+"Moonlit Cartographer","https://images.unsplash.com/photo-1495446815901-a7297e633e8d?auto=format&fit=crop&w=300&q=80",16,digital,,0

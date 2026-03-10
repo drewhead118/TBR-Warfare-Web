@@ -4,27 +4,155 @@ const FIELD = { width: 1180, height: 760 };
 const SPEED_OPTIONS = [0.35, 0.65, 1, 1.4, 1.85];
 const BANNER_FLOAT_OFFSET = 76;
 const MAX_BATTLE_FACTIONS = 10;
-const DEFAULT_COMPOSITION = { archer: 1, mage: 1, knight: 1, medic: 0, bomber: 0 };
+const DEFAULT_COMPOSITION = { archer: 1, mage: 1, knight: 1, medic: 0, bomber: 0, assassin: 0 };
+const DEFAULT_PROP_WEIGHTS = {
+  stones: 5,
+  crate: 4,
+  stakes: 3,
+  cart: 2,
+  ruin: 2,
+  camp: 2,
+  obelisk: 1,
+  brazier: 1,
+  reeds: 2,
+  bones: 1,
+  mushrooms: 1,
+  signpost: 1,
+};
 const ARENA_THEMES = [
-  { name: "Sunlit Vale", top: "#90b370", bottom: "#45643a", glow: "rgba(255,225,163,0.45)", ground: "#213018" },
-  { name: "Moss March", top: "#7ea07c", bottom: "#395d45", glow: "rgba(179,226,205,0.32)", ground: "#1b3428" },
-  { name: "Copper Plain", top: "#a08d68", bottom: "#6b5a3e", glow: "rgba(255,212,163,0.32)", ground: "#31271c" },
-  { name: "Blue Fen", top: "#7ba1a8", bottom: "#3b5661", glow: "rgba(175,223,255,0.28)", ground: "#1b2830" },
+  createArenaTheme("Sunlit Vale", "#90b370", "#45643a", "rgba(255,225,163,0.45)", "#213018", { camp: 5, cart: 4, stakes: 4, stones: 3, reeds: 1, obelisk: 1 }, { signpost: 3, brazier: 1 }),
+  createArenaTheme("Moss March", "#7ea07c", "#395d45", "rgba(179,226,205,0.32)", "#1b3428", { reeds: 6, stones: 4, mushrooms: 4, bones: 2, camp: 2 }, { obelisk: 2, brazier: 1 }),
+  createArenaTheme("Copper Plain", "#a08d68", "#6b5a3e", "rgba(255,212,163,0.32)", "#31271c", { cart: 5, crate: 5, stakes: 3, bones: 2, signpost: 2 }, { obelisk: 2, mushrooms: 1 }),
+  createArenaTheme("Blue Fen", "#7ba1a8", "#3b5661", "rgba(175,223,255,0.28)", "#1b2830", { reeds: 6, stones: 4, bones: 2, brazier: 1, mushrooms: 2 }, { obelisk: 2, cart: 1 }),
+  createArenaTheme("Rose Dunes", "#c39886", "#8f5e50", "rgba(255, 206, 182, 0.32)", "#4b2d27", { bones: 4, signpost: 4, crate: 3, obelisk: 3, stones: 2 }, { reeds: 1, mushrooms: 1 }),
+  createArenaTheme("Jade Steppe", "#7fb89a", "#2f6a59", "rgba(184, 255, 217, 0.28)", "#17392f", { camp: 5, stakes: 4, reeds: 4, signpost: 2, stones: 2 }, { obelisk: 2, bones: 1 }),
+  createArenaTheme("Violet Moor", "#84739f", "#44395e", "rgba(210, 194, 255, 0.24)", "#241c36", { mushrooms: 6, obelisk: 4, stones: 3, bones: 2, brazier: 1 }, { cart: 1, signpost: 1 }),
+  createArenaTheme("Ashen Reach", "#98948b", "#575349", "rgba(255, 222, 188, 0.18)", "#2e2a24", { bones: 5, brazier: 4, ruin: 4, obelisk: 2, stones: 2 }, { reeds: 1, mushrooms: 1 }),
+  createArenaTheme("Auric Flats", "#cab16b", "#8b6f32", "rgba(255, 238, 172, 0.36)", "#463816", { crate: 5, cart: 4, signpost: 3, brazier: 2, stakes: 2 }, { reeds: 1, mushrooms: 1 }),
+  createArenaTheme("Nightglass Basin", "#4f6b82", "#223645", "rgba(164, 229, 255, 0.2)", "#12202a", { obelisk: 5, stones: 4, reeds: 3, bones: 2, brazier: 1 }, { cart: 1, camp: 1 }),
+  createArenaTheme("Cinder Scar", "#b08a77", "#673f2d", "rgba(255, 184, 132, 0.28)", "#351d14", { brazier: 6, bones: 4, ruin: 3, obelisk: 3, stones: 2 }, { reeds: 1, mushrooms: 1 }),
+  createArenaTheme("Thornwild Verge", "#85a65f", "#3f4f22", "rgba(221, 255, 165, 0.22)", "#202a10", { stakes: 5, mushrooms: 5, camp: 3, signpost: 2, bones: 2 }, { cart: 1, brazier: 1 }),
+  createArenaTheme("Ivory Saltpan", "#d0c9bb", "#8a8372", "rgba(255, 247, 225, 0.24)", "#514c42", { bones: 5, obelisk: 4, stones: 4, signpost: 2 }, { reeds: 1, mushrooms: 1, camp: 1 }),
+  createArenaTheme("Saffron Breakers", "#d8aa5d", "#8c5b24", "rgba(255, 224, 137, 0.3)", "#4c2e12", { crate: 4, cart: 4, signpost: 3, camp: 2, brazier: 2 }, { obelisk: 1, reeds: 1 }),
+  createArenaTheme("Moonroot Hollow", "#718b6f", "#2f4130", "rgba(205, 239, 205, 0.2)", "#182219", { mushrooms: 6, reeds: 4, stones: 3, bones: 2, camp: 2 }, { brazier: 1, cart: 1 }),
+  createArenaTheme("Stormglass Shelf", "#69889c", "#32495c", "rgba(180, 224, 255, 0.24)", "#162634", { obelisk: 4, signpost: 3, stones: 3, bones: 2, brazier: 2 }, { mushrooms: 1, reeds: 1 }),
 ];
-const WEATHER_OPTIONS = ["clear", "mist", "drizzle", "embers"];
-const UNIT_LIBRARY = [
-  { id: "archer", name: "Archer", keywords: ["bow", "ranged", "arrow"] },
-  { id: "mage", name: "Mage", keywords: ["magic", "orb", "beam", "wizard"] },
-  { id: "knight", name: "Knight", keywords: ["melee", "sword", "tank"] },
-  { id: "medic", name: "Medic", keywords: ["heal", "support", "frail"] },
-  { id: "bomber", name: "Bomber", keywords: ["explosive", "grenade", "suicide"] },
-];
-const UNIT_STATS = {
-  archer: { maxHealth: 58, speed: 48, range: 210, damage: 14, cooldown: 1.65 },
-  mage: { maxHealth: 52, speed: 44, range: 180, abductRange: 310, damage: 16, cooldown: 2.05 },
-  knight: { maxHealth: 210, speed: 28, range: 26, damage: 38, cooldown: 1.05 },
-  medic: { maxHealth: 36, speed: 56, range: 16, heal: 18, cooldown: 1.9 },
-  bomber: { maxHealth: 62, speed: 40, range: 255, damage: 50, splash: 62, deathSplash: 86, cooldown: 2.3, fuse: 1.6 },
+const WEATHER_OPTIONS = ["clear", "mist", "drizzle", "embers", "downpour", "ashfall", "fireflies", "snowfall"];
+const UNIT_DEFINITIONS = {
+  archer: {
+    id: "archer",
+    name: "Archer",
+    keywords: ["bow", "ranged", "arrow"],
+    stats: { maxHealth: 58, speed: 48, range: 210, damage: 14, cooldown: 1.65 },
+    healthBarWidth: 20,
+    iconPaths: getArcherIconSvgPaths,
+    getDesiredDestination: getRetreatingDestination(120, 1),
+    performAttack: performArcherAttack,
+    render: drawArcher,
+  },
+  mage: {
+    id: "mage",
+    name: "Mage",
+    keywords: ["magic", "orb", "beam", "wizard"],
+    stats: { maxHealth: 52, speed: 44, range: 180, abductRange: 310, damage: 16, cooldown: 2.05 },
+    healthBarWidth: 20,
+    iconPaths: getMageIconSvgPaths,
+    getAttackRange: (unitDef) => Math.max(unitDef.stats.range, unitDef.stats.abductRange),
+    getDesiredDestination: getRetreatingDestination(110, 0.85),
+    performAttack: performMageAttack,
+    render: drawMage,
+  },
+  knight: {
+    id: "knight",
+    name: "Knight",
+    keywords: ["melee", "sword", "tank"],
+    stats: { maxHealth: 210, speed: 28, range: 26, damage: 38, cooldown: 1.05 },
+    healthBarWidth: 30,
+    iconPaths: getKnightIconSvgPaths,
+    getMoveSpeed: (unit, unitDef) => unitDef.stats.speed,
+    performAttack: performKnightAttack,
+    render: drawKnight,
+  },
+  medic: {
+    id: "medic",
+    name: "Medic",
+    keywords: ["heal", "support", "frail"],
+    stats: { maxHealth: 36, speed: 56, range: 16, heal: 18, cooldown: 1.9 },
+    healthBarWidth: 20,
+    iconPaths: getMedicIconSvgPaths,
+    canActWithoutEnemies: true,
+    selectTarget: selectMedicTarget,
+    getDesiredDestination: getHoldPositionDestination(12),
+    performAttack: performMedicHeal,
+    render: drawMedic,
+  },
+  bomber: {
+    id: "bomber",
+    name: "Bomber",
+    keywords: ["explosive", "grenade", "suicide"],
+    stats: { maxHealth: 62, speed: 40, range: 255, damage: 50, splash: 62, deathSplash: 86, cooldown: 2.3, fuse: 1.6 },
+    healthBarWidth: 20,
+    iconPaths: getBomberIconSvgPaths,
+    selectTarget: selectBomberTarget,
+    getDesiredDestination: getRetreatingDestination(150, 1.15),
+    performAttack: performBomberAttack,
+    onDeath: handleBomberDeath,
+    render: drawBomber,
+  },
+  assassin: {
+    id: "assassin",
+    name: "Assassin",
+    keywords: ["stealth", "rogue", "backstab", "dagger"],
+    stats: { maxHealth: 44, speed: 66, range: 18, backstabDamage: 126, slashDamage: 21, cooldown: 1.2, resetRadius: 34 },
+    healthBarWidth: 18,
+    iconPaths: getAssassinIconSvgPaths,
+    canActWithoutEnemies: true,
+    beforeStep: updateAssassinState,
+    selectTarget: selectAssassinTarget,
+    getDesiredDestination: getAssassinDestination,
+    getAttackRange: getAssassinAttackRange,
+    performAttack: performAssassinAttack,
+    afterMove: handleAssassinAfterMove,
+    isTargetable: ({ unit, attacker }) => !(unit.invisible && attacker && attacker.factionId !== unit.factionId),
+    getRenderAlpha: (unit) => (unit.invisible ? 0.42 : 0.92),
+    render: drawAssassin,
+  },
+};
+const UNIT_LIBRARY = Object.values(UNIT_DEFINITIONS).map(({ id, name, keywords }) => ({ id, name, keywords }));
+const UNIT_STATS = Object.fromEntries(Object.values(UNIT_DEFINITIONS).map((unit) => [unit.id, unit.stats]));
+const PROJECTILE_DEFINITIONS = {
+  arrow: {
+    arcHeight: 70,
+    update: updateStandardProjectile,
+    resolve: resolveArrowProjectile,
+    render: drawArrowProjectile,
+  },
+  orb: {
+    arcHeight: 26,
+    update: updateStandardProjectile,
+    resolve: resolveOrbProjectile,
+    render: drawOrbProjectile,
+  },
+  bomb: {
+    arcHeight: 44,
+    update: updateBombProjectile,
+    resolve: resolveBombProjectile,
+    render: drawBombProjectile,
+  },
+};
+const PROP_RENDERERS = {
+  cart: drawPropCart,
+  ruin: drawPropRuin,
+  camp: drawPropCamp,
+  stakes: drawPropStakes,
+  crate: drawPropCrate,
+  stones: drawPropStones,
+  obelisk: drawPropObelisk,
+  brazier: drawPropBrazier,
+  reeds: drawPropReeds,
+  bones: drawPropBones,
+  mushrooms: drawPropMushrooms,
+  signpost: drawPropSignpost,
 };
 const EXPLOSION_READABILITY_INSET = 5;
 const SAMPLE_BOOKS = [
@@ -53,6 +181,20 @@ const SAMPLE_BOOKS = [
     fledReserve: 0,
   },
 ];
+
+function createArenaTheme(name, top, bottom, glow, ground, commonProps = {}, rareProps = {}) {
+  return {
+    name,
+    top,
+    bottom,
+    glow,
+    ground,
+    propWeights: {
+      common: { ...DEFAULT_PROP_WEIGHTS, ...commonProps },
+      rare: { ...rareProps },
+    },
+  };
+}
 
 const state = {
   factions: [],
@@ -231,36 +373,53 @@ function getUnitIconMarkup(unitId) {
 }
 
 function getUnitIconSvgPaths(unitId) {
-  if (unitId === "archer") {
-    return `
-      <path fill="currentColor" d="M0 -13 L10 -3 L8 12 L-8 12 L-10 -3 Z"></path>
-      <circle cx="0" cy="-15" r="5.2" fill="rgba(255,255,255,0.58)"></circle>
-      <path d="M10 -1 A8 8 0 0 1 10 11" fill="none" stroke="rgba(78,40,18,0.92)" stroke-width="2.2" stroke-linecap="round"></path>
-    `;
-  }
-  if (unitId === "mage") {
-    return `
-      <path fill="currentColor" d="M0 -15 L11 10 L-11 10 Z"></path>
-      <circle cx="0" cy="-15" r="5" fill="rgba(255,255,255,0.58)"></circle>
-      <path d="M8 -4 L15 -16" fill="none" stroke="rgba(78,40,18,0.92)" stroke-width="2.2" stroke-linecap="round"></path>
-      <circle cx="16" cy="-18" r="3" fill="#c4f2ff"></circle>
-    `;
-  }
-  if (unitId === "medic") {
-    return `
-      <path fill="currentColor" d="M0 -12 L9 -2 L6 11 L-6 11 L-9 -2 Z"></path>
-      <circle cx="0" cy="-13" r="4.7" fill="rgba(255,255,255,0.58)"></circle>
-      <path d="M0 -2 L0 6 M-4 2 L4 2" fill="none" stroke="rgba(78,40,18,0.92)" stroke-width="2.2" stroke-linecap="round"></path>
-    `;
-  }
-  if (unitId === "bomber") {
-    return `
-      <ellipse cx="0" cy="1" rx="10" ry="12" fill="currentColor"></ellipse>
-      <circle cx="0" cy="-12" r="5" fill="rgba(255,255,255,0.58)"></circle>
-      <circle cx="11" cy="2" r="5" fill="#2c2217"></circle>
-      <path d="M12 -2 L16 -8" fill="none" stroke="#f0ad62" stroke-width="2.2" stroke-linecap="round"></path>
-    `;
-  }
+  return getUnitDefinition(unitId)?.iconPaths?.() || getKnightIconSvgPaths();
+}
+
+function getArcherIconSvgPaths() {
+  return `
+    <path fill="currentColor" d="M0 -13 L10 -3 L8 12 L-8 12 L-10 -3 Z"></path>
+    <circle cx="0" cy="-15" r="5.2" fill="rgba(255,255,255,0.58)"></circle>
+    <path d="M10 -1 A8 8 0 0 1 10 11" fill="none" stroke="rgba(78,40,18,0.92)" stroke-width="2.2" stroke-linecap="round"></path>
+  `;
+}
+
+function getMageIconSvgPaths() {
+  return `
+    <path fill="currentColor" d="M0 -15 L11 10 L-11 10 Z"></path>
+    <circle cx="0" cy="-15" r="5" fill="rgba(255,255,255,0.58)"></circle>
+    <path d="M8 -4 L15 -16" fill="none" stroke="rgba(78,40,18,0.92)" stroke-width="2.2" stroke-linecap="round"></path>
+    <circle cx="16" cy="-18" r="3" fill="#c4f2ff"></circle>
+  `;
+}
+
+function getMedicIconSvgPaths() {
+  return `
+    <path fill="currentColor" d="M0 -12 L9 -2 L6 11 L-6 11 L-9 -2 Z"></path>
+    <circle cx="0" cy="-13" r="4.7" fill="rgba(255,255,255,0.58)"></circle>
+    <path d="M0 -2 L0 6 M-4 2 L4 2" fill="none" stroke="rgba(78,40,18,0.92)" stroke-width="2.2" stroke-linecap="round"></path>
+  `;
+}
+
+function getBomberIconSvgPaths() {
+  return `
+    <ellipse cx="0" cy="1" rx="10" ry="12" fill="currentColor"></ellipse>
+    <circle cx="0" cy="-12" r="5" fill="rgba(255,255,255,0.58)"></circle>
+    <circle cx="11" cy="2" r="5" fill="#2c2217"></circle>
+    <path d="M12 -2 L16 -8" fill="none" stroke="#f0ad62" stroke-width="2.2" stroke-linecap="round"></path>
+  `;
+}
+
+function getAssassinIconSvgPaths() {
+  return `
+    <path fill="currentColor" d="M0 -15 L10 -6 L7 12 L-7 12 L-10 -6 Z"></path>
+    <path fill="rgba(0,0,0,0.26)" d="M-8 -4 L0 -12 L8 -4 L8 1 L-8 1 Z"></path>
+    <circle cx="0" cy="-14" r="5.1" fill="rgba(255,255,255,0.42)"></circle>
+    <path d="M-12 4 L-18 12 M12 4 L18 12" fill="none" stroke="rgba(78,40,18,0.92)" stroke-width="2.1" stroke-linecap="round"></path>
+  `;
+}
+
+function getKnightIconSvgPaths() {
   return `
     <ellipse cx="0" cy="1" rx="11" ry="14" fill="currentColor"></ellipse>
     <circle cx="0" cy="-13" r="5.6" fill="rgba(255,255,255,0.58)"></circle>
@@ -291,17 +450,13 @@ function saveState() {
 }
 function syncCsvInput() {
   const rows = [
-    ["title", "coverUrl", "armySize", "submissionType", "archer", "mage", "knight", "medic", "bomber", "fledReserve"].join(","),
+    ["title", "coverUrl", "armySize", "submissionType", "composition", "fledReserve"].join(","),
     ...state.factions.map((faction) => [
       csvEscape(faction.title),
       csvEscape(faction.coverUrl),
       faction.armySize,
       faction.submissionType,
-      faction.composition.archer,
-      faction.composition.mage,
-      faction.composition.knight,
-      faction.composition.medic,
-      faction.composition.bomber,
+      csvEscape(compositionToCsvString(faction.composition)),
       faction.fledReserve,
     ].join(",")),
   ];
@@ -314,22 +469,100 @@ function csvEscape(value) {
   return text;
 }
 
+function compositionToCsvString(composition) {
+  return UNIT_LIBRARY
+    .filter((unit) => (composition?.[unit.id] || 0) > 0)
+    .map((unit) => `${unit.id}:${composition[unit.id]}`)
+    .join(", ");
+}
+
 function parseCsv(text) {
   const lines = text.trim().split(/\r?\n/).filter(Boolean);
   if (lines.length < 2) return [];
-  const headers = parseCsvLine(lines[0]);
+  const headers = parseCsvLine(lines[0]).map((header) => `${header || ""}`.trim().toLowerCase());
   return lines.slice(1).map((line, index) => {
     const values = parseCsvLine(line);
     const row = Object.fromEntries(headers.map((header, i) => [header, values[i] ?? ""]));
     return withFactionDefaults({
       title: row.title,
-      coverUrl: row.coverUrl,
-      armySize: row.armySize,
-      submissionType: row.submissionType,
-      composition: { archer: row.archer ?? row.archers, mage: row.mage ?? row.mages, knight: row.knight ?? row.knights, medic: row.medic ?? row.medics, bomber: row.bomber ?? row.bombers },
-      fledReserve: row.fledReserve,
+      coverUrl: row.coverurl,
+      armySize: row.armysize,
+      submissionType: row.submissiontype,
+      composition: parseRowComposition(row),
+      fledReserve: row.fledreserve,
     }, index);
   });
+}
+
+function parseRowComposition(row) {
+  const compositionText = row.composition || row.compositions || row.loadout || row.unitmix || row.units;
+  if (compositionText?.trim()) {
+    return parseCompositionString(compositionText);
+  }
+  return {
+    archer: row.archer ?? row.archers,
+    mage: row.mage ?? row.mages,
+    knight: row.knight ?? row.knights,
+    medic: row.medic ?? row.medics,
+    bomber: row.bomber ?? row.bombers,
+    assassin: row.assassin ?? row.assassins,
+  };
+}
+
+function parseCompositionString(text) {
+  if (!text?.trim()) return { ...DEFAULT_COMPOSITION };
+  const parsed = {};
+  const tokens = text
+    .split(/[,\n;]+/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+
+  tokens.forEach((token) => {
+    const match = token.match(/^(.+?)(?:\s*[:=x-]\s*|\s+)?(\d+)$/i);
+    if (!match) return;
+    const [, rawName, rawWeight] = match;
+    const unitId = resolveUnitId(rawName);
+    if (!unitId) return;
+    parsed[unitId] = clampInt(rawWeight, 0, 999);
+  });
+
+  return Object.keys(parsed).length ? parsed : { ...DEFAULT_COMPOSITION };
+}
+
+function resolveUnitId(rawName) {
+  const normalized = `${rawName || ""}`
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+  if (!normalized) return null;
+
+  const compact = normalized.replace(/\s+/g, "");
+  const singular = compact.endsWith("s") ? compact.slice(0, -1) : compact;
+  const candidates = [compact, singular];
+
+  for (const unit of UNIT_LIBRARY) {
+    const unitCandidates = [
+      unit.id,
+      `${unit.id}s`,
+      unit.name.toLowerCase(),
+      unit.name.toLowerCase().replace(/\s+/g, ""),
+      ...unit.keywords.map((word) => word.toLowerCase().replace(/\s+/g, "")),
+    ];
+    if (candidates.some((candidate) => unitCandidates.includes(candidate))) return unit.id;
+  }
+
+  for (const unit of UNIT_LIBRARY) {
+    const searchable = [
+      unit.id,
+      unit.name.toLowerCase().replace(/\s+/g, ""),
+      ...unit.keywords.map((word) => word.toLowerCase().replace(/\s+/g, "")),
+    ];
+    if (candidates.some((candidate) => searchable.some((value) => value.startsWith(candidate) || candidate.startsWith(value)))) {
+      return unit.id;
+    }
+  }
+
+  return null;
 }
 
 function parseCsvLine(line) {
@@ -627,6 +860,7 @@ function buildBattle(factionPool = state.factions, arena = createArenaVariant(0,
       color: factionColor(index),
       units: spawnUnitsForFaction(faction, baseX, baseY),
       bannerPos: { x: baseX, y: baseY - BANNER_FLOAT_OFFSET },
+      homeBase: { x: baseX, y: baseY },
       alive: true,
       image: getFactionImage(faction.coverUrl),
     };
@@ -768,6 +1002,48 @@ function createWeatherField(weather) {
       alpha: 0.16 + Math.random() * 0.22,
     }));
   }
+  if (weather === "downpour") {
+    return Array.from({ length: 320 }, () => ({
+      x: Math.random(),
+      y: Math.random(),
+      length: 18 + Math.random() * 24,
+      drift: 10 + Math.random() * 14,
+      speed: 420 + Math.random() * 240,
+      alpha: 0.18 + Math.random() * 0.26,
+    }));
+  }
+  if (weather === "ashfall") {
+    return Array.from({ length: 90 }, () => ({
+      x: Math.random(),
+      y: Math.random(),
+      radius: 1.2 + Math.random() * 2.1,
+      speed: 26 + Math.random() * 36,
+      sway: 8 + Math.random() * 18,
+      alpha: 0.12 + Math.random() * 0.16,
+      shade: 155 + Math.floor(Math.random() * 50),
+    }));
+  }
+  if (weather === "fireflies") {
+    return Array.from({ length: 34 }, () => ({
+      x: Math.random(),
+      y: 0.22 + Math.random() * 0.6,
+      radius: 1.8 + Math.random() * 2.8,
+      sway: 10 + Math.random() * 26,
+      drift: 8 + Math.random() * 22,
+      pulse: 1 + Math.random() * 2,
+      alpha: 0.16 + Math.random() * 0.28,
+    }));
+  }
+  if (weather === "snowfall") {
+    return Array.from({ length: 150 }, () => ({
+      x: Math.random(),
+      y: Math.random(),
+      radius: 1.4 + Math.random() * 3.4,
+      speed: 24 + Math.random() * 42,
+      sway: 8 + Math.random() * 20,
+      alpha: 0.2 + Math.random() * 0.28,
+    }));
+  }
   return [];
 }
 
@@ -820,22 +1096,49 @@ function spawnUnitsForFaction(faction, baseX, baseY) {
 
 function compositionCounts(total, composition) {
   const weights = UNIT_LIBRARY.map((unit) => Math.max(0, composition[unit.id] || 0));
-  const weightTotal = Math.max(1, weights.reduce((sum, value) => sum + value, 0));
-  let remaining = total;
-  const counts = {};
-  UNIT_LIBRARY.forEach((unit, index) => {
-    if (index === UNIT_LIBRARY.length - 1) {
-      counts[unit.id] = remaining;
-    } else {
-      counts[unit.id] = Math.min(remaining, Math.round((total * weights[index]) / weightTotal));
-      remaining -= counts[unit.id];
-    }
+  const weightTotal = weights.reduce((sum, value) => sum + value, 0);
+  const counts = Object.fromEntries(UNIT_LIBRARY.map((unit) => [unit.id, 0]));
+  if (weightTotal <= 0 || total <= 0) return counts;
+
+  const entries = UNIT_LIBRARY.map((unit, index) => ({
+    id: unit.id,
+    weight: weights[index],
+    exact: (total * weights[index]) / weightTotal,
+  })).filter((entry) => entry.weight > 0);
+
+  let allocated = 0;
+  entries.forEach((entry) => {
+    const base = Math.floor(entry.exact);
+    counts[entry.id] = base;
+    entry.remainder = entry.exact - base;
+    allocated += base;
   });
+
+  let remaining = total - allocated;
+  while (remaining > 0 && entries.length) {
+    const pool = entries
+      .slice()
+      .sort((a, b) => {
+        if (b.remainder !== a.remainder) return b.remainder - a.remainder;
+        return Math.random() - 0.5;
+      });
+    for (const entry of pool) {
+      if (remaining <= 0) break;
+      counts[entry.id] += 1;
+      remaining -= 1;
+    }
+  }
+
   return counts;
 }
 
+function getUnitDefinition(unitOrType) {
+  const unitType = typeof unitOrType === "string" ? unitOrType : unitOrType?.type;
+  return UNIT_DEFINITIONS[unitType] || UNIT_DEFINITIONS.knight;
+}
+
 function makeUnit(factionId, type, x, y) {
-  const stats = UNIT_STATS[type];
+  const stats = getUnitDefinition(type).stats;
   return {
     id: `${factionId}-${type}-${Math.random().toString(36).slice(2, 8)}`,
     factionId,
@@ -863,6 +1166,10 @@ function makeUnit(factionId, type, x, y) {
     gaitPhase: Math.random() * Math.PI * 2,
     stride: 0,
     bob: 0,
+    focusTargetId: null,
+    invisible: type === "assassin",
+    behaviorState: type === "assassin" ? "stalking" : "default",
+    slashCooldown: 0,
   };
 }
 
@@ -931,6 +1238,7 @@ function updateFactionBanner(faction) {
 }
 function updateUnit(unit, faction, battle, dt) {
   if (unit.dead || unit.fled) return;
+  const unitDef = getUnitDefinition(unit);
   if (unit.liftedBySpellId) {
     unit.vx = 0;
     unit.vy = 0;
@@ -942,63 +1250,55 @@ function updateUnit(unit, faction, battle, dt) {
 
   unit.z += (0 - unit.z) * 0.18;
   const allies = findFaction(battle, faction.id).units.filter((ally) => !ally.dead && !ally.fled);
-  const enemies = battle.factions.filter((entry) => entry.id !== faction.id).flatMap((entry) => entry.units.filter((enemy) => !enemy.dead && !enemy.fled));
-  if (!enemies.length && unit.type !== "medic") return;
-  const target = unit.type === "medic" ? findMedicTarget(unit, allies) : findTarget(unit, enemies, allies);
+  const enemies = getTargetableEnemies(battle, faction.id, unit);
+  unitDef.beforeStep?.({ unit, faction, battle, allies, enemies, unitDef, dt });
+  if (!enemies.length && !unitDef.canActWithoutEnemies) return;
+  const target = selectUnitTarget(unit, unitDef, enemies, allies);
   const distance = target ? Math.hypot(target.x - unit.x, target.y - unit.y) : 9999;
   const panicThreshold = unit.maxHealth * (0.28 + (1 - unit.bravery) * 0.3);
   unit.fleeing = unit.health < panicThreshold && Math.random() > unit.bravery * 0.86;
 
-  let desiredX = target ? target.x : unit.x;
-  let desiredY = target ? target.y : unit.y;
+  let destination = getDesiredDestination(unit, unitDef, target, distance, battle);
   if (unit.fleeing) {
     const awayX = unit.x - battle.field.centerX;
     const awayY = unit.y - battle.field.centerY;
     const awayLength = Math.max(0.001, Math.hypot(awayX, awayY));
-    desiredX = unit.x + (awayX / awayLength) * 120;
-    desiredY = unit.y + (awayY / awayLength) * 120;
-  } else if (unit.type === "archer" && target && distance < 120) {
-    desiredX = unit.x - (target.x - unit.x);
-    desiredY = unit.y - (target.y - unit.y);
-  } else if (unit.type === "mage" && target && distance < 110) {
-    desiredX = unit.x - (target.x - unit.x) * 0.85;
-    desiredY = unit.y - (target.y - unit.y) * 0.85;
-  } else if (unit.type === "bomber" && target && distance < 150) {
-    desiredX = unit.x - (target.x - unit.x) * 1.15;
-    desiredY = unit.y - (target.y - unit.y) * 1.15;
-  } else if (unit.type === "medic" && target && distance < 12) {
-    desiredX = unit.x;
-    desiredY = unit.y;
+    destination = {
+      x: unit.x + (awayX / awayLength) * 120,
+      y: unit.y + (awayY / awayLength) * 120,
+    };
   }
 
-  const dx = desiredX - unit.x;
-  const dy = desiredY - unit.y;
+  const dx = destination.x - unit.x;
+  const dy = destination.y - unit.y;
   const length = Math.max(0.001, Math.hypot(dx, dy));
   unit.facing = Math.atan2(dy, dx);
 
-  const moveSpeed = unit.type === "knight"
-    ? UNIT_STATS.knight.speed
-    : UNIT_STATS[unit.type].speed * (0.42 + 0.58 * (unit.health / unit.maxHealth));
+  const moveSpeed = getUnitMoveSpeed(unit, unitDef);
   const moveScale = unit.fleeing ? 1.15 : 1;
   unit.vx += (((dx / length) * moveSpeed * moveScale) - unit.vx) * 0.12;
   unit.vy += (((dy / length) * moveSpeed * moveScale * 0.75) - unit.vy) * 0.12;
   updateStableFacing(unit, dt);
   updateWalkTilt(unit, dt);
 
-  const attackRange = getAttackRange(unit);
+  const attackRange = getAttackRange(unit, unitDef);
   if (!unit.fleeing && target && distance <= attackRange) {
-    unit.vx *= 0.84;
-    unit.vy *= 0.84;
+    const shouldSlowForAttack = unitDef.shouldSlowForAttack ? unitDef.shouldSlowForAttack({ unit, faction, battle, target, unitDef }) : true;
+    if (shouldSlowForAttack) {
+      unit.vx *= 0.84;
+      unit.vy *= 0.84;
+    }
     unit.cooldown -= dt;
     if (unit.cooldown <= 0) {
-      fireAttack(unit, target, battle);
-      unit.cooldown = UNIT_STATS[unit.type].cooldown * (0.8 + Math.random() * 0.5);
+      unitDef.performAttack?.({ unit, target, battle, unitDef });
+      unit.cooldown = unitDef.stats.cooldown * (0.8 + Math.random() * 0.5);
     }
   }
 
   unit.x += unit.vx * dt;
   unit.y += unit.vy * dt;
   keepOnField(unit, battle.field);
+  unitDef.afterMove?.({ unit, faction, battle, allies, enemies, target, unitDef, dt });
 
   const distFromCenter = Math.hypot(unit.x - battle.field.centerX, unit.y - battle.field.centerY);
   if (unit.fleeing && distFromCenter > battle.field.radius + 150) {
@@ -1009,17 +1309,143 @@ function updateUnit(unit, faction, battle, dt) {
   }
 }
 
-function getAttackRange(unit) {
-  if (unit.type === "mage") return Math.max(UNIT_STATS.mage.range, UNIT_STATS.mage.abductRange);
-  return UNIT_STATS[unit.type].range;
+function getTargetableEnemies(battle, factionId, attacker) {
+  return battle.factions
+    .filter((entry) => entry.id !== factionId)
+    .flatMap((entry) => entry.units.filter((enemy) => !enemy.dead && !enemy.fled && canUnitBeTargeted(enemy, attacker)));
 }
 
-function findMedicTarget(unit, allies) {
+function canUnitBeTargeted(unit, attacker = null) {
+  const unitDef = getUnitDefinition(unit);
+  return unitDef.isTargetable ? unitDef.isTargetable({ unit, attacker, unitDef }) : true;
+}
+
+function selectUnitTarget(unit, unitDef, enemies, allies) {
+  return (unitDef.selectTarget || selectDefaultTarget)({ unit, unitDef, enemies, allies });
+}
+
+function getAttackRange(unit, unitDef = getUnitDefinition(unit)) {
+  return unitDef.getAttackRange ? unitDef.getAttackRange(unitDef, unit) : unitDef.stats.range;
+}
+
+function getUnitMoveSpeed(unit, unitDef = getUnitDefinition(unit)) {
+  if (unitDef.getMoveSpeed) return unitDef.getMoveSpeed(unit, unitDef);
+  return unitDef.stats.speed * (0.42 + 0.58 * (unit.health / unit.maxHealth));
+}
+
+function getDesiredDestination(unit, unitDef, target, distance, battle) {
+  const baseDestination = { x: target ? target.x : unit.x, y: target ? target.y : unit.y };
+  if (!unitDef.getDesiredDestination) return baseDestination;
+  return unitDef.getDesiredDestination({ unit, unitDef, target, distance, battle, destination: baseDestination });
+}
+
+function getRetreatingDestination(threshold, multiplier) {
+  return ({ unit, target, distance, destination }) => {
+    if (!target || distance >= threshold) return destination;
+    return {
+      x: unit.x - (target.x - unit.x) * multiplier,
+      y: unit.y - (target.y - unit.y) * multiplier,
+    };
+  };
+}
+
+function getHoldPositionDestination(threshold) {
+  return ({ unit, target, distance, destination }) => {
+    if (!target || distance >= threshold) return destination;
+    return { x: unit.x, y: unit.y };
+  };
+}
+
+function selectMedicTarget({ unit, allies }) {
+  const locked = allies.find((ally) => ally.id === unit.focusTargetId && ally.health < ally.maxHealth && !ally.liftedBySpellId);
+  if (locked) return locked;
   const wounded = allies.filter((ally) => ally.id !== unit.id && ally.health < ally.maxHealth && !ally.liftedBySpellId);
   if (wounded.length) {
-    return wounded.sort((a, b) => (a.health / a.maxHealth) - (b.health / b.maxHealth))[0];
+    const target = wounded.sort((a, b) => (a.health / a.maxHealth) - (b.health / b.maxHealth))[0];
+    unit.focusTargetId = target?.id || null;
+    return target;
   }
+  unit.focusTargetId = null;
   return allies.find((ally) => ally.id !== unit.id && !ally.liftedBySpellId) || null;
+}
+
+function updateAssassinState({ unit, faction, battle, enemies }) {
+  if (unit.behaviorState !== "retreat") {
+    unit.invisible = true;
+  }
+  if (unit.behaviorState === "retreat") {
+    unit.invisible = false;
+    const homeBase = findFaction(battle, faction.id)?.homeBase || { x: unit.x, y: unit.y };
+    if (Math.hypot(unit.x - homeBase.x, unit.y - homeBase.y) <= UNIT_DEFINITIONS.assassin.stats.resetRadius) {
+      unit.behaviorState = "stalking";
+      unit.invisible = true;
+      unit.focusTargetId = null;
+      unit.slashCooldown = 0;
+      unit.cooldown = Math.max(unit.cooldown, 0.3);
+    }
+  }
+  if (unit.focusTargetId && !enemies.some((enemy) => enemy.id === unit.focusTargetId)) {
+    unit.focusTargetId = null;
+  }
+}
+
+function selectAssassinTarget({ unit, enemies }) {
+  if (unit.behaviorState === "retreat") return null;
+  const locked = enemies.find((enemy) => enemy.id === unit.focusTargetId);
+  if (locked) return locked;
+  const target = enemies
+    .slice()
+    .sort((a, b) => {
+      const scoreA = Math.hypot(a.x - unit.x, a.y - unit.y) * 0.7 + a.health * 0.3;
+      const scoreB = Math.hypot(b.x - unit.x, b.y - unit.y) * 0.7 + b.health * 0.3;
+      return scoreA - scoreB;
+    })[0] || null;
+  unit.focusTargetId = target?.id || null;
+  return target;
+}
+
+function getAssassinDestination({ unit, target, battle, destination }) {
+  if (unit.behaviorState === "retreat") {
+    const homeBase = findFaction(battle, unit.factionId)?.homeBase;
+    return homeBase ? { x: homeBase.x, y: homeBase.y } : destination;
+  }
+  if (!target) return destination;
+  const backstep = target.displayFacingX || (Math.cos(target.facing || 0) >= 0 ? 1 : -1);
+  return {
+    x: target.x - backstep * 10,
+    y: target.y + Math.sin((target.facing || 0) + Math.PI / 2) * 4,
+  };
+}
+
+function getAssassinAttackRange(unitDef, unit) {
+  return unit.behaviorState === "retreat" ? 0 : Math.max(unitDef.stats.range, 24);
+}
+
+function performAssassinAttack({ unit, target, battle, unitDef }) {
+  if (unit.behaviorState === "retreat") return;
+  applyDamage(target, unitDef.stats.backstabDamage * (0.92 + Math.random() * 0.24), battle, unit);
+  battle.swipes.push({ x: target.x, y: target.y - 10, angle: unit.facing, life: 0.24, maxLife: 0.24, color: "rgba(240, 240, 255, 0.78)" });
+  spawnBurst(battle, target.x, target.y - 4, "#d8d8ff", 14);
+  unit.behaviorState = "retreat";
+  unit.invisible = false;
+  unit.focusTargetId = null;
+  unit.slashCooldown = 0.2;
+  setHighlight(`${findFaction(battle, unit.factionId).title}'s assassin lands a backstab`);
+}
+
+function handleAssassinAfterMove({ unit, battle, dt }) {
+  if (unit.behaviorState !== "retreat") return;
+  unit.slashCooldown = Math.max(0, (unit.slashCooldown || 0) - dt);
+  if (unit.slashCooldown > 0) return;
+  const nearbyEnemy = battle.factions
+    .filter((faction) => faction.id !== unit.factionId)
+    .flatMap((faction) => faction.units)
+    .find((enemy) => !enemy.dead && !enemy.fled && Math.hypot(enemy.x - unit.x, enemy.y - unit.y) <= 18);
+  if (!nearbyEnemy) return;
+  applyDamage(nearbyEnemy, UNIT_DEFINITIONS.assassin.stats.slashDamage * (0.9 + Math.random() * 0.28), battle, unit);
+  battle.swipes.push({ x: nearbyEnemy.x, y: nearbyEnemy.y - 10, angle: unit.facing, life: 0.18, maxLife: 0.18, color: "rgba(255, 214, 214, 0.75)" });
+  spawnBurst(battle, nearbyEnemy.x, nearbyEnemy.y - 3, "#ffd3d3", 8);
+  unit.slashCooldown = 0.42;
 }
 
 function updateWalkTilt(unit, dt) {
@@ -1057,24 +1483,7 @@ function keepOnField(unit, field) {
   unit.y = clamp(unit.y, 20, field.height - 20);
 }
 
-function findTarget(unit, enemies, allies = []) {
-  if (unit.type === "bomber") {
-    let safest = enemies[0];
-    let bestScore = -Infinity;
-    enemies.forEach((enemy) => {
-      const distance = Math.hypot(enemy.x - unit.x, enemy.y - unit.y);
-      const nearestAlly = allies.length
-        ? Math.min(...allies.filter((ally) => ally.id !== unit.id).map((ally) => Math.hypot(enemy.x - ally.x, enemy.y - ally.y)))
-        : 0;
-      const safetyBias = Number.isFinite(nearestAlly) ? nearestAlly * 0.3 : 0;
-      const score = distance + safetyBias;
-      if (score > bestScore) {
-        bestScore = score;
-        safest = enemy;
-      }
-    });
-    return safest;
-  }
+function selectDefaultTarget({ unit, enemies }) {
   let best = enemies[0];
   let bestScore = Infinity;
   enemies.forEach((enemy) => {
@@ -1089,53 +1498,72 @@ function findTarget(unit, enemies, allies = []) {
   return best;
 }
 
-function fireAttack(unit, target, battle) {
-  if (unit.type === "archer") {
-    const endX = target.x + (Math.random() - 0.5) * 30;
-    const endY = target.y + (Math.random() - 0.5) * 26;
-    const distance = Math.hypot(endX - unit.x, endY - unit.y);
-    battle.projectiles.push({ kind: "arrow", sourceId: unit.id, progress: 0, duration: clamp(0.35 + distance / 230 + Math.random() * 0.15, 0.38, 1.3), startX: unit.x, startY: unit.y - 18, endX, endY, impactAngle: Math.atan2(endY - unit.y, endX - unit.x), targetId: target.id, damage: UNIT_STATS.archer.damage * (0.85 + Math.random() * 0.5) });
-    return;
-  }
-  if (unit.type === "mage") {
-    const spellExists = battle.spells.some((spell) => spell.sourceId === unit.id || spell.targetId === target.id);
-    const abductEligible = Math.hypot(target.x - unit.x, target.y - unit.y) <= UNIT_STATS.mage.abductRange && !target.liftedBySpellId && !unit.activeSpellId;
-    if (abductEligible && !spellExists && Math.random() < 0.45) {
-      const pullAngle = Math.atan2(unit.y - target.y, unit.x - target.x);
-      const endX = unit.x - Math.cos(pullAngle) * 58;
-      const endY = unit.y - Math.sin(pullAngle) * 58;
-      const spellId = `spell-${Math.random().toString(36).slice(2, 8)}`;
-      battle.spells.push({ id: spellId, kind: "levitate", sourceId: unit.id, targetId: target.id, time: 0, duration: 1.15, startX: target.x, startY: target.y, endX, endY, color: findFaction(battle, unit.factionId).color });
-      unit.activeSpellId = spellId;
-      target.liftedBySpellId = spellId;
-      return;
+function selectBomberTarget({ unit, enemies, allies }) {
+  let safest = enemies[0];
+  let bestScore = -Infinity;
+  enemies.forEach((enemy) => {
+    const distance = Math.hypot(enemy.x - unit.x, enemy.y - unit.y);
+    const nearestAlly = allies.length
+      ? Math.min(...allies.filter((ally) => ally.id !== unit.id).map((ally) => Math.hypot(enemy.x - ally.x, enemy.y - ally.y)))
+      : 0;
+    const safetyBias = Number.isFinite(nearestAlly) ? nearestAlly * 0.3 : 0;
+    const score = distance + safetyBias;
+    if (score > bestScore) {
+      bestScore = score;
+      safest = enemy;
     }
-    if (Math.hypot(target.x - unit.x, target.y - unit.y) <= UNIT_STATS.mage.range) {
-      battle.projectiles.push({ kind: "orb", sourceId: unit.id, progress: 0, duration: 0.44 + Math.random() * 0.24, startX: unit.x, startY: unit.y - 24, endX: target.x, endY: target.y, targetId: target.id, damage: UNIT_STATS.mage.damage * (1.05 + Math.random() * 0.65), radius: 44 });
-    }
+  });
+  return safest;
+}
+
+function performArcherAttack({ unit, target, battle, unitDef }) {
+  const endX = target.x + (Math.random() - 0.5) * 30;
+  const endY = target.y + (Math.random() - 0.5) * 26;
+  const distance = Math.hypot(endX - unit.x, endY - unit.y);
+  battle.projectiles.push({ kind: "arrow", sourceId: unit.id, progress: 0, duration: clamp(0.35 + distance / 230 + Math.random() * 0.15, 0.38, 1.3), startX: unit.x, startY: unit.y - 18, endX, endY, impactAngle: Math.atan2(endY - unit.y, endX - unit.x), targetId: target.id, damage: unitDef.stats.damage * (0.85 + Math.random() * 0.5) });
+}
+
+function performMageAttack({ unit, target, battle, unitDef }) {
+  const spellExists = battle.spells.some((spell) => spell.sourceId === unit.id || spell.targetId === target.id);
+  const distance = Math.hypot(target.x - unit.x, target.y - unit.y);
+  const abductEligible = distance <= unitDef.stats.abductRange && !target.liftedBySpellId && !unit.activeSpellId;
+  if (abductEligible && !spellExists && Math.random() < 0.45) {
+    const pullAngle = Math.atan2(unit.y - target.y, unit.x - target.x);
+    const endX = unit.x - Math.cos(pullAngle) * 58;
+    const endY = unit.y - Math.sin(pullAngle) * 58;
+    const spellId = `spell-${Math.random().toString(36).slice(2, 8)}`;
+    battle.spells.push({ id: spellId, kind: "levitate", sourceId: unit.id, targetId: target.id, time: 0, duration: 1.15, startX: target.x, startY: target.y, endX, endY, color: findFaction(battle, unit.factionId).color });
+    unit.activeSpellId = spellId;
+    target.liftedBySpellId = spellId;
     return;
   }
-  if (unit.type === "medic") {
-    const healTarget = target;
-    if (healTarget && healTarget.id !== unit.id && healTarget.health < healTarget.maxHealth) {
-      healTarget.health = Math.min(healTarget.maxHealth, healTarget.health + UNIT_STATS.medic.heal * (0.9 + Math.random() * 0.35));
-      battle.particles.push({ x: healTarget.x, y: healTarget.y - 10, vx: 0, vy: -20, life: 0.55, age: 0, color: "#b8ffbf", size: 7 });
-      setHighlight(`${findFaction(battle, unit.factionId).title}'s medic stabilizes a soldier`);
-    }
-    return;
+  if (distance <= unitDef.stats.range) {
+    battle.projectiles.push({ kind: "orb", sourceId: unit.id, progress: 0, duration: 0.44 + Math.random() * 0.24, startX: unit.x, startY: unit.y - 24, endX: target.x, endY: target.y, targetId: target.id, damage: unitDef.stats.damage * (1.05 + Math.random() * 0.65), radius: 44 });
   }
-  if (unit.type === "bomber") {
-    const endX = target.x + (Math.random() - 0.5) * 14;
-    const endY = target.y + (Math.random() - 0.5) * 14;
-    const throwDistance = Math.hypot(endX - unit.x, endY - unit.y);
-    battle.projectiles.push({ kind: "bomb", sourceId: unit.id, progress: 0, duration: clamp(0.48 + throwDistance / 250 + Math.random() * 0.12, 0.5, 1.15), startX: unit.x, startY: unit.y - 16, endX, endY, targetId: target.id, damage: UNIT_STATS.bomber.damage, radius: UNIT_STATS.bomber.splash, fuse: UNIT_STATS.bomber.fuse, landed: false, timer: 0 });
-    return;
+}
+
+function performMedicHeal({ unit, target, battle, unitDef }) {
+  if (!target || target.id === unit.id || target.health >= target.maxHealth) return;
+  target.health = Math.min(target.maxHealth, target.health + unitDef.stats.heal * (0.9 + Math.random() * 0.35));
+  battle.particles.push({ x: target.x, y: target.y - 10, vx: 0, vy: -20, life: 0.55, age: 0, color: "#b8ffbf", size: 7 });
+  setHighlight(`${findFaction(battle, unit.factionId).title}'s medic stabilizes a soldier`);
+  if (target.health >= target.maxHealth) {
+    unit.focusTargetId = null;
   }
-  if (Math.hypot(target.x - unit.x, target.y - unit.y) <= UNIT_STATS.knight.range + 4) {
-    applyDamage(target, UNIT_STATS.knight.damage * (0.92 + Math.random() * 0.46), battle, unit);
-    battle.swipes.push({ x: target.x, y: target.y - 12, angle: unit.facing, life: 0.22, maxLife: 0.22, color: shadeColor(findFaction(battle, unit.factionId).color, 0.35) });
-    spawnBurst(battle, target.x, target.y, "#ffd59b", 10);
-  }
+}
+
+function performBomberAttack({ unit, target, battle, unitDef }) {
+  const endX = target.x + (Math.random() - 0.5) * 14;
+  const endY = target.y + (Math.random() - 0.5) * 14;
+  const throwDistance = Math.hypot(endX - unit.x, endY - unit.y);
+  battle.projectiles.push({ kind: "bomb", sourceId: unit.id, progress: 0, duration: clamp(0.48 + throwDistance / 250 + Math.random() * 0.12, 0.5, 1.15), startX: unit.x, startY: unit.y - 16, endX, endY, targetId: target.id, damage: unitDef.stats.damage, radius: unitDef.stats.splash, fuse: unitDef.stats.fuse, landed: false, timer: 0 });
+}
+
+function performKnightAttack({ unit, target, battle, unitDef }) {
+  if (Math.hypot(target.x - unit.x, target.y - unit.y) > unitDef.stats.range + 4) return;
+  applyDamage(target, unitDef.stats.damage * (0.92 + Math.random() * 0.46), battle, unit);
+  battle.swipes.push({ x: target.x, y: target.y - 12, angle: unit.facing, life: 0.22, maxLife: 0.22, color: shadeColor(findFaction(battle, unit.factionId).color, 0.35) });
+  spawnBurst(battle, target.x, target.y, "#ffd59b", 10);
 }
 
 function findFaction(battle, factionId) {
@@ -1143,47 +1571,59 @@ function findFaction(battle, factionId) {
 }
 
 function updateProjectiles(battle, dt) {
-  battle.projectiles = battle.projectiles.filter((projectile) => {
-    if (projectile.kind === "bomb" && projectile.landed) {
-      projectile.timer += dt;
-      if (projectile.timer >= projectile.fuse) {
-        resolveProjectile(projectile, battle);
-        return false;
-      }
-      return true;
-    }
-    projectile.progress += dt / projectile.duration;
-    if (projectile.progress >= 1) {
-      if (projectile.kind === "bomb") {
-        projectile.landed = true;
-        projectile.timer = 0;
-        projectile.progress = 1;
-        return true;
-      }
-      resolveProjectile(projectile, battle);
-      return false;
-    }
-    return true;
-  });
+  battle.projectiles = battle.projectiles.filter((projectile) => (getProjectileDefinition(projectile)?.update || updateStandardProjectile)(projectile, battle, dt));
+}
+
+function getProjectileDefinition(projectileOrKind) {
+  const projectileKind = typeof projectileOrKind === "string" ? projectileOrKind : projectileOrKind?.kind;
+  return PROJECTILE_DEFINITIONS[projectileKind];
+}
+
+function updateStandardProjectile(projectile, battle, dt) {
+  projectile.progress += dt / projectile.duration;
+  if (projectile.progress < 1) return true;
+  resolveProjectile(projectile, battle);
+  return false;
+}
+
+function updateBombProjectile(projectile, battle, dt) {
+  if (projectile.landed) {
+    projectile.timer += dt;
+    if (projectile.timer < projectile.fuse) return true;
+    resolveProjectile(projectile, battle);
+    return false;
+  }
+  projectile.progress += dt / projectile.duration;
+  if (projectile.progress < 1) return true;
+  projectile.landed = true;
+  projectile.timer = 0;
+  projectile.progress = 1;
+  return true;
 }
 
 function resolveProjectile(projectile, battle) {
-  if (projectile.kind === "arrow") {
-    const target = findUnitById(battle, projectile.targetId);
-    if (target && !target.dead && Math.random() > 0.18) {
-      applyDamage(target, projectile.damage, battle, findUnitById(battle, projectile.sourceId));
-      spawnBurst(battle, projectile.endX, projectile.endY, "#f5d087", 8);
-    } else {
-      spawnBurst(battle, projectile.endX, projectile.endY, "#7d5f35", 5);
-    }
-    battle.stuckArrows.push({ x: projectile.endX, y: projectile.endY, angle: projectile.impactAngle, life: 1.2, maxLife: 1.2 });
-    return;
+  const projectileDef = getProjectileDefinition(projectile);
+  projectileDef?.resolve?.(projectile, battle);
+}
+
+function resolveArrowProjectile(projectile, battle) {
+  const target = findUnitById(battle, projectile.targetId);
+  if (target && !target.dead && Math.random() > 0.18) {
+    applyDamage(target, projectile.damage, battle, findUnitById(battle, projectile.sourceId));
+    spawnBurst(battle, projectile.endX, projectile.endY, "#f5d087", 8);
+  } else {
+    spawnBurst(battle, projectile.endX, projectile.endY, "#7d5f35", 5);
   }
-  if (projectile.kind === "bomb") {
-    explodeAt(battle, projectile.endX, projectile.endY, projectile.radius, projectile.damage, findUnitById(battle, projectile.sourceId), "#ffbb66", 32);
-    setHighlight(`${findFaction(battle, findUnitById(battle, projectile.sourceId)?.factionId || "")?.title || "A bomber"} detonates a charge`);
-    return;
-  }
+  battle.stuckArrows.push({ x: projectile.endX, y: projectile.endY, angle: projectile.impactAngle, life: 1.2, maxLife: 1.2 });
+}
+
+function resolveBombProjectile(projectile, battle) {
+  const source = findUnitById(battle, projectile.sourceId);
+  explodeAt(battle, projectile.endX, projectile.endY, projectile.radius, projectile.damage, source, "#ffbb66", 32);
+  setHighlight(`${findFaction(battle, source?.factionId || "")?.title || "A bomber"} detonates a charge`);
+}
+
+function resolveOrbProjectile(projectile, battle) {
   battle.factions.forEach((faction) => {
     faction.units.forEach((unit) => {
       if (unit.dead || unit.fled) return;
@@ -1284,18 +1724,21 @@ function explodeAt(battle, x, y, radius, damage, attacker, color, burstCount, sh
 function applyDamage(unit, amount, battle, attacker = null) {
   unit.health -= amount;
   if (unit.health <= 0) {
+    const unitDef = getUnitDefinition(unit);
     unit.dead = true;
     unit.health = 0;
     unit.liftedBySpellId = null;
-    if (unit.type === "bomber") {
-      explodeAt(battle, unit.x, unit.y, UNIT_STATS.bomber.deathSplash, UNIT_STATS.bomber.damage * 1.2, attacker || unit, "#ff8b4a", 44);
-      setHighlight(`${findFaction(battle, unit.factionId).title} loses a bomber in a huge blast`);
-    }
+    unitDef.onDeath?.({ unit, battle, attacker, unitDef });
     if (attacker && !attacker.dead) {
       attacker.killStreak = (attacker.killStreak || 0) + 1;
     }
     spawnBurst(battle, unit.x, unit.y, "#f3c58a", 16);
   }
+}
+
+function handleBomberDeath({ unit, battle, attacker, unitDef }) {
+  explodeAt(battle, unit.x, unit.y, unitDef.stats.deathSplash, unitDef.stats.damage * 1.2, attacker || unit, "#ff8b4a", 44);
+  setHighlight(`${findFaction(battle, unit.factionId).title} loses a bomber in a huge blast`);
 }
 function spawnBurst(battle, x, y, color, count) {
   for (let i = 0; i < count; i += 1) {
@@ -1485,7 +1928,7 @@ function updateBattleHighlights(battle) {
     faction.units.forEach((unit) => {
       if ((unit.killStreak || 0) >= 3 && !battle.notes.killstreaks[unit.id]) {
         battle.notes.killstreaks[unit.id] = true;
-        setHighlight(`${faction.title} has a ${unit.type} on a ${unit.killStreak}-unit streak`);
+        setHighlight(`${faction.title} has a ${getUnitDefinition(unit).name.toLowerCase()} on a ${unit.killStreak}-unit streak`);
       }
     });
   });
@@ -1633,17 +2076,38 @@ function drawGroundDecor(viewport, battle) {
 }
 
 function buildFieldProps(field, arena) {
-  const types = ["stones", "cart", "ruin", "camp", "stakes", "crate"];
-  const count = 10 + Math.floor(Math.random() * 5);
+  const count = 14 + Math.floor(Math.random() * 9);
+  const themeWeights = arena?.propWeights || { common: DEFAULT_PROP_WEIGHTS, rare: {} };
   return Array.from({ length: count }, (_, index) => ({
     id: `prop-${index}-${Math.random().toString(36).slice(2, 7)}`,
-    type: types[index % types.length],
+    type: chooseArenaPropType(themeWeights, index, count),
     x: 90 + Math.random() * (field.width - 180),
     y: 100 + Math.random() * (field.height - 200),
     scale: 0.82 + Math.random() * 0.75,
     rotation: (Math.random() - 0.5) * 0.35,
     tint: Math.random(),
   })).sort((a, b) => a.y - b.y);
+}
+
+function chooseArenaPropType(themeWeights, index, count) {
+  const rareChance = 0.08 + (index / Math.max(1, count - 1)) * 0.14;
+  if (Math.random() < rareChance) {
+    const rareType = chooseWeightedKey(themeWeights.rare);
+    if (rareType) return rareType;
+  }
+  return chooseWeightedKey(themeWeights.common) || "stones";
+}
+
+function chooseWeightedKey(weights) {
+  const entries = Object.entries(weights || {}).filter(([, weight]) => Number(weight) > 0);
+  if (!entries.length) return null;
+  const total = entries.reduce((sum, [, weight]) => sum + Number(weight), 0);
+  let roll = Math.random() * total;
+  for (const [key, weight] of entries) {
+    roll -= Number(weight);
+    if (roll <= 0) return key;
+  }
+  return entries[entries.length - 1][0];
 }
 
 function drawWeather(viewport, battle) {
@@ -1680,6 +2144,54 @@ function drawWeather(viewport, battle) {
       ctx.arc(x, y, ember.radius, 0, Math.PI * 2);
       ctx.fill();
     });
+  } else if (weather === "downpour") {
+    ctx.lineWidth = 1.4;
+    field.forEach((drop) => {
+      const x = drop.x * viewport.width;
+      const y = ((drop.y * viewport.height) + battle.time * drop.speed) % (viewport.height + drop.length + 100) - drop.length - 50;
+      ctx.strokeStyle = `rgba(188, 219, 255, ${drop.alpha})`;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x - drop.drift, y + drop.length);
+      ctx.stroke();
+    });
+    ctx.fillStyle = "rgba(187, 213, 255, 0.08)";
+    ctx.fillRect(0, 0, viewport.width, viewport.height);
+  } else if (weather === "ashfall") {
+    field.forEach((flake) => {
+      const x = (flake.x * viewport.width) + Math.sin((battle.time + flake.x) * 1.25) * flake.sway;
+      const y = ((flake.y * viewport.height) + battle.time * flake.speed) % (viewport.height + 40) - 20;
+      ctx.fillStyle = `rgba(${flake.shade}, ${flake.shade - 10}, ${flake.shade - 18}, ${flake.alpha})`;
+      ctx.beginPath();
+      ctx.arc(x, y, flake.radius, 0, Math.PI * 2);
+      ctx.fill();
+    });
+  } else if (weather === "fireflies") {
+    field.forEach((light) => {
+      const pulse = 0.35 + (Math.sin((battle.time + light.x * 2) * light.pulse * 2.2) + 1) * 0.3;
+      const x = (light.x * viewport.width) + Math.sin((battle.time + light.y) * 1.1) * light.sway;
+      const y = (light.y * viewport.height) + Math.cos((battle.time + light.x) * 0.9) * light.drift;
+      const gradient = ctx.createRadialGradient(x, y, 1, x, y, light.radius * 7);
+      gradient.addColorStop(0, `rgba(255, 247, 157, ${light.alpha * pulse})`);
+      gradient.addColorStop(1, "rgba(255, 247, 157, 0)");
+      ctx.fillStyle = gradient;
+      ctx.beginPath();
+      ctx.arc(x, y, light.radius * 7, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = `rgba(255, 244, 143, ${Math.min(0.95, light.alpha + pulse * 0.2)})`;
+      ctx.beginPath();
+      ctx.arc(x, y, light.radius, 0, Math.PI * 2);
+      ctx.fill();
+    });
+  } else if (weather === "snowfall") {
+    field.forEach((flake) => {
+      const x = (flake.x * viewport.width) + Math.sin((battle.time + flake.x) * 0.9) * flake.sway;
+      const y = ((flake.y * viewport.height) + battle.time * flake.speed) % (viewport.height + 50) - 25;
+      ctx.fillStyle = `rgba(244, 248, 255, ${flake.alpha})`;
+      ctx.beginPath();
+      ctx.arc(x, y, flake.radius, 0, Math.PI * 2);
+      ctx.fill();
+    });
   }
   ctx.restore();
 }
@@ -1695,12 +2207,7 @@ function drawGroundProps(viewport, props) {
     ctx.beginPath();
     ctx.ellipse(0, 11 * scale / 2.1, 20 * scale / 2.1, 8 * scale / 2.1, 0, 0, Math.PI * 2);
     ctx.fill();
-    if (prop.type === "cart") drawPropCart(scale, prop.tint);
-    if (prop.type === "ruin") drawPropRuin(scale, prop.tint);
-    if (prop.type === "camp") drawPropCamp(scale, prop.tint);
-    if (prop.type === "stakes") drawPropStakes(scale, prop.tint);
-    if (prop.type === "crate") drawPropCrate(scale, prop.tint);
-    if (prop.type === "stones") drawPropStones(scale, prop.tint);
+    PROP_RENDERERS[prop.type]?.(scale, prop.tint);
     ctx.restore();
   });
 }
@@ -1852,6 +2359,95 @@ function drawPropStones(scale, tint) {
   });
 }
 
+function drawPropObelisk(scale, tint) {
+  ctx.fillStyle = tint > 0.5 ? "#8c8579" : "#736c61";
+  ctx.beginPath();
+  ctx.moveTo(0, -20 * scale / 2.1);
+  ctx.lineTo(10 * scale / 2.1, -8 * scale / 2.1);
+  ctx.lineTo(7 * scale / 2.1, 12 * scale / 2.1);
+  ctx.lineTo(-7 * scale / 2.1, 12 * scale / 2.1);
+  ctx.lineTo(-10 * scale / 2.1, -8 * scale / 2.1);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = "rgba(255,255,255,0.12)";
+  ctx.fillRect(-2 * scale / 2.1, -14 * scale / 2.1, 3 * scale / 2.1, 20 * scale / 2.1);
+}
+
+function drawPropBrazier(scale, tint) {
+  ctx.fillStyle = tint > 0.5 ? "#5f4934" : "#4e3d2f";
+  ctx.fillRect(-8 * scale / 2.1, 2 * scale / 2.1, 16 * scale / 2.1, 8 * scale / 2.1);
+  ctx.strokeStyle = "#2f241b";
+  ctx.lineWidth = 2 * scale / 2.1;
+  ctx.beginPath();
+  ctx.moveTo(-6 * scale / 2.1, 10 * scale / 2.1);
+  ctx.lineTo(-2 * scale / 2.1, 16 * scale / 2.1);
+  ctx.moveTo(6 * scale / 2.1, 10 * scale / 2.1);
+  ctx.lineTo(2 * scale / 2.1, 16 * scale / 2.1);
+  ctx.stroke();
+  ctx.fillStyle = "rgba(255, 175, 93, 0.78)";
+  ctx.beginPath();
+  ctx.moveTo(-4 * scale / 2.1, 4 * scale / 2.1);
+  ctx.quadraticCurveTo(0, -10 * scale / 2.1, 4 * scale / 2.1, 4 * scale / 2.1);
+  ctx.quadraticCurveTo(0, -3 * scale / 2.1, -4 * scale / 2.1, 4 * scale / 2.1);
+  ctx.fill();
+}
+
+function drawPropReeds(scale, tint) {
+  ctx.strokeStyle = tint > 0.5 ? "#6d8552" : "#597043";
+  ctx.lineWidth = 1.8 * scale / 2.1;
+  for (let i = -3; i <= 3; i += 1) {
+    ctx.beginPath();
+    ctx.moveTo(i * 3 * scale / 2.1, 12 * scale / 2.1);
+    ctx.quadraticCurveTo((i * 4 + (i % 2 ? -5 : 5)) * scale / 2.1, 2 * scale / 2.1, (i * 2) * scale / 2.1, -12 * scale / 2.1);
+    ctx.stroke();
+  }
+}
+
+function drawPropBones(scale, tint) {
+  ctx.strokeStyle = tint > 0.5 ? "#d9cfbb" : "#bcae96";
+  ctx.lineWidth = 2.2 * scale / 2.1;
+  [[-8, 4, 8, -2], [-2, -1, 10, 7]].forEach(([x1, y1, x2, y2]) => {
+    ctx.beginPath();
+    ctx.moveTo(x1 * scale / 2.1, y1 * scale / 2.1);
+    ctx.lineTo(x2 * scale / 2.1, y2 * scale / 2.1);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(x1 * scale / 2.1, y1 * scale / 2.1, 2.5 * scale / 2.1, 0, Math.PI * 2);
+    ctx.arc(x2 * scale / 2.1, y2 * scale / 2.1, 2.5 * scale / 2.1, 0, Math.PI * 2);
+    ctx.fillStyle = ctx.strokeStyle;
+    ctx.fill();
+  });
+}
+
+function drawPropMushrooms(scale, tint) {
+  ctx.fillStyle = tint > 0.5 ? "#b85f51" : "#9b4a40";
+  [[-8, 3, 6], [0, -2, 8], [8, 4, 5]].forEach(([x, y, radius]) => {
+    ctx.beginPath();
+    ctx.arc(x * scale / 2.1, y * scale / 2.1, radius * scale / 2.1, Math.PI, 0, false);
+    ctx.fill();
+  });
+  ctx.strokeStyle = "#ead9bf";
+  ctx.lineWidth = 2 * scale / 2.1;
+  [[-8, 3], [0, -2], [8, 4]].forEach(([x, y]) => {
+    ctx.beginPath();
+    ctx.moveTo(x * scale / 2.1, y * scale / 2.1);
+    ctx.lineTo(x * scale / 2.1, (y + 8) * scale / 2.1);
+    ctx.stroke();
+  });
+}
+
+function drawPropSignpost(scale, tint) {
+  ctx.strokeStyle = tint > 0.5 ? "#6a4f33" : "#5a432c";
+  ctx.lineWidth = 2.2 * scale / 2.1;
+  ctx.beginPath();
+  ctx.moveTo(0, -12 * scale / 2.1);
+  ctx.lineTo(0, 14 * scale / 2.1);
+  ctx.stroke();
+  ctx.fillStyle = tint > 0.5 ? "#9c7447" : "#845f3b";
+  ctx.fillRect(-10 * scale / 2.1, -10 * scale / 2.1, 20 * scale / 2.1, 8 * scale / 2.1);
+  ctx.fillRect(-7 * scale / 2.1, -1 * scale / 2.1, 16 * scale / 2.1, 7 * scale / 2.1);
+}
+
 function drawBanners(viewport, factions) {
   factions.forEach((faction) => {
     if (!faction.alive) return;
@@ -1947,72 +2543,80 @@ function drawProjectiles(viewport, projectiles) {
   projectiles.forEach((projectile) => {
     const current = getProjectilePoint(projectile, projectile.progress);
     const point = worldToScreen(current.x, current.y, viewport);
-    if (projectile.kind === "arrow") {
-      const next = getProjectilePoint(projectile, Math.min(1, projectile.progress + 0.02));
-      const nextPoint = worldToScreen(next.x, next.y, viewport);
-      const angle = Math.atan2(nextPoint.y - point.y, nextPoint.x - point.x);
-      ctx.save();
-      ctx.translate(point.x, point.y);
-      ctx.rotate(angle);
-      ctx.strokeStyle = "#513018";
-      ctx.lineWidth = Math.max(1.5, 2.4 * point.scale / 2.1);
-      ctx.beginPath();
-      ctx.moveTo(-8 * point.scale / 2.1, 0);
-      ctx.lineTo(9 * point.scale / 2.1, 0);
-      ctx.stroke();
-      ctx.fillStyle = "#e8d4ad";
-      ctx.beginPath();
-      ctx.moveTo(9 * point.scale / 2.1, 0);
-      ctx.lineTo(3 * point.scale / 2.1, -3 * point.scale / 2.1);
-      ctx.lineTo(3 * point.scale / 2.1, 3 * point.scale / 2.1);
-      ctx.closePath();
-      ctx.fill();
-      ctx.restore();
-    } else if (projectile.kind === "bomb" && projectile.landed) {
-      ctx.fillStyle = "#2f2519";
-      ctx.beginPath();
-      ctx.arc(point.x, point.y, 7 * point.scale / 2.1, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = "#ffb25a";
-      ctx.lineWidth = 2 * point.scale / 2.1;
-      ctx.beginPath();
-      ctx.arc(point.x, point.y, (9 + Math.sin(projectile.timer * 10) * 1.5) * point.scale / 2.1, 0, Math.PI * 2);
-      ctx.stroke();
-    } else if (projectile.kind === "bomb") {
-      ctx.save();
-      ctx.translate(point.x, point.y);
-      ctx.rotate(projectile.progress * 8);
-      ctx.fillStyle = "#443323";
-      ctx.beginPath();
-      ctx.arc(0, 0, 7 * point.scale / 2.1, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = "#20150f";
-      ctx.lineWidth = Math.max(1.2, 2 * point.scale / 2.1);
-      ctx.beginPath();
-      ctx.moveTo(-2 * point.scale / 2.1, -6 * point.scale / 2.1);
-      ctx.lineTo(4 * point.scale / 2.1, -10 * point.scale / 2.1);
-      ctx.stroke();
-      ctx.fillStyle = "#ffb25a";
-      ctx.beginPath();
-      ctx.arc(4 * point.scale / 2.1, -10 * point.scale / 2.1, 2.2 * point.scale / 2.1, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
-    } else {
-      const gradient = ctx.createRadialGradient(point.x, point.y, 1, point.x, point.y, 10 * point.scale / 2.1);
-      gradient.addColorStop(0, "#e0ffff");
-      gradient.addColorStop(1, "#49bedd");
-      ctx.fillStyle = gradient;
-      ctx.beginPath();
-      ctx.arc(point.x, point.y, 8 * point.scale / 2.1, 0, Math.PI * 2);
-      ctx.fill();
-    }
+    getProjectileDefinition(projectile)?.render?.({ projectile, point, viewport });
   });
+}
+
+function drawArrowProjectile({ projectile, point, viewport }) {
+  const next = getProjectilePoint(projectile, Math.min(1, projectile.progress + 0.02));
+  const nextPoint = worldToScreen(next.x, next.y, viewport);
+  const angle = Math.atan2(nextPoint.y - point.y, nextPoint.x - point.x);
+  ctx.save();
+  ctx.translate(point.x, point.y);
+  ctx.rotate(angle);
+  ctx.strokeStyle = "#513018";
+  ctx.lineWidth = Math.max(1.5, 2.4 * point.scale / 2.1);
+  ctx.beginPath();
+  ctx.moveTo(-8 * point.scale / 2.1, 0);
+  ctx.lineTo(9 * point.scale / 2.1, 0);
+  ctx.stroke();
+  ctx.fillStyle = "#e8d4ad";
+  ctx.beginPath();
+  ctx.moveTo(9 * point.scale / 2.1, 0);
+  ctx.lineTo(3 * point.scale / 2.1, -3 * point.scale / 2.1);
+  ctx.lineTo(3 * point.scale / 2.1, 3 * point.scale / 2.1);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawBombProjectile({ projectile, point }) {
+  if (projectile.landed) {
+    ctx.fillStyle = "#2f2519";
+    ctx.beginPath();
+    ctx.arc(point.x, point.y, 7 * point.scale / 2.1, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#ffb25a";
+    ctx.lineWidth = 2 * point.scale / 2.1;
+    ctx.beginPath();
+    ctx.arc(point.x, point.y, (9 + Math.sin(projectile.timer * 10) * 1.5) * point.scale / 2.1, 0, Math.PI * 2);
+    ctx.stroke();
+    return;
+  }
+  ctx.save();
+  ctx.translate(point.x, point.y);
+  ctx.rotate(projectile.progress * 8);
+  ctx.fillStyle = "#443323";
+  ctx.beginPath();
+  ctx.arc(0, 0, 7 * point.scale / 2.1, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "#20150f";
+  ctx.lineWidth = Math.max(1.2, 2 * point.scale / 2.1);
+  ctx.beginPath();
+  ctx.moveTo(-2 * point.scale / 2.1, -6 * point.scale / 2.1);
+  ctx.lineTo(4 * point.scale / 2.1, -10 * point.scale / 2.1);
+  ctx.stroke();
+  ctx.fillStyle = "#ffb25a";
+  ctx.beginPath();
+  ctx.arc(4 * point.scale / 2.1, -10 * point.scale / 2.1, 2.2 * point.scale / 2.1, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawOrbProjectile({ point }) {
+  const gradient = ctx.createRadialGradient(point.x, point.y, 1, point.x, point.y, 10 * point.scale / 2.1);
+  gradient.addColorStop(0, "#e0ffff");
+  gradient.addColorStop(1, "#49bedd");
+  ctx.fillStyle = gradient;
+  ctx.beginPath();
+  ctx.arc(point.x, point.y, 8 * point.scale / 2.1, 0, Math.PI * 2);
+  ctx.fill();
 }
 
 function getProjectilePoint(projectile, progress) {
   const x = lerp(projectile.startX, projectile.endX, progress);
   const yBase = lerp(projectile.startY, projectile.endY, progress);
-  return { x, y: yBase - Math.sin(progress * Math.PI) * (projectile.kind === "arrow" ? 70 : projectile.kind === "bomb" ? 44 : 26) };
+  return { x, y: yBase - Math.sin(progress * Math.PI) * (getProjectileDefinition(projectile)?.arcHeight || 26) };
 }
 function drawStuckArrows(viewport, arrows) {
   arrows.forEach((arrow) => {
@@ -2034,6 +2638,7 @@ function drawStuckArrows(viewport, arrows) {
 function drawUnits(viewport, factions) {
   const units = factions.flatMap((faction) => faction.units.filter((unit) => !unit.dead && !unit.fled).map((unit) => ({ ...unit, factionColor: faction.color }))).sort((a, b) => a.y - b.y);
   units.forEach((unit) => {
+    const unitDef = getUnitDefinition(unit);
     const pose = getUnitRenderPose(unit, viewport);
     const { point, scale, bodyY } = pose;
     const strideOffset = unit.stride * 2.8 * scale / 2.1;
@@ -2045,16 +2650,13 @@ function drawUnits(viewport, factions) {
     ctx.ellipse(point.x, point.y + 10 * scale / 2.1, (10 + Math.abs(unit.stride) * 1.6) * scale / 2.1, (5 - unit.bob * 0.9) * scale / 2.1, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.save();
+    ctx.globalAlpha = unitDef.getRenderAlpha ? unitDef.getRenderAlpha(unit, unitDef) : 1;
     ctx.translate(point.x + strideOffset * unit.displayFacingX * 0.35, bodyY);
     ctx.rotate(unit.walkTilt);
     ctx.scale(unit.displayFacingX, 1);
-    if (unit.type === "archer") drawArcher(main, dark, light, scale, unit);
-    if (unit.type === "mage") drawMage(main, dark, light, scale, unit);
-    if (unit.type === "knight") drawKnight(main, dark, light, scale, unit);
-    if (unit.type === "medic") drawMedic(main, dark, light, scale, unit);
-    if (unit.type === "bomber") drawBomber(main, dark, light, scale, unit);
+    unitDef.render?.(main, dark, light, scale, unit);
     ctx.restore();
-    const hpWidth = unit.type === "knight" ? 30 : 20;
+    const hpWidth = unitDef.healthBarWidth || 20;
     ctx.fillStyle = "rgba(37,24,16,0.5)";
     ctx.fillRect(point.x - hpWidth * scale / 4.2, bodyY - 24 * scale / 2.1, hpWidth * scale / 2.1, 4 * scale / 2.1);
     ctx.fillStyle = unit.health / unit.maxHealth > 0.4 ? "#9ae085" : "#e7915d";
@@ -2191,6 +2793,41 @@ function drawBomber(main, dark, light, scale, unit) {
   ctx.fillStyle = "#80562f";
   ctx.fillRect(-13 * scale / 2.1, -12 * scale / 2.1, 7 * scale / 2.1, 11 * scale / 2.1);
 }
+
+function drawAssassin(main, dark, light, scale, unit) {
+  drawStepLegs(dark, scale, unit, 6.1, 10);
+  ctx.fillStyle = dark;
+  ctx.beginPath();
+  ctx.moveTo(0, -16 * scale / 2.1);
+  ctx.lineTo(10 * scale / 2.1, -5 * scale / 2.1);
+  ctx.lineTo(8 * scale / 2.1, 12 * scale / 2.1);
+  ctx.lineTo(-8 * scale / 2.1, 12 * scale / 2.1);
+  ctx.lineTo(-10 * scale / 2.1, -5 * scale / 2.1);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = main;
+  ctx.beginPath();
+  ctx.moveTo(0, -12 * scale / 2.1);
+  ctx.lineTo(8 * scale / 2.1, -4 * scale / 2.1);
+  ctx.lineTo(6 * scale / 2.1, 11 * scale / 2.1);
+  ctx.lineTo(-6 * scale / 2.1, 11 * scale / 2.1);
+  ctx.lineTo(-8 * scale / 2.1, -4 * scale / 2.1);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = light;
+  ctx.beginPath();
+  ctx.arc(0, -14 * scale / 2.1, 4.8 * scale / 2.1, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "rgba(236,236,255,0.72)";
+  ctx.lineWidth = 1.8 * scale / 2.1;
+  ctx.beginPath();
+  ctx.moveTo(-12 * scale / 2.1, 4 * scale / 2.1);
+  ctx.lineTo(-18 * scale / 2.1, 12 * scale / 2.1);
+  ctx.moveTo(12 * scale / 2.1, 4 * scale / 2.1);
+  ctx.lineTo(18 * scale / 2.1, 12 * scale / 2.1);
+  ctx.stroke();
+}
+
 function drawKnight(main, dark, light, scale, unit) {
   drawStepLegs(dark, scale, unit, 7.5, 12);
   ctx.fillStyle = main;

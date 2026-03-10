@@ -580,6 +580,7 @@ canvas.is-dragging { cursor: grabbing; }
 .unit-icon-mage { color: #7cc6db; }
 .unit-icon-medic { color: #9fdda1; }
 .unit-icon-bomber { color: #e49b58; }
+.unit-icon-assassin { color: #b8b0df; }
 .selected-unit input {
   width: 84px;
 }

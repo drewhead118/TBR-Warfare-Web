@@ -14,10 +14,12 @@ Then open [http://127.0.0.1:4173/index.html](http://127.0.0.1:4173/index.html).
 
 ## CSV format
 
-`title,coverUrl,armySize,submissionType,archers,mages,knights,fledReserve`
+`title,coverUrl,armySize,submissionType,composition,fledReserve`
 
 - `submissionType`: `digital` or `paperback`
-- `archers,mages,knights`: percentage mix used to spawn the army
+- `composition`: optional free-form unit mix such as `mage:2, archer:3, knight:5`
+- If `composition` is omitted or blank, the importer defaults to `archer:1, mage:1, knight:1`
+- Unknown unit names inside the composition string are ignored so the row still imports
 - `fledReserve`: routed units that rejoin on the next run
 
 A starter file is included at `sample-armies.csv`.
