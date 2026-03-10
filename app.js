@@ -2,7 +2,16 @@
 const STORAGE_KEY = "tbr-warfare-state-v1";
 const FIELD = { width: 1180, height: 760 };
 const SPEED_OPTIONS = [0.35, 0.65, 1, 1.4, 1.85];
+const BANNER_FLOAT_OFFSET = 76;
+const MAX_BATTLE_FACTIONS = 10;
 const DEFAULT_COMPOSITION = { archer: 1, mage: 1, knight: 1, medic: 0, bomber: 0 };
+const ARENA_THEMES = [
+  { name: "Sunlit Vale", top: "#90b370", bottom: "#45643a", glow: "rgba(255,225,163,0.45)", ground: "#213018" },
+  { name: "Moss March", top: "#7ea07c", bottom: "#395d45", glow: "rgba(179,226,205,0.32)", ground: "#1b3428" },
+  { name: "Copper Plain", top: "#a08d68", bottom: "#6b5a3e", glow: "rgba(255,212,163,0.32)", ground: "#31271c" },
+  { name: "Blue Fen", top: "#7ba1a8", bottom: "#3b5661", glow: "rgba(175,223,255,0.28)", ground: "#1b2830" },
+];
+const WEATHER_OPTIONS = ["clear", "mist", "drizzle", "embers"];
 const UNIT_LIBRARY = [
   { id: "archer", name: "Archer", keywords: ["bow", "ranged", "arrow"] },
   { id: "mage", name: "Mage", keywords: ["magic", "orb", "beam", "wizard"] },
@@ -15,7 +24,7 @@ const UNIT_STATS = {
   mage: { maxHealth: 52, speed: 44, range: 180, abductRange: 310, damage: 16, cooldown: 2.05 },
   knight: { maxHealth: 210, speed: 28, range: 26, damage: 38, cooldown: 1.05 },
   medic: { maxHealth: 36, speed: 56, range: 16, heal: 18, cooldown: 1.9 },
-  bomber: { maxHealth: 62, speed: 40, range: 175, damage: 50, splash: 50, deathSplash: 70, cooldown: 2.3, fuse: 1.6 },
+  bomber: { maxHealth: 62, speed: 40, range: 255, damage: 50, splash: 62, deathSplash: 86, cooldown: 2.3, fuse: 1.6 },
 };
 const EXPLOSION_READABILITY_INSET = 5;
 const SAMPLE_BOOKS = [
@@ -48,6 +57,7 @@ const SAMPLE_BOOKS = [
 const state = {
   factions: [],
   battle: null,
+  tournament: null,
   images: new Map(),
   running: false,
   roundsApplied: 0,
@@ -76,6 +86,7 @@ const els = {
   runBattleBtn: document.getElementById("runBattleBtn"),
   resetBattleBtn: document.getElementById("resetBattleBtn"),
   advanceQueueBtn: document.getElementById("advanceQueueBtn"),
+  randomizeArenaBtn: document.getElementById("randomizeArenaBtn"),
   seedSampleBtn: document.getElementById("seedSampleBtn"),
   csvInput: document.getElementById("csvInput"),
   csvFileInput: document.getElementById("csvFileInput"),
@@ -85,9 +96,13 @@ const els = {
   battleState: document.getElementById("battleState"),
   winnerLabel: document.getElementById("winnerLabel"),
   roundCounter: document.getElementById("roundCounter"),
-  battleHighlight: document.getElementById("battleHighlight"),
+  arenaLabel: document.getElementById("arenaLabel"),
+  bracketSummary: document.getElementById("bracketSummary"),
+  bracketTracker: document.getElementById("bracketTracker"),
   battleTicker: document.getElementById("battleTicker"),
   winnerCard: document.getElementById("winnerCard"),
+  winnerModal: document.getElementById("winnerModal"),
+  closeWinnerModalBtn: document.getElementById("closeWinnerModalBtn"),
   speedControls: document.getElementById("speedControls"),
   template: document.getElementById("armyEditorTemplate"),
   compositionModal: document.getElementById("compositionModal"),
@@ -122,6 +137,7 @@ function bindUi() {
   els.runBattleBtn.addEventListener("click", startBattle);
   els.resetBattleBtn.addEventListener("click", resetBattle);
   els.advanceQueueBtn.addEventListener("click", applyWinnerToQueue);
+  els.randomizeArenaBtn.addEventListener("click", randomizeArenaAndWeather);
   els.seedSampleBtn.addEventListener("click", () => {
     state.factions = cloneData(SAMPLE_BOOKS).map(withFactionDefaults);
     state.roundsApplied = 0;
@@ -133,6 +149,7 @@ function bindUi() {
   els.importCsvBtn.addEventListener("click", importCsv);
   els.csvFileInput.addEventListener("change", importCsvFile);
   els.downloadCsvBtn.addEventListener("click", exportCsv);
+  els.closeWinnerModalBtn.addEventListener("click", closeWinnerModal);
   els.closeCompositionModalBtn.addEventListener("click", closeCompositionModal);
   els.cancelCompositionBtn.addEventListener("click", closeCompositionModal);
   els.saveCompositionBtn.addEventListener("click", saveCompositionModal);
@@ -142,6 +159,9 @@ function bindUi() {
   });
   els.compositionModal.addEventListener("click", (event) => {
     if (event.target.dataset.close) closeCompositionModal();
+  });
+  els.winnerModal.addEventListener("click", (event) => {
+    if (event.target.dataset.closeWinner) closeWinnerModal();
   });
   window.addEventListener("resize", sizeCanvas);
   els.canvas.addEventListener("pointerdown", onCanvasPointerDown);
@@ -377,6 +397,9 @@ function renderArmyEditors() {
   els.armyList.innerHTML = "";
   state.factions.forEach((faction) => {
     const fragment = els.template.content.cloneNode(true);
+    const card = fragment.querySelector(".army-card");
+    const isWinner = state.battle?.pendingWinner === faction.id;
+    if (isWinner) card.classList.add("winner-highlight");
     fragment.querySelector(".army-title").textContent = faction.title;
     fragment.querySelector(".army-meta").textContent = `${faction.armySize} troops - ${faction.submissionType}`;
     const thumb = fragment.querySelector(".cover-thumb");
@@ -532,13 +555,16 @@ function sizeCanvas() {
 
 function resetBattle() {
   state.running = false;
-  state.battle = buildBattle();
+  state.tournament = shouldUseTournament(state.factions) ? createTournament(state.factions) : null;
+  state.battle = buildActiveBattle();
   resetCamera();
-  els.battleState.textContent = "Ready";
+  els.battleState.textContent = state.tournament ? getCurrentMatchLabel(state.tournament) : "Ready";
   els.winnerLabel.textContent = "None yet";
-  els.winnerCard.classList.add("hidden");
-  setTicker(state.factions.length ? "Armies are awaiting the signal." : "Add at least one army to begin.");
-  setHighlight("Awaiting the clash");
+  closeWinnerModal();
+  renderArmyEditors();
+  renderBracketTracker();
+  updateAdvanceButtonLabel();
+  setTicker(state.factions.length ? getReadyMessage() : "Add at least one army to begin.");
 }
 
 function resetCamera() {
@@ -554,32 +580,218 @@ function resetCamera() {
 }
 
 function startBattle() {
-  if (state.factions.length < 2) {
+  const activeCombatants = getActiveBattleFactions();
+  if (activeCombatants.length < 2) {
     setTicker("At least two armies are required.");
     return;
   }
+  closeWinnerModal();
   state.running = true;
-  els.battleState.textContent = "Battling";
-  setTicker("The war for the next read has begun.");
+  els.battleState.textContent = state.tournament ? `${getCurrentMatchLabel(state.tournament)} in progress` : "Battling";
+  setTicker(state.tournament ? `${getCurrentMatchLabel(state.tournament)} begins in ${state.battle.arena.name}.` : "The war for the next read has begun.");
   setHighlight("Scouts report movement across the field");
+  renderBracketTracker();
 }
 
-function buildBattle() {
+function shouldUseTournament(factions) {
+  return factions.length > MAX_BATTLE_FACTIONS;
+}
+
+function getReadyMessage() {
+  if (!state.tournament) return "Armies are awaiting the signal.";
+  const match = getCurrentTournamentMatch(state.tournament);
+  return match ? `${getCurrentMatchLabel(state.tournament)} awaits in ${match.arena.name}.` : "Bracket stands ready.";
+}
+
+function buildActiveBattle() {
+  if (state.tournament) {
+    const match = getCurrentTournamentMatch(state.tournament);
+    if (match) {
+      return buildBattle(match.factionIds.map((id) => findSourceFaction(id)).filter(Boolean).map((faction) => cloneData(faction)), match.arena, {
+        tournamentRound: state.tournament.currentRoundIndex,
+        tournamentMatch: state.tournament.currentMatchIndex,
+      });
+    }
+  }
+  return buildBattle(state.factions, createArenaVariant(0, 0, state.factions.length), null);
+}
+
+function buildBattle(factionPool = state.factions, arena = createArenaVariant(0, 0, factionPool.length), meta = null) {
   const field = { ...FIELD, centerX: FIELD.width / 2, centerY: FIELD.height / 2, radius: 320 };
-  const factions = state.factions.map((faction, index) => {
-    const angle = (Math.PI * 2 * index) / Math.max(1, state.factions.length);
+  const factions = factionPool.map((faction, index) => {
+    const angle = (Math.PI * 2 * index) / Math.max(1, factionPool.length);
     const baseX = field.centerX + Math.cos(angle) * field.radius;
     const baseY = field.centerY + Math.sin(angle) * field.radius * 0.62;
     return {
       ...faction,
       color: factionColor(index),
       units: spawnUnitsForFaction(faction, baseX, baseY),
-      bannerPos: { x: baseX, y: baseY - 44 },
+      bannerPos: { x: baseX, y: baseY - BANNER_FLOAT_OFFSET },
       alive: true,
       image: getFactionImage(faction.coverUrl),
     };
   });
-  return { field, factions, projectiles: [], particles: [], spells: [], swipes: [], stuckArrows: [], bombs: [], pendingWinner: null, time: 0, notes: { dwindled: {}, slaughter: {}, killstreaks: {} } };
+  return {
+    field,
+    factions,
+    projectiles: [],
+    particles: [],
+    spells: [],
+    swipes: [],
+    stuckArrows: [],
+    bombs: [],
+    arena,
+    weatherField: createWeatherField(arena.weather),
+    props: buildFieldProps(field, arena),
+    pendingWinner: null,
+    completed: false,
+    meta,
+    time: 0,
+    notes: { dwindled: {}, slaughter: {}, killstreaks: {} },
+  };
+}
+
+function findSourceFaction(factionId) {
+  return state.factions.find((entry) => entry.id === factionId);
+}
+
+function getActiveBattleFactions() {
+  return state.battle?.factions || state.factions;
+}
+
+function createTournament(factions) {
+  const factionIds = factions.map((faction) => faction.id);
+  return {
+    originalFactionIds: factionIds,
+    currentRoundIndex: 0,
+    currentMatchIndex: 0,
+    rounds: [createTournamentRound(factionIds, 0)],
+    eliminated: Object.fromEntries(factionIds.map((id) => [id, { fled: 0, growth: 0, eliminated: false }])),
+    championId: null,
+    complete: false,
+  };
+}
+
+function createTournamentRound(factionIds, roundIndex) {
+  const groups = chunkEvenly(factionIds, Math.ceil(factionIds.length / MAX_BATTLE_FACTIONS));
+  return {
+    index: roundIndex,
+    label: getRoundLabel(roundIndex, groups.length, factionIds.length),
+    matches: groups.map((group, matchIndex) => ({
+      id: `round-${roundIndex}-match-${matchIndex}`,
+      label: getMatchLabel(roundIndex, matchIndex),
+      factionIds: group,
+      winnerId: null,
+      status: matchIndex === 0 ? "active" : "pending",
+      arena: createRandomArenaVariant(roundIndex, matchIndex, group.length),
+    })),
+  };
+}
+
+function chunkEvenly(items, groupCount) {
+  const count = Math.max(1, Math.min(groupCount, items.length));
+  const baseSize = Math.floor(items.length / count);
+  const extra = items.length % count;
+  const groups = [];
+  let cursor = 0;
+  for (let i = 0; i < count; i += 1) {
+    const size = baseSize + (i < extra ? 1 : 0);
+    groups.push(items.slice(cursor, cursor + size));
+    cursor += size;
+  }
+  return groups.filter((group) => group.length);
+}
+
+function getRoundLabel(roundIndex, matchCount, entrantCount) {
+  if (roundIndex === 0 && matchCount === 1) return "Grand Melee";
+  if (matchCount === 1) return roundIndex === 1 ? "Final Round" : `Final Round ${roundIndex}`;
+  return `Round ${roundIndex + 1}`;
+}
+
+function getMatchLabel(roundIndex, matchIndex) {
+  return `Heat ${matchIndex + 1}`;
+}
+
+function getCurrentTournamentMatch(tournament) {
+  return tournament?.rounds[tournament.currentRoundIndex]?.matches[tournament.currentMatchIndex] || null;
+}
+
+function getCurrentMatchLabel(tournament) {
+  const round = tournament?.rounds[tournament.currentRoundIndex];
+  const match = getCurrentTournamentMatch(tournament);
+  if (!round || !match) return "Ready";
+  return `${round.label} - ${match.label}`;
+}
+
+function createArenaVariant(roundIndex, matchIndex, factionCount) {
+  const theme = ARENA_THEMES[(roundIndex + matchIndex) % ARENA_THEMES.length];
+  const weather = WEATHER_OPTIONS[(roundIndex * 2 + matchIndex + factionCount) % WEATHER_OPTIONS.length];
+  return { ...theme, weather };
+}
+
+function createRandomArenaVariant(roundIndex = 0, matchIndex = 0, factionCount = 2) {
+  const fallbackTheme = createArenaVariant(roundIndex, matchIndex, factionCount);
+  const theme = ARENA_THEMES[Math.floor(Math.random() * ARENA_THEMES.length)] || fallbackTheme;
+  const weather = WEATHER_OPTIONS[Math.floor(Math.random() * WEATHER_OPTIONS.length)] || fallbackTheme.weather;
+  return { ...theme, weather };
+}
+
+function createWeatherField(weather) {
+  if (weather === "mist") {
+    return Array.from({ length: 8 }, () => ({
+      x: Math.random(),
+      y: 0.12 + Math.random() * 0.42,
+      width: 110 + Math.random() * 150,
+      height: 22 + Math.random() * 28,
+      speed: 10 + Math.random() * 22,
+      alpha: 0.04 + Math.random() * 0.06,
+    }));
+  }
+  if (weather === "drizzle") {
+    return Array.from({ length: 180 }, () => ({
+      x: Math.random(),
+      y: Math.random(),
+      length: 12 + Math.random() * 18,
+      drift: 8 + Math.random() * 11,
+      speed: 280 + Math.random() * 180,
+      alpha: 0.12 + Math.random() * 0.2,
+    }));
+  }
+  if (weather === "embers") {
+    return Array.from({ length: 42 }, () => ({
+      x: Math.random(),
+      y: Math.random(),
+      radius: 1.5 + Math.random() * 2.8,
+      speed: 18 + Math.random() * 28,
+      sway: 10 + Math.random() * 24,
+      glow: 150 + Math.floor(Math.random() * 80),
+      alpha: 0.16 + Math.random() * 0.22,
+    }));
+  }
+  return [];
+}
+
+function applyArenaToBattle(battle, arena) {
+  if (!battle) return;
+  battle.arena = arena;
+  battle.weatherField = createWeatherField(arena.weather);
+  battle.props = buildFieldProps(battle.field, arena);
+}
+
+function randomizeArenaAndWeather() {
+  if (!state.battle) return;
+  const activeCount = state.battle.factions?.length || state.factions.length || 2;
+  const roundIndex = state.battle.meta?.tournamentRound || 0;
+  const matchIndex = state.battle.meta?.tournamentMatch || 0;
+  const arena = createRandomArenaVariant(roundIndex, matchIndex, activeCount);
+  if (state.tournament) {
+    const match = getCurrentTournamentMatch(state.tournament);
+    if (match) match.arena = arena;
+  }
+  applyArenaToBattle(state.battle, arena);
+  renderBracketTracker();
+  const label = state.tournament ? getCurrentMatchLabel(state.tournament) : "Arena reset";
+  setTicker(`${label} now unfolds in ${arena.name} under ${arena.weather}.`);
 }
 
 function factionColor(index) {
@@ -690,11 +902,12 @@ function stepBattle(battle, dt) {
   updateBattleHighlights(battle);
 
   const contenders = battle.factions.filter((faction) => faction.units.some((unit) => !unit.dead && !unit.fled));
-  if (contenders.length <= 1 && !battle.pendingWinner) {
+  if (contenders.length <= 1 && !battle.completed) {
     const winner = contenders[0];
     battle.pendingWinner = winner ? winner.id : null;
+    battle.completed = true;
     state.running = false;
-    els.battleState.textContent = "Complete";
+    els.battleState.textContent = state.tournament ? `${getCurrentMatchLabel(state.tournament)} complete` : "Complete";
     if (winner) {
       els.winnerLabel.textContent = winner.title;
       setTicker(`${winner.title} survives the melee.`);
@@ -702,7 +915,10 @@ function stepBattle(battle, dt) {
     } else {
       els.winnerLabel.textContent = "Mutual destruction";
       setTicker("No army survived the field.");
+      showWinnerCard(null, battle);
     }
+    renderBracketTracker();
+    updateAdvanceButtonLabel();
   }
 }
 
@@ -711,7 +927,7 @@ function updateFactionBanner(faction) {
   if (!active.length) return;
   const sum = active.reduce((acc, unit) => ({ x: acc.x + unit.x, y: acc.y + unit.y }), { x: 0, y: 0 });
   faction.bannerPos.x += ((sum.x / active.length) - faction.bannerPos.x) * 0.08;
-  faction.bannerPos.y += (((sum.y / active.length) - 44) - faction.bannerPos.y) * 0.08;
+  faction.bannerPos.y += (((sum.y / active.length) - BANNER_FLOAT_OFFSET) - faction.bannerPos.y) * 0.08;
 }
 function updateUnit(unit, faction, battle, dt) {
   if (unit.dead || unit.fled) return;
@@ -728,7 +944,7 @@ function updateUnit(unit, faction, battle, dt) {
   const allies = findFaction(battle, faction.id).units.filter((ally) => !ally.dead && !ally.fled);
   const enemies = battle.factions.filter((entry) => entry.id !== faction.id).flatMap((entry) => entry.units.filter((enemy) => !enemy.dead && !enemy.fled));
   if (!enemies.length && unit.type !== "medic") return;
-  const target = unit.type === "medic" ? findMedicTarget(unit, allies) : findTarget(unit, enemies);
+  const target = unit.type === "medic" ? findMedicTarget(unit, allies) : findTarget(unit, enemies, allies);
   const distance = target ? Math.hypot(target.x - unit.x, target.y - unit.y) : 9999;
   const panicThreshold = unit.maxHealth * (0.28 + (1 - unit.bravery) * 0.3);
   unit.fleeing = unit.health < panicThreshold && Math.random() > unit.bravery * 0.86;
@@ -747,6 +963,9 @@ function updateUnit(unit, faction, battle, dt) {
   } else if (unit.type === "mage" && target && distance < 110) {
     desiredX = unit.x - (target.x - unit.x) * 0.85;
     desiredY = unit.y - (target.y - unit.y) * 0.85;
+  } else if (unit.type === "bomber" && target && distance < 150) {
+    desiredX = unit.x - (target.x - unit.x) * 1.15;
+    desiredY = unit.y - (target.y - unit.y) * 1.15;
   } else if (unit.type === "medic" && target && distance < 12) {
     desiredX = unit.x;
     desiredY = unit.y;
@@ -838,7 +1057,24 @@ function keepOnField(unit, field) {
   unit.y = clamp(unit.y, 20, field.height - 20);
 }
 
-function findTarget(unit, enemies) {
+function findTarget(unit, enemies, allies = []) {
+  if (unit.type === "bomber") {
+    let safest = enemies[0];
+    let bestScore = -Infinity;
+    enemies.forEach((enemy) => {
+      const distance = Math.hypot(enemy.x - unit.x, enemy.y - unit.y);
+      const nearestAlly = allies.length
+        ? Math.min(...allies.filter((ally) => ally.id !== unit.id).map((ally) => Math.hypot(enemy.x - ally.x, enemy.y - ally.y)))
+        : 0;
+      const safetyBias = Number.isFinite(nearestAlly) ? nearestAlly * 0.3 : 0;
+      const score = distance + safetyBias;
+      if (score > bestScore) {
+        bestScore = score;
+        safest = enemy;
+      }
+    });
+    return safest;
+  }
   let best = enemies[0];
   let bestScore = Infinity;
   enemies.forEach((enemy) => {
@@ -889,8 +1125,8 @@ function fireAttack(unit, target, battle) {
     return;
   }
   if (unit.type === "bomber") {
-    const endX = target.x + (Math.random() - 0.5) * 24;
-    const endY = target.y + (Math.random() - 0.5) * 24;
+    const endX = target.x + (Math.random() - 0.5) * 14;
+    const endY = target.y + (Math.random() - 0.5) * 14;
     const throwDistance = Math.hypot(endX - unit.x, endY - unit.y);
     battle.projectiles.push({ kind: "bomb", sourceId: unit.id, progress: 0, duration: clamp(0.48 + throwDistance / 250 + Math.random() * 0.12, 0.5, 1.15), startX: unit.x, startY: unit.y - 16, endX, endY, targetId: target.id, damage: UNIT_STATS.bomber.damage, radius: UNIT_STATS.bomber.splash, fuse: UNIT_STATS.bomber.fuse, landed: false, timer: 0 });
     return;
@@ -1068,45 +1304,70 @@ function spawnBurst(battle, x, y, color, count) {
 }
 
 function showWinnerCard(winner, battle) {
-  const alive = winner.units.filter((unit) => !unit.dead && !unit.fled).length;
-  const routed = winner.units.filter((unit) => unit.fled).length;
+  const alive = winner?.units.filter((unit) => !unit.dead && !unit.fled).length ?? 0;
+  const routed = winner?.units.filter((unit) => unit.fled).length ?? 0;
+  const tournamentMode = Boolean(state.tournament);
   const others = battle.factions
-    .filter((faction) => faction.id !== winner.id)
+    .filter((faction) => faction.id !== winner?.id)
     .map((faction) => {
       const growth = faction.submissionType === "paperback" ? 4 : 2;
       const fled = faction.units.filter((unit) => unit.fled).length;
       return { title: faction.title, current: faction.armySize, next: faction.armySize + growth + fled, growth, fled };
     })
-    .sort((a, b) => b.next - a.next);
+    .sort((a, b) => b.current - a.current);
 
-  els.winnerCard.innerHTML = `
+  const winnerCover = winner?.coverUrl ? `<img class="winner-card-cover" src="${winner.coverUrl}" alt="${winner.title} cover">` : "";
+
+  els.winnerCard.innerHTML = winner ? `
     <div class="winner-header">
-      <h3>${winner.title}</h3>
-      <p>${alive} soldiers held the field. ${routed} routed survivors were carried off.</p>
+      ${winnerCover}
+      <div class="winner-header-copy">
+        <span class="winner-kicker">${tournamentMode ? "Heat Won" : "Victory Confirmed"}</span>
+        <h3>${winner.title}</h3>
+        <p>${alive} soldiers held the field. ${routed} routed survivors were carried off.${tournamentMode ? " This army advances in the bracket." : ""}</p>
+      </div>
     </div>
     <div class="victory-list">
       ${others.map((entry) => `
         <div class="victory-entry">
           <div>
             <strong>${entry.title}</strong>
-            <p>${entry.current} -> ${entry.next} next round</p>
+            <p>${tournamentMode ? "Eliminated from the bracket" : `${entry.current} -> ${entry.next} next round`}</p>
           </div>
           <div class="victory-badges">
-            <span class="victory-badge">${entry.growth > 0 ? `+${entry.growth} base` : "+0 base"}</span>
-            <span class="victory-badge">${entry.fled > 0 ? `+${entry.fled} fled` : "+0 fled"}</span>
+            <span class="victory-badge">${tournamentMode ? "Out" : entry.growth > 0 ? `+${entry.growth} base` : "+0 base"}</span>
+            <span class="victory-badge">${tournamentMode ? `${entry.fled} fled` : entry.fled > 0 ? `+${entry.fled} fled` : "+0 fled"}</span>
           </div>
         </div>
       `).join("")}
     </div>
+  ` : `
+    <div class="winner-header">
+      <div class="winner-header-copy">
+        <span class="winner-kicker">Battle Complete</span>
+        <h3>Mutual destruction</h3>
+        <p>No title survived the field.</p>
+      </div>
+    </div>
   `;
-  els.winnerCard.classList.remove("hidden");
+  els.winnerModal.classList.remove("hidden");
+  renderArmyEditors();
 }
 
 function applyWinnerToQueue() {
-  if (!state.battle?.pendingWinner) {
+  if (!state.battle?.completed) {
     setTicker("Finish a battle before applying results.");
     return;
   }
+  if (state.tournament) {
+    advanceTournament();
+    return;
+  }
+  finalizeSingleBattle();
+}
+
+function finalizeSingleBattle() {
+  const hadWinner = Boolean(state.battle.pendingWinner);
   state.factions = state.battle.factions.flatMap((faction) => {
     if (faction.id === state.battle.pendingWinner) return [];
     const growth = faction.submissionType === "paperback" ? 4 : 2;
@@ -1118,7 +1379,80 @@ function applyWinnerToQueue() {
   syncCsvInput();
   renderArmyEditors();
   resetBattle();
-  setTicker("Winner removed. Remaining armies have been reinforced.");
+  setTicker(hadWinner ? "Winner removed. Remaining armies have been reinforced." : "No winner emerged. All surviving titles regroup with reinforcements.");
+}
+
+function advanceTournament() {
+  const tournament = state.tournament;
+  const round = tournament.rounds[tournament.currentRoundIndex];
+  const match = round.matches[tournament.currentMatchIndex];
+  const winnerId = state.battle.pendingWinner;
+
+  match.winnerId = winnerId;
+  match.status = "complete";
+  state.battle.factions.forEach((faction) => {
+    if (faction.id === winnerId) return;
+    const record = tournament.eliminated[faction.id];
+    if (!record.eliminated) {
+      record.eliminated = true;
+      record.fled = faction.units.filter((unit) => unit.fled).length;
+      record.growth = faction.submissionType === "paperback" ? 4 : 2;
+    }
+  });
+
+  const nextMatch = round.matches[tournament.currentMatchIndex + 1];
+  if (nextMatch) {
+    tournament.currentMatchIndex += 1;
+    nextMatch.status = "active";
+    nextMatch.arena = createRandomArenaVariant(tournament.currentRoundIndex, tournament.currentMatchIndex, nextMatch.factionIds.length);
+    state.battle = buildActiveBattle();
+    resetCamera();
+    closeWinnerModal();
+    els.battleState.textContent = getCurrentMatchLabel(tournament);
+    els.winnerLabel.textContent = winnerId ? findSourceFaction(winnerId)?.title || "Advancing" : "Mutual destruction";
+    setTicker(`${getCurrentMatchLabel(tournament)} is ready in ${nextMatch.arena.name}.`);
+    renderBracketTracker();
+    updateAdvanceButtonLabel();
+    renderArmyEditors();
+    return;
+  }
+
+  const advancingIds = round.matches.map((entry) => entry.winnerId).filter(Boolean);
+  if (advancingIds.length > 1) {
+    tournament.currentRoundIndex += 1;
+    tournament.currentMatchIndex = 0;
+    const upcomingRound = createTournamentRound(advancingIds, tournament.currentRoundIndex);
+    tournament.rounds.push(upcomingRound);
+    upcomingRound.matches[0].status = "active";
+    upcomingRound.matches[0].arena = createRandomArenaVariant(tournament.currentRoundIndex, 0, upcomingRound.matches[0].factionIds.length);
+    state.battle = buildActiveBattle();
+    resetCamera();
+    closeWinnerModal();
+    els.battleState.textContent = getCurrentMatchLabel(tournament);
+    els.winnerLabel.textContent = winnerId ? findSourceFaction(winnerId)?.title || "Advancing" : "Mutual destruction";
+    setTicker(`${upcomingRound.label} begins in ${upcomingRound.matches[0].arena.name}.`);
+    renderBracketTracker();
+    updateAdvanceButtonLabel();
+    renderArmyEditors();
+    return;
+  }
+
+  tournament.complete = true;
+  tournament.championId = advancingIds[0] || null;
+  state.factions = state.factions.flatMap((faction) => {
+    if (faction.id === tournament.championId) return [];
+    const record = tournament.eliminated[faction.id];
+    const growth = record?.growth || 0;
+    const fled = record?.fled || 0;
+    return [withFactionDefaults({ ...faction, armySize: faction.armySize + growth + fled, fledReserve: 0 })];
+  });
+  state.roundsApplied += 1;
+  state.tournament = null;
+  saveState();
+  syncCsvInput();
+  renderArmyEditors();
+  resetBattle();
+  setTicker(advancingIds[0] ? "Tournament complete. The champion is removed and the defeated armies regroup." : "Tournament complete with no surviving champion. The bracket resets around the remaining queue.");
 }
 
 function setTicker(text) {
@@ -1126,7 +1460,11 @@ function setTicker(text) {
 }
 
 function setHighlight(text) {
-  els.battleHighlight.textContent = text;
+  setTicker(text);
+}
+
+function closeWinnerModal() {
+  els.winnerModal.classList.add("hidden");
 }
 
 function updateBattleHighlights(battle) {
@@ -1252,8 +1590,9 @@ function render() {
   if (!state.battle) return;
   const viewport = getViewport();
   ctx.clearRect(0, 0, viewport.width, viewport.height);
-  drawField(viewport);
-  drawGroundDecor(viewport);
+  drawField(viewport, state.battle);
+  drawGroundDecor(viewport, state.battle);
+  drawGroundProps(viewport, state.battle.props || []);
   drawStuckArrows(viewport, state.battle.stuckArrows);
   drawBanners(viewport, state.battle.factions);
   drawProjectiles(viewport, state.battle.projectiles);
@@ -1261,29 +1600,256 @@ function render() {
   drawSwipes(viewport, state.battle.swipes);
   drawSpells(viewport, state.battle);
   drawParticles(viewport, state.battle.particles);
+  drawWeather(viewport, state.battle);
 }
 
-function drawField(viewport) {
-  ctx.fillStyle = "#213018";
+function drawField(viewport, battle) {
+  const arena = battle.arena || createArenaVariant(0, 0, battle.factions.length);
+  ctx.fillStyle = arena.ground;
   ctx.fillRect(0, 0, viewport.width, viewport.height);
   const top = worldToScreen(0, 0, viewport);
   const bottom = worldToScreen(FIELD.width, FIELD.height, viewport);
   const gradient = ctx.createLinearGradient(0, top.y, 0, bottom.y);
-  gradient.addColorStop(0, "#8fa27f");
-  gradient.addColorStop(0.5, "#5f744d");
-  gradient.addColorStop(1, "#475b39");
+  gradient.addColorStop(0, arena.top);
+  gradient.addColorStop(0.5, shadeColor(arena.top, -0.18));
+  gradient.addColorStop(1, arena.bottom);
   ctx.fillStyle = gradient;
   ctx.fillRect(top.x, top.y, bottom.x - top.x, bottom.y - top.y);
+  const glow = ctx.createRadialGradient(viewport.width * 0.5, viewport.height * 0.2, 10, viewport.width * 0.5, viewport.height * 0.2, viewport.height * 0.55);
+  glow.addColorStop(0, arena.glow);
+  glow.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, viewport.width, viewport.height);
 }
 
-function drawGroundDecor(viewport) {
+function drawGroundDecor(viewport, battle) {
   for (let i = 0; i < 28; i += 1) {
     const point = worldToScreen((i * 63) % FIELD.width, 90 + ((i * 97) % (FIELD.height - 180)), viewport);
-    ctx.fillStyle = i % 2 ? "rgba(255,235,180,0.05)" : "rgba(75,95,50,0.08)";
+    ctx.fillStyle = i % 2 ? hexToRgba(battle.arena?.top || "#8fa27f", 0.12) : "rgba(75,95,50,0.08)";
     ctx.beginPath();
     ctx.ellipse(point.x, point.y, 38 * point.scale / 2.2, 16 * point.scale / 2.2, 0, 0, Math.PI * 2);
     ctx.fill();
   }
+}
+
+function buildFieldProps(field, arena) {
+  const types = ["stones", "cart", "ruin", "camp", "stakes", "crate"];
+  const count = 10 + Math.floor(Math.random() * 5);
+  return Array.from({ length: count }, (_, index) => ({
+    id: `prop-${index}-${Math.random().toString(36).slice(2, 7)}`,
+    type: types[index % types.length],
+    x: 90 + Math.random() * (field.width - 180),
+    y: 100 + Math.random() * (field.height - 200),
+    scale: 0.82 + Math.random() * 0.75,
+    rotation: (Math.random() - 0.5) * 0.35,
+    tint: Math.random(),
+  })).sort((a, b) => a.y - b.y);
+}
+
+function drawWeather(viewport, battle) {
+  const weather = battle.arena?.weather;
+  if (!weather || weather === "clear") return;
+  const field = battle.weatherField || [];
+  ctx.save();
+  if (weather === "mist") {
+    field.forEach((cloud) => {
+      const x = ((cloud.x * viewport.width) + battle.time * cloud.speed) % (viewport.width + cloud.width * 2) - cloud.width;
+      const y = viewport.height * cloud.y;
+      ctx.fillStyle = `rgba(228, 238, 228, ${cloud.alpha})`;
+      ctx.beginPath();
+      ctx.ellipse(x, y, cloud.width, cloud.height, 0, 0, Math.PI * 2);
+      ctx.fill();
+    });
+  } else if (weather === "drizzle") {
+    ctx.lineWidth = 1.1;
+    field.forEach((drop) => {
+      const x = drop.x * viewport.width;
+      const y = ((drop.y * viewport.height) + battle.time * drop.speed) % (viewport.height + drop.length + 80) - drop.length - 40;
+      ctx.strokeStyle = `rgba(196, 223, 255, ${drop.alpha})`;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x - drop.drift, y + drop.length);
+      ctx.stroke();
+    });
+  } else if (weather === "embers") {
+    field.forEach((ember) => {
+      const x = ((ember.x * viewport.width) + Math.sin((battle.time + ember.x) * 1.4) * ember.sway);
+      const y = viewport.height - (((ember.y * viewport.height) + battle.time * ember.speed) % (viewport.height + 80));
+      ctx.fillStyle = `rgba(255, ${ember.glow}, 92, ${ember.alpha})`;
+      ctx.beginPath();
+      ctx.arc(x, y, ember.radius, 0, Math.PI * 2);
+      ctx.fill();
+    });
+  }
+  ctx.restore();
+}
+
+function drawGroundProps(viewport, props) {
+  props.forEach((prop) => {
+    const point = worldToScreen(prop.x, prop.y, viewport);
+    const scale = point.scale * prop.scale;
+    ctx.save();
+    ctx.translate(point.x, point.y);
+    ctx.rotate(prop.rotation);
+    ctx.fillStyle = "rgba(0,0,0,0.16)";
+    ctx.beginPath();
+    ctx.ellipse(0, 11 * scale / 2.1, 20 * scale / 2.1, 8 * scale / 2.1, 0, 0, Math.PI * 2);
+    ctx.fill();
+    if (prop.type === "cart") drawPropCart(scale, prop.tint);
+    if (prop.type === "ruin") drawPropRuin(scale, prop.tint);
+    if (prop.type === "camp") drawPropCamp(scale, prop.tint);
+    if (prop.type === "stakes") drawPropStakes(scale, prop.tint);
+    if (prop.type === "crate") drawPropCrate(scale, prop.tint);
+    if (prop.type === "stones") drawPropStones(scale, prop.tint);
+    ctx.restore();
+  });
+}
+
+function renderBracketTracker() {
+  const tournament = state.tournament;
+  if (!tournament) {
+    els.arenaLabel.textContent = state.battle?.arena?.name || "Single arena";
+    els.bracketSummary.textContent = state.factions.length > 1
+      ? `${state.factions.length} armies enter one decisive battle.`
+      : "One battle decides the next read.";
+    els.bracketTracker.innerHTML = state.factions.length ? `
+      <div class="bracket-match active">
+        <div class="bracket-match-header">
+          <p class="bracket-match-title">Grand Melee</p>
+          <span class="bracket-badge">${state.battle?.arena?.weather || "clear"}</span>
+        </div>
+        <div class="bracket-entries">
+          ${state.factions.map((faction) => `<div class="bracket-entry"><span>${faction.title}</span><span>${faction.armySize}</span></div>`).join("")}
+        </div>
+      </div>
+    ` : "";
+    return;
+  }
+
+  const currentMatch = getCurrentTournamentMatch(tournament);
+  els.arenaLabel.textContent = currentMatch?.arena?.name || "Bracket arena";
+  els.bracketSummary.textContent = tournament.complete
+    ? (tournament.championId ? `${findSourceFaction(tournament.championId)?.title || "A champion"} conquered the bracket.` : "No title survived the bracket.")
+    : `${tournament.originalFactionIds.length} armies have been split into ${tournament.rounds[0].matches.length} opening heats.`;
+
+  els.bracketTracker.innerHTML = tournament.rounds.map((round, roundIndex) => `
+    <section class="bracket-round">
+      <h3 class="bracket-round-title">${round.label}</h3>
+      ${round.matches.map((match, matchIndex) => `
+        <article class="bracket-match ${match.status}">
+          <div class="bracket-match-header">
+            <p class="bracket-match-title">${match.label}</p>
+            <span class="bracket-badge">${match.arena.weather}</span>
+          </div>
+          <div class="arena-weather">${match.arena.name}</div>
+          <div class="bracket-entries">
+            ${match.factionIds.map((factionId) => {
+              const faction = findSourceFaction(factionId);
+              const status = match.winnerId === factionId
+                ? "advanced"
+                : match.status === "complete"
+                  ? "eliminated"
+                  : roundIndex === tournament.currentRoundIndex && matchIndex === tournament.currentMatchIndex
+                    ? "active"
+                    : "pending";
+              const statusLabel = match.winnerId === factionId ? "Advances" : match.status === "complete" ? "Out" : "Queued";
+              return `<div class="bracket-entry ${status}"><span>${faction?.title || "TBD"}</span><span>${statusLabel}</span></div>`;
+            }).join("")}
+          </div>
+        </article>
+      `).join("")}
+    </section>
+  `).join("");
+}
+
+function updateAdvanceButtonLabel() {
+  if (state.tournament && !state.tournament.complete) {
+    els.advanceQueueBtn.textContent = "Advance Bracket";
+    return;
+  }
+  els.advanceQueueBtn.textContent = "Apply Winner To Queue";
+}
+
+function drawPropCart(scale, tint) {
+  ctx.fillStyle = tint > 0.5 ? "#7b5733" : "#855f3a";
+  ctx.fillRect(-15 * scale / 2.1, -2 * scale / 2.1, 30 * scale / 2.1, 13 * scale / 2.1);
+  ctx.fillStyle = "#96714a";
+  ctx.fillRect(-10 * scale / 2.1, -9 * scale / 2.1, 20 * scale / 2.1, 8 * scale / 2.1);
+  ctx.strokeStyle = "#403022";
+  ctx.lineWidth = 2 * scale / 2.1;
+  ctx.beginPath();
+  ctx.arc(-10 * scale / 2.1, 12 * scale / 2.1, 6 * scale / 2.1, 0, Math.PI * 2);
+  ctx.arc(10 * scale / 2.1, 12 * scale / 2.1, 6 * scale / 2.1, 0, Math.PI * 2);
+  ctx.stroke();
+}
+
+function drawPropRuin(scale, tint) {
+  ctx.fillStyle = tint > 0.5 ? "#92836d" : "#7d705d";
+  ctx.beginPath();
+  ctx.moveTo(-16 * scale / 2.1, 9 * scale / 2.1);
+  ctx.lineTo(-12 * scale / 2.1, -10 * scale / 2.1);
+  ctx.lineTo(-2 * scale / 2.1, -4 * scale / 2.1);
+  ctx.lineTo(5 * scale / 2.1, -14 * scale / 2.1);
+  ctx.lineTo(15 * scale / 2.1, 8 * scale / 2.1);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = "rgba(56, 47, 39, 0.32)";
+  ctx.fillRect(-3 * scale / 2.1, -2 * scale / 2.1, 5 * scale / 2.1, 10 * scale / 2.1);
+}
+
+function drawPropCamp(scale, tint) {
+  ctx.fillStyle = tint > 0.5 ? "#9f6f43" : "#b17c4b";
+  ctx.beginPath();
+  ctx.moveTo(-14 * scale / 2.1, 9 * scale / 2.1);
+  ctx.lineTo(0, -13 * scale / 2.1);
+  ctx.lineTo(14 * scale / 2.1, 9 * scale / 2.1);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = "#e7ba78";
+  ctx.lineWidth = 2 * scale / 2.1;
+  ctx.beginPath();
+  ctx.moveTo(-4 * scale / 2.1, 10 * scale / 2.1);
+  ctx.lineTo(0, 2 * scale / 2.1);
+  ctx.lineTo(4 * scale / 2.1, 10 * scale / 2.1);
+  ctx.stroke();
+  ctx.fillStyle = "rgba(255, 178, 88, 0.62)";
+  ctx.beginPath();
+  ctx.arc(0, 4 * scale / 2.1, 3 * scale / 2.1, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawPropStakes(scale, tint) {
+  ctx.strokeStyle = tint > 0.5 ? "#6b4d2d" : "#7e5a35";
+  ctx.lineWidth = 2.2 * scale / 2.1;
+  for (let i = -2; i <= 2; i += 1) {
+    ctx.beginPath();
+    ctx.moveTo(i * 6 * scale / 2.1, 10 * scale / 2.1);
+    ctx.lineTo((i * 6 + (i % 2 ? -2 : 2)) * scale / 2.1, -8 * scale / 2.1);
+    ctx.stroke();
+  }
+}
+
+function drawPropCrate(scale, tint) {
+  ctx.fillStyle = tint > 0.5 ? "#8c6138" : "#7a5330";
+  ctx.fillRect(-11 * scale / 2.1, -7 * scale / 2.1, 22 * scale / 2.1, 18 * scale / 2.1);
+  ctx.strokeStyle = "#4f3823";
+  ctx.lineWidth = 2 * scale / 2.1;
+  ctx.strokeRect(-11 * scale / 2.1, -7 * scale / 2.1, 22 * scale / 2.1, 18 * scale / 2.1);
+  ctx.beginPath();
+  ctx.moveTo(-11 * scale / 2.1, 1 * scale / 2.1);
+  ctx.lineTo(11 * scale / 2.1, 1 * scale / 2.1);
+  ctx.moveTo(0, -7 * scale / 2.1);
+  ctx.lineTo(0, 11 * scale / 2.1);
+  ctx.stroke();
+}
+
+function drawPropStones(scale, tint) {
+  ctx.fillStyle = tint > 0.5 ? "#8f8b80" : "#757266";
+  [[-10, 6, 8], [0, 0, 10], [11, 7, 6], [-2, 8, 5]].forEach(([x, y, radius]) => {
+    ctx.beginPath();
+    ctx.arc(x * scale / 2.1, y * scale / 2.1, radius * scale / 2.1, 0, Math.PI * 2);
+    ctx.fill();
+  });
 }
 
 function drawBanners(viewport, factions) {
@@ -1291,30 +1857,90 @@ function drawBanners(viewport, factions) {
     if (!faction.alive) return;
     const point = worldToScreen(faction.bannerPos.x, faction.bannerPos.y, viewport);
     const scale = point.scale;
-    ctx.strokeStyle = "rgba(50, 28, 16, 0.8)";
+    const poleHeight = 96 * scale / 2.1;
+    const clothWidth = 44 * scale / 2.1;
+    const clothHeight = 92 * scale / 2.1;
+    const clothLeft = point.x + 6 * scale / 2.1;
+    const clothTop = point.y - 2 * scale / 2.1;
+    const clothBottom = clothTop + clothHeight;
+
+    ctx.strokeStyle = "rgba(50, 28, 16, 0.84)";
     ctx.lineWidth = Math.max(2, 4 * scale / 2.1);
     ctx.beginPath();
-    ctx.moveTo(point.x, point.y);
-    ctx.lineTo(point.x, point.y + 50 * scale / 2.1);
+    ctx.moveTo(point.x, point.y - 8 * scale / 2.1);
+    ctx.lineTo(point.x, point.y + poleHeight);
     ctx.stroke();
-    ctx.fillStyle = faction.color;
+    ctx.fillStyle = "#d8c6a2";
     ctx.beginPath();
-    ctx.moveTo(point.x, point.y);
-    ctx.lineTo(point.x + 34 * scale / 2.1, point.y + 12 * scale / 2.1);
-    ctx.lineTo(point.x, point.y + 24 * scale / 2.1);
-    ctx.closePath();
+    ctx.arc(point.x, point.y - 10 * scale / 2.1, 4.2 * scale / 2.1, 0, Math.PI * 2);
     ctx.fill();
-    ctx.fillStyle = "rgba(255,248,232,0.95)";
-    ctx.fillRect(point.x + 2 * scale / 2.1, point.y + 3 * scale / 2.1, 19 * scale / 2.1, 18 * scale / 2.1);
+
+    ctx.save();
+    traceBannerCloth(clothLeft, clothTop, clothWidth, clothBottom, scale);
+    ctx.fillStyle = faction.color;
+    ctx.fill();
+    ctx.clip();
+
     if (faction.image && faction.image.complete) {
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(point.x + 2 * scale / 2.1, point.y + 3 * scale / 2.1, 19 * scale / 2.1, 18 * scale / 2.1);
-      ctx.clip();
-      ctx.drawImage(faction.image, point.x + 2 * scale / 2.1, point.y + 3 * scale / 2.1, 19 * scale / 2.1, 18 * scale / 2.1);
-      ctx.restore();
+      const imageTop = clothTop + 6 * scale / 2.1;
+      const imageHeight = 52 * scale / 2.1;
+      ctx.drawImage(faction.image, clothLeft + 3 * scale / 2.1, imageTop, clothWidth - 6 * scale / 2.1, imageHeight);
+    } else {
+      const bannerGradient = ctx.createLinearGradient(clothLeft, clothTop, clothLeft, clothBottom);
+      bannerGradient.addColorStop(0, shadeColor(faction.color, 0.2));
+      bannerGradient.addColorStop(1, shadeColor(faction.color, -0.18));
+      ctx.fillStyle = bannerGradient;
+      ctx.fillRect(clothLeft, clothTop, clothWidth, clothHeight);
     }
+
+    ctx.fillStyle = "rgba(255, 246, 223, 0.88)";
+    ctx.fillRect(clothLeft + 4 * scale / 2.1, clothTop + 60 * scale / 2.1, clothWidth - 8 * scale / 2.1, 20 * scale / 2.1);
+    ctx.restore();
+
+    ctx.strokeStyle = "rgba(54, 35, 22, 0.72)";
+    ctx.lineWidth = Math.max(1.8, 2.8 * scale / 2.1);
+    traceBannerCloth(clothLeft, clothTop, clothWidth, clothBottom, scale);
+    ctx.stroke();
+
+    ctx.fillStyle = "#3b2718";
+    ctx.font = `${Math.max(8, 10 * scale / 2.1)}px "Cinzel", serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    const bannerLines = formatBannerTitle(faction.title);
+    bannerLines.forEach((line, index) => {
+      ctx.fillText(line, clothLeft + clothWidth / 2, clothTop + (67 + index * 9) * scale / 2.1, clothWidth - 10 * scale / 2.1);
+    });
   });
+}
+
+function formatBannerTitle(title) {
+  const words = `${title || ""}`.trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return ["Untitled"];
+  if (words.length === 1) return [truncateBannerTitle(words[0], 10)];
+  return [
+    truncateBannerTitle(words.slice(0, Math.ceil(words.length / 2)).join(" "), 12),
+    truncateBannerTitle(words.slice(Math.ceil(words.length / 2)).join(" "), 12),
+  ];
+}
+
+function traceBannerCloth(clothLeft, clothTop, clothWidth, clothBottom, scale) {
+  ctx.beginPath();
+  ctx.moveTo(clothLeft, clothTop);
+  ctx.lineTo(clothLeft + clothWidth, clothTop);
+  ctx.lineTo(clothLeft + clothWidth, clothBottom - 18 * scale / 2.1);
+  ctx.lineTo(clothLeft + clothWidth / 2, clothBottom);
+  ctx.lineTo(clothLeft, clothBottom - 18 * scale / 2.1);
+  ctx.closePath();
+}
+
+function truncateBannerTitle(text, maxLength) {
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, Math.max(0, maxLength - 3)).trim()}...`;
+}
+
+function truncateTitle(text, maxLength) {
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, Math.max(0, maxLength - 1)).trim()}…`;
 }
 
 function drawProjectiles(viewport, projectiles) {
@@ -1501,47 +2127,69 @@ function drawMedic(main, dark, light, scale, unit) {
   drawStepLegs(dark, scale, unit, 5.8, 9.5);
   ctx.fillStyle = main;
   ctx.beginPath();
-  ctx.moveTo(0, -11 * scale / 2.1);
-  ctx.lineTo(9 * scale / 2.1, -1 * scale / 2.1);
-  ctx.lineTo(6 * scale / 2.1, 11 * scale / 2.1);
-  ctx.lineTo(-6 * scale / 2.1, 11 * scale / 2.1);
-  ctx.lineTo(-9 * scale / 2.1, -1 * scale / 2.1);
+  ctx.moveTo(0, -13 * scale / 2.1);
+  ctx.lineTo(10 * scale / 2.1, -3 * scale / 2.1);
+  ctx.lineTo(8 * scale / 2.1, 10 * scale / 2.1);
+  ctx.lineTo(2 * scale / 2.1, 13 * scale / 2.1);
+  ctx.lineTo(-2 * scale / 2.1, 13 * scale / 2.1);
+  ctx.lineTo(-8 * scale / 2.1, 10 * scale / 2.1);
+  ctx.lineTo(-10 * scale / 2.1, -3 * scale / 2.1);
   ctx.closePath();
   ctx.fill();
   ctx.fillStyle = light;
   ctx.beginPath();
-  ctx.arc(0, -13 * scale / 2.1, 4.8 * scale / 2.1, 0, Math.PI * 2);
+  ctx.arc(0, -14 * scale / 2.1, 4.9 * scale / 2.1, 0, Math.PI * 2);
   ctx.fill();
+  ctx.fillStyle = "rgba(255,255,255,0.82)";
+  ctx.fillRect(-4 * scale / 2.1, -2 * scale / 2.1, 8 * scale / 2.1, 8 * scale / 2.1);
   ctx.strokeStyle = dark;
   ctx.lineWidth = 2 * scale / 2.1;
   ctx.beginPath();
-  ctx.moveTo(0, -2 * scale / 2.1);
-  ctx.lineTo(0, 6 * scale / 2.1);
-  ctx.moveTo(-4 * scale / 2.1, 2 * scale / 2.1);
-  ctx.lineTo(4 * scale / 2.1, 2 * scale / 2.1);
+  ctx.moveTo(0, -1.5 * scale / 2.1);
+  ctx.lineTo(0, 5.5 * scale / 2.1);
+  ctx.moveTo(-3.5 * scale / 2.1, 2 * scale / 2.1);
+  ctx.lineTo(3.5 * scale / 2.1, 2 * scale / 2.1);
+  ctx.moveTo(8 * scale / 2.1, -1 * scale / 2.1);
+  ctx.lineTo(14 * scale / 2.1, -10 * scale / 2.1);
   ctx.stroke();
+  ctx.fillStyle = shadeColor(main, -0.12);
+  ctx.fillRect(-9 * scale / 2.1, 1 * scale / 2.1, 3 * scale / 2.1, 8 * scale / 2.1);
 }
 
 function drawBomber(main, dark, light, scale, unit) {
   drawStepLegs(dark, scale, unit, 6.1, 11);
   ctx.fillStyle = main;
   ctx.beginPath();
-  ctx.ellipse(0, 1 * scale / 2.1, 10 * scale / 2.1, 12 * scale / 2.1, 0, 0, Math.PI * 2);
+  ctx.moveTo(0, -11 * scale / 2.1);
+  ctx.lineTo(10 * scale / 2.1, -4 * scale / 2.1);
+  ctx.lineTo(12 * scale / 2.1, 7 * scale / 2.1);
+  ctx.lineTo(3 * scale / 2.1, 14 * scale / 2.1);
+  ctx.lineTo(-6 * scale / 2.1, 12 * scale / 2.1);
+  ctx.lineTo(-10 * scale / 2.1, 2 * scale / 2.1);
+  ctx.lineTo(-8 * scale / 2.1, -7 * scale / 2.1);
+  ctx.closePath();
   ctx.fill();
   ctx.fillStyle = light;
   ctx.beginPath();
   ctx.arc(0, -12 * scale / 2.1, 5.2 * scale / 2.1, 0, Math.PI * 2);
   ctx.fill();
+  ctx.fillStyle = shadeColor(main, -0.18);
+  ctx.fillRect(-6 * scale / 2.1, -1 * scale / 2.1, 12 * scale / 2.1, 3 * scale / 2.1);
+  ctx.fillRect(-6 * scale / 2.1, 5 * scale / 2.1, 12 * scale / 2.1, 3 * scale / 2.1);
   ctx.fillStyle = "#2c2217";
   ctx.beginPath();
-  ctx.arc(11 * scale / 2.1, 2 * scale / 2.1, 5 * scale / 2.1, 0, Math.PI * 2);
+  ctx.arc(12 * scale / 2.1, 4 * scale / 2.1, 5.6 * scale / 2.1, 0, Math.PI * 2);
   ctx.fill();
   ctx.strokeStyle = "#f0ad62";
   ctx.lineWidth = 2 * scale / 2.1;
   ctx.beginPath();
-  ctx.moveTo(12 * scale / 2.1, -2 * scale / 2.1);
-  ctx.lineTo(16 * scale / 2.1, -8 * scale / 2.1);
+  ctx.moveTo(12 * scale / 2.1, 0);
+  ctx.lineTo(16 * scale / 2.1, -7 * scale / 2.1);
+  ctx.moveTo(-7 * scale / 2.1, -2 * scale / 2.1);
+  ctx.lineTo(-14 * scale / 2.1, -10 * scale / 2.1);
   ctx.stroke();
+  ctx.fillStyle = "#80562f";
+  ctx.fillRect(-13 * scale / 2.1, -12 * scale / 2.1, 7 * scale / 2.1, 11 * scale / 2.1);
 }
 function drawKnight(main, dark, light, scale, unit) {
   drawStepLegs(dark, scale, unit, 7.5, 12);

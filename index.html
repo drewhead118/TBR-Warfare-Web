@@ -22,6 +22,7 @@
         </div>
         <div class="button-row">
           <button id="advanceQueueBtn" class="accent">Apply Winner To Queue</button>
+          <button id="randomizeArenaBtn" class="secondary">Randomize Arena + Weather</button>
           <button id="seedSampleBtn" class="ghost">Load Sample Armies</button>
         </div>
       </div>
@@ -39,10 +40,15 @@
           <span class="status-label">Rounds Applied</span>
           <strong id="roundCounter">0</strong>
         </div>
-        <div class="status-block">
-          <span class="status-label">Field Notes</span>
-          <strong id="battleHighlight">Awaiting the clash</strong>
+      </div>
+
+      <div class="panel-section bracket-panel">
+        <div class="section-heading">
+          <h2>War Bracket</h2>
+          <span id="arenaLabel">Single arena</span>
         </div>
+        <p id="bracketSummary" class="hint">One battle decides the next read.</p>
+        <div id="bracketTracker" class="bracket-tracker"></div>
       </div>
 
       <div class="panel-section import-panel">
@@ -92,8 +98,14 @@
         <div class="battle-overlay">
           <div id="battleTicker" class="ticker">Awaiting armies.</div>
         </div>
+        <div id="winnerModal" class="winner-modal hidden">
+          <div class="winner-modal-backdrop" data-close-winner="true"></div>
+          <div class="winner-modal-card">
+            <button id="closeWinnerModalBtn" class="ghost small winner-modal-close">Close</button>
+            <div id="winnerCard" class="winner-card"></div>
+          </div>
+        </div>
       </div>
-      <div id="winnerCard" class="winner-card hidden"></div>
     </main>
   </div>
 
