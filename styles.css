@@ -406,18 +406,105 @@ canvas.is-dragging { cursor: grabbing; }
   inset: 0;
   pointer-events: none;
   display: flex;
-  justify-content: center;
+  flex-direction: column;
+  align-items: center;
   padding-top: 16px;
   z-index: 2;
 }
 .ticker {
-  align-self: flex-start;
+  align-self: center;
   padding: 10px 16px;
   border-radius: 999px;
   background: rgba(32, 21, 13, 0.75);
   border: 1px solid rgba(255, 229, 188, 0.12);
   color: var(--text-main);
   box-shadow: 0 12px 30px rgba(0, 0, 0, 0.25);
+}
+.knockout-announcement {
+  position: absolute;
+  left: 50%;
+  bottom: 36px;
+  width: min(720px, calc(100% - 40px));
+  opacity: 0;
+  transform: translate(-50%, 42px) scale(0.92);
+  transition: opacity 220ms ease, transform 280ms cubic-bezier(.2,.8,.2,1);
+}
+.knockout-announcement.active {
+  opacity: 1;
+  transform: translate(-50%, 0) scale(1);
+}
+.knockout-announcement.exiting {
+  opacity: 0;
+  transform: translate(-50%, -28px) scale(1.03);
+}
+.knockout-card {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 18px;
+  align-items: center;
+  padding: 18px;
+  border-radius: 26px;
+  border: 1px solid rgba(255, 226, 173, 0.38);
+  background:
+    linear-gradient(135deg, rgba(110, 27, 16, 0.96), rgba(42, 12, 9, 0.95) 58%, rgba(20, 10, 8, 0.94)),
+    radial-gradient(circle at top left, rgba(255, 196, 109, 0.24), transparent 36%);
+  box-shadow:
+    0 24px 60px rgba(0, 0, 0, 0.34),
+    0 0 0 1px rgba(255, 223, 163, 0.08) inset;
+}
+.knockout-cover,
+.knockout-cover-fallback {
+  width: 120px;
+  height: 170px;
+  border-radius: 18px;
+  border: 2px solid rgba(255, 220, 143, 0.72);
+  box-shadow: 0 18px 36px rgba(0, 0, 0, 0.28);
+}
+.knockout-cover {
+  object-fit: cover;
+  background: rgba(255, 247, 232, 0.08);
+}
+.knockout-cover-fallback {
+  display: grid;
+  place-items: center;
+  padding: 14px;
+  text-align: center;
+  font-family: "Cinzel", serif;
+  font-size: 1.8rem;
+  letter-spacing: 0.08em;
+  color: #fff0cf;
+  background:
+    linear-gradient(160deg, rgba(255, 210, 136, 0.3), rgba(87, 16, 12, 0.88)),
+    rgba(255, 247, 232, 0.08);
+}
+.knockout-copy {
+  display: grid;
+  gap: 8px;
+}
+.knockout-kicker {
+  color: #ffd898;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+.knockout-headline {
+  margin: 0;
+  font-family: "Cinzel", serif;
+  font-size: clamp(1.5rem, 3.2vw, 2.5rem);
+  line-height: 1.02;
+  color: #fff5e2;
+  text-transform: uppercase;
+}
+.knockout-title {
+  margin: 0;
+  font-size: clamp(1rem, 2vw, 1.18rem);
+  color: #ffd898;
+}
+.knockout-subline {
+  margin: 0;
+  color: rgba(255, 238, 213, 0.88);
+  line-height: 1.45;
 }
 .winner-modal {
   position: absolute;
@@ -487,6 +574,25 @@ canvas.is-dragging { cursor: grabbing; }
   }
   .speed-controls {
     flex-wrap: wrap;
+  }
+  .knockout-announcement {
+    bottom: 18px;
+    width: min(560px, calc(100% - 24px));
+  }
+  .knockout-card {
+    grid-template-columns: 84px 1fr;
+    gap: 14px;
+    padding: 14px;
+    border-radius: 20px;
+  }
+  .knockout-cover,
+  .knockout-cover-fallback {
+    width: 84px;
+    height: 120px;
+    border-radius: 14px;
+  }
+  .knockout-cover-fallback {
+    font-size: 1.25rem;
   }
 }
 

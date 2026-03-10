@@ -15,7 +15,7 @@
       <div class="panel-section hero-panel">
         <p class="eyebrow">Book Queue Battle Simulator</p>
         <h1>TBR Warfare</h1>
-        <p class="lede">Let the unread books settle the queue order in a lively 2.5D battlefield.</p>
+        <p class="lede">Let the unread books settle the queue order</p>
         <div class="button-row">
           <button id="runBattleBtn" class="primary">Run Battle</button>
           <button id="resetBattleBtn" class="secondary">Reset Battle</button>
@@ -82,11 +82,6 @@
           <p class="camera-hint">Drag to pan. Mousewheel to zoom. The camera recenters after a few seconds of inactivity.</p>
         </div>
         <div class="battle-header-controls">
-          <div class="legend">
-            <span><i class="legend-swatch archers"></i>Archers</span>
-            <span><i class="legend-swatch mages"></i>Mages</span>
-            <span><i class="legend-swatch knights"></i>Knights</span>
-          </div>
           <div class="speed-panel">
             <span class="speed-label">Combat Speed</span>
             <div id="speedControls" class="speed-controls"></div>
@@ -97,6 +92,7 @@
         <canvas id="battleCanvas" width="1400" height="900"></canvas>
         <div class="battle-overlay">
           <div id="battleTicker" class="ticker">Awaiting armies.</div>
+          <div id="knockoutAnnouncement" class="knockout-announcement" aria-live="polite"></div>
         </div>
         <div id="winnerModal" class="winner-modal hidden">
           <div class="winner-modal-backdrop" data-close-winner="true"></div>

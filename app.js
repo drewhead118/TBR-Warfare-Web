@@ -242,6 +242,7 @@ const els = {
   bracketSummary: document.getElementById("bracketSummary"),
   bracketTracker: document.getElementById("bracketTracker"),
   battleTicker: document.getElementById("battleTicker"),
+  knockoutAnnouncement: document.getElementById("knockoutAnnouncement"),
   winnerCard: document.getElementById("winnerCard"),
   winnerModal: document.getElementById("winnerModal"),
   closeWinnerModalBtn: document.getElementById("closeWinnerModalBtn"),
@@ -790,6 +791,7 @@ function resetBattle() {
   state.running = false;
   state.tournament = shouldUseTournament(state.factions) ? createTournament(state.factions) : null;
   state.battle = buildActiveBattle();
+  clearKnockoutAnnouncement();
   resetCamera();
   els.battleState.textContent = state.tournament ? getCurrentMatchLabel(state.tournament) : "Ready";
   els.winnerLabel.textContent = "None yet";
@@ -819,6 +821,7 @@ function startBattle() {
     return;
   }
   closeWinnerModal();
+  clearKnockoutAnnouncement();
   state.running = true;
   els.battleState.textContent = state.tournament ? `${getCurrentMatchLabel(state.tournament)} in progress` : "Battling";
   setTicker(state.tournament ? `${getCurrentMatchLabel(state.tournament)} begins in ${state.battle.arena.name}.` : "The war for the next read has begun.");
@@ -881,7 +884,9 @@ function buildBattle(factionPool = state.factions, arena = createArenaVariant(0,
     completed: false,
     meta,
     time: 0,
-    notes: { dwindled: {}, slaughter: {}, killstreaks: {} },
+    notes: { dwindled: {}, slaughter: {}, killstreaks: {}, extinguished: {} },
+    knockoutQueue: [],
+    activeKnockout: null,
   };
 }
 
@@ -1206,6 +1211,7 @@ function stepBattle(battle, dt) {
   updateSpells(battle, dt);
   updateSwipes(battle, dt);
   updateStuckArrows(battle, dt);
+  updateFactionExtinctions(battle);
   updateBattleHighlights(battle);
 
   const contenders = battle.factions.filter((faction) => faction.units.some((unit) => !unit.dead && !unit.fled));
@@ -1227,6 +1233,18 @@ function stepBattle(battle, dt) {
     renderBracketTracker();
     updateAdvanceButtonLabel();
   }
+}
+
+function updateFactionExtinctions(battle) {
+  battle.factions.forEach((faction) => {
+    const active = faction.units.filter((unit) => !unit.dead && !unit.fled).length;
+    faction.alive = active > 0;
+    if (active === 0 && !battle.notes.extinguished[faction.id]) {
+      battle.notes.extinguished[faction.id] = true;
+      queueKnockoutAnnouncement(battle, faction);
+      setHighlight(`${faction.title} has been wiped from the field`);
+    }
+  });
 }
 
 function updateFactionBanner(faction) {
@@ -1904,6 +1922,85 @@ function setTicker(text) {
 
 function setHighlight(text) {
   setTicker(text);
+}
+
+function queueKnockoutAnnouncement(battle, faction) {
+  battle.knockoutQueue.push({
+    id: `${faction.id}-${Math.round(battle.time * 1000)}`,
+    title: faction.title,
+    coverUrl: faction.coverUrl,
+  });
+  if (!battle.activeKnockout) showNextKnockoutAnnouncement(battle);
+}
+
+function showNextKnockoutAnnouncement(battle) {
+  const next = battle.knockoutQueue.shift();
+  battle.activeKnockout = next || null;
+  if (!next) {
+    clearKnockoutAnnouncement();
+    return;
+  }
+
+  els.knockoutAnnouncement.innerHTML = buildKnockoutAnnouncementMarkup(next);
+  els.knockoutAnnouncement.classList.remove("exiting");
+  requestAnimationFrame(() => {
+    els.knockoutAnnouncement.classList.add("active");
+  });
+
+  window.clearTimeout(els.knockoutAnnouncement._exitTimer);
+  window.clearTimeout(els.knockoutAnnouncement._clearTimer);
+  els.knockoutAnnouncement._exitTimer = window.setTimeout(() => {
+    els.knockoutAnnouncement.classList.add("exiting");
+    els.knockoutAnnouncement.classList.remove("active");
+  }, 2200);
+  els.knockoutAnnouncement._clearTimer = window.setTimeout(() => {
+    if (battle.activeKnockout?.id === next.id) battle.activeKnockout = null;
+    els.knockoutAnnouncement.classList.remove("exiting");
+    els.knockoutAnnouncement.innerHTML = "";
+    showNextKnockoutAnnouncement(battle);
+  }, 2580);
+}
+
+function clearKnockoutAnnouncement() {
+  if (state.battle) {
+    state.battle.knockoutQueue = [];
+    state.battle.activeKnockout = null;
+  }
+  window.clearTimeout(els.knockoutAnnouncement._exitTimer);
+  window.clearTimeout(els.knockoutAnnouncement._clearTimer);
+  els.knockoutAnnouncement.classList.remove("active", "exiting");
+  els.knockoutAnnouncement.innerHTML = "";
+}
+
+function buildKnockoutAnnouncementMarkup(entry) {
+  const safeTitle = escapeHtml(entry.title);
+  const cover = entry.coverUrl
+    ? `<img class="knockout-cover" src="${escapeHtml(entry.coverUrl)}" alt="${safeTitle} cover">`
+    : `<div class="knockout-cover-fallback" aria-hidden="true">${escapeHtml(getFallbackCoverMark(entry.title))}</div>`;
+  return `
+    <article class="knockout-card">
+      ${cover}
+      <div class="knockout-copy">
+        <span class="knockout-kicker">Army Extinguished</span>
+        <h3 class="knockout-headline">Book Knocked Out</h3>
+        <p class="knockout-title">${safeTitle}</p>
+        <p class="knockout-subline">Its banner has fallen, its troops are spent, and its place in the melee is over.</p>
+      </div>
+    </article>
+  `;
+}
+
+function getFallbackCoverMark(title = "") {
+  const words = title.trim().split(/\s+/).filter(Boolean);
+  return words.slice(0, 2).map((word) => word[0]).join("").toUpperCase() || "KO";
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
 }
 
 function closeWinnerModal() {
