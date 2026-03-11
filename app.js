@@ -26,6 +26,15 @@ const UNIT_SPRITE_LAYOUTS = {
   catapult: { height: 48, anchorX: 0.5, anchorY: 0.9 },
 };
 const UNIT_SPRITE_TINT_ALPHA = 0.56;
+const VETERAN_BONUSES = {
+  spriteScale: 1.2,
+  maxHealth: 1.2,
+  power: 1.2,
+  radius: 1.1,
+  speed: 1.1,
+  cooldown: 0.9,
+  duration: 1.1,
+};
 const DEFAULT_PROP_WEIGHTS = {
   stones: 5,
   crate: 4,
@@ -70,6 +79,7 @@ const UNIT_DEFINITIONS = {
     getDesiredDestination: getRetreatingDestination(120, 1),
     performAttack: performArcherAttack,
     render: drawArcher,
+    veteran: { metric: "damage", threshold: 180, label: "Deal 180 damage" },
   },
   mage: {
     id: "mage",
@@ -78,10 +88,14 @@ const UNIT_DEFINITIONS = {
     stats: { maxHealth: 52, speed: 44, range: 180, abductRange: 310, damage: 16, cooldown: 2.05 },
     healthBarWidth: 20,
     iconPaths: getMageIconSvgPaths,
-    getAttackRange: (unitDef) => Math.max(unitDef.stats.range, unitDef.stats.abductRange),
+    getAttackRange: (unitDef, unit) => {
+      const stats = getUnitStats(unit, unitDef);
+      return Math.max(stats.range, stats.abductRange);
+    },
     getDesiredDestination: getRetreatingDestination(110, 0.85),
     performAttack: performMageAttack,
     render: drawMage,
+    veteran: { metric: "damage", threshold: 150, label: "Deal 150 damage" },
   },
   knight: {
     id: "knight",
@@ -90,9 +104,10 @@ const UNIT_DEFINITIONS = {
     stats: { maxHealth: 210, speed: 28, range: 26, damage: 38, cooldown: 1.05 },
     healthBarWidth: 30,
     iconPaths: getKnightIconSvgPaths,
-    getMoveSpeed: (unit, unitDef) => unitDef.stats.speed,
+    getMoveSpeed: (unit, unitDef) => getUnitStats(unit, unitDef).speed,
     performAttack: performKnightAttack,
     render: drawKnight,
+    veteran: { metric: "kills", threshold: 4, label: "Score 4 kills" },
   },
   medic: {
     id: "medic",
@@ -106,6 +121,7 @@ const UNIT_DEFINITIONS = {
     getDesiredDestination: getHoldPositionDestination(12),
     performAttack: performMedicHeal,
     render: drawMedic,
+    veteran: { metric: "healing", threshold: 180, label: "Heal 180 health" },
   },
   bomber: {
     id: "bomber",
@@ -119,6 +135,7 @@ const UNIT_DEFINITIONS = {
     performAttack: performBomberAttack,
     onDeath: handleBomberDeath,
     render: drawBomber,
+    veteran: { metric: "damage", threshold: 140, label: "Deal 140 damage" },
   },
   assassin: {
     id: "assassin",
@@ -137,6 +154,7 @@ const UNIT_DEFINITIONS = {
     isTargetable: ({ unit, attacker }) => !(unit.invisible && attacker && attacker.factionId !== unit.factionId),
     getRenderAlpha: (unit) => (unit.invisible ? 0.42 : 0.92),
     render: drawAssassin,
+    veteran: { metric: "kills", threshold: 3, label: "Score 3 kills" },
   },
   mountainman: {
     id: "mountainman",
@@ -147,10 +165,11 @@ const UNIT_DEFINITIONS = {
     iconPaths: getMountainManIconSvgPaths,
     selectTarget: selectMountainTarget,
     getAttackRange: getMountainAttackRange,
-    getMoveSpeed: (unit, unitDef) => (unit.activeSpellId ? 0 : unitDef.stats.speed),
+    getMoveSpeed: (unit, unitDef) => (unit.activeSpellId ? 0 : getUnitStats(unit, unitDef).speed),
     getDesiredDestination: getRetreatingDestination(72, 0.88),
     performAttack: performMountainAttack,
     render: drawMountainMan,
+    veteran: { metric: "damage", threshold: 125, label: "Deal 125 damage" },
   },
   catapult: {
     id: "catapult",
@@ -165,6 +184,7 @@ const UNIT_DEFINITIONS = {
     shouldSlowForAttack: () => false,
     performAttack: performCatapultAttack,
     render: drawCatapult,
+    veteran: { metric: "damage", threshold: 160, label: "Deal 160 damage" },
   },
 };
 const UNIT_LIBRARY = Object.values(UNIT_DEFINITIONS).map(({ id, name, keywords }) => ({ id, name, keywords }));
@@ -807,9 +827,10 @@ function renderCompositionModal() {
     <div class="unit-result">
       <div class="unit-chip">
         <div class="unit-icon unit-icon-${unit.id}">${getUnitIconMarkup(unit.id)}</div>
-        <div>
+        <div class="unit-copy">
           <strong>${unit.name}</strong>
           <p>${unit.keywords.join(", ")}</p>
+          <p class="unit-veteran-copy">Veteran: ${getVeteranGoalLabel(unit.id)}</p>
         </div>
       </div>
       <button class="ghost small" data-add-unit="${unit.id}">Select</button>
@@ -1222,8 +1243,74 @@ function getUnitDefinition(unitOrType) {
   return UNIT_DEFINITIONS[unitType] || UNIT_DEFINITIONS.knight;
 }
 
+function getVeteranGoal(unitOrType) {
+  return getUnitDefinition(unitOrType).veteran || null;
+}
+
+function scaleVeteranStat(stat, value) {
+  if (typeof value !== "number") return value;
+  if (stat === "maxHealth") return value * VETERAN_BONUSES.maxHealth;
+  if (["damage", "heal", "backstabDamage", "slashDamage", "impulseDamage", "holdDamage"].includes(stat)) return value * VETERAN_BONUSES.power;
+  if (["range", "abductRange", "splash", "deathSplash", "impulseRange", "impulseDistance", "holdRange", "resetRadius"].includes(stat)) return value * VETERAN_BONUSES.radius;
+  if (stat === "speed") return value * VETERAN_BONUSES.speed;
+  if (stat === "cooldown") return value * VETERAN_BONUSES.cooldown;
+  if (stat === "holdDuration") return value * VETERAN_BONUSES.duration;
+  return value;
+}
+
+function getUnitStats(unitOrType, unitDef = getUnitDefinition(unitOrType)) {
+  const unit = typeof unitOrType === "string" ? null : unitOrType;
+  if (!unit?.veteran) return unitDef.stats;
+  const scaledStats = {};
+  Object.entries(unitDef.stats).forEach(([stat, value]) => {
+    scaledStats[stat] = scaleVeteranStat(stat, value);
+  });
+  return scaledStats;
+}
+
+function getUnitRenderScale(unit) {
+  return unit?.veteran ? VETERAN_BONUSES.spriteScale : 1;
+}
+
+function getVeteranProgressValue(unit, metric) {
+  if (!unit || !metric) return 0;
+  if (metric === "kills") return unit.totalKills || 0;
+  if (metric === "healing") return unit.totalHealingDone || 0;
+  return unit.totalDamageDealt || 0;
+}
+
+function tryPromoteUnit(unit, battle) {
+  if (!unit || unit.veteran) return false;
+  const veteranGoal = getVeteranGoal(unit);
+  if (!veteranGoal) return false;
+  if (getVeteranProgressValue(unit, veteranGoal.metric) < veteranGoal.threshold) return false;
+  const previousMaxHealth = unit.maxHealth;
+  unit.veteran = true;
+  unit.maxHealth = getUnitStats(unit).maxHealth;
+  unit.health = Math.min(unit.maxHealth, unit.health + (unit.maxHealth - previousMaxHealth));
+  spawnBurst(battle, unit.x, unit.y - 14, "#ffdc7d", 18);
+  setHighlight(`${findFaction(battle, unit.factionId)?.title || "A faction"} promotes a veteran ${getUnitDefinition(unit).name.toLowerCase()}`);
+  return true;
+}
+
+function recordUnitContribution(unit, metric, amount, battle) {
+  if (!unit || unit.dead || amount <= 0) return;
+  if (metric === "damage") {
+    unit.totalDamageDealt = (unit.totalDamageDealt || 0) + amount;
+  } else if (metric === "healing") {
+    unit.totalHealingDone = (unit.totalHealingDone || 0) + amount;
+  } else if (metric === "kills") {
+    unit.totalKills = (unit.totalKills || 0) + amount;
+  }
+  tryPromoteUnit(unit, battle);
+}
+
+function getVeteranGoalLabel(unitOrType) {
+  return getVeteranGoal(unitOrType)?.label || "No veteran promotion";
+}
+
 function makeUnit(factionId, type, x, y) {
-  const stats = getUnitDefinition(type).stats;
+  const stats = getUnitStats(type);
   return {
     id: `${factionId}-${type}-${Math.random().toString(36).slice(2, 8)}`,
     factionId,
@@ -1256,6 +1343,10 @@ function makeUnit(factionId, type, x, y) {
     invisible: type === "assassin",
     behaviorState: type === "assassin" ? "stalking" : "default",
     slashCooldown: 0,
+    veteran: false,
+    totalDamageDealt: 0,
+    totalHealingDone: 0,
+    totalKills: 0,
   };
 }
 
@@ -1330,7 +1421,8 @@ function drawUnitSprite(unit, color, scale) {
   if (!source || source.status !== "loaded" || !source.image?.complete) return false;
   const layout = UNIT_SPRITE_LAYOUTS[unit.type] || { height: 39, anchorX: 0.5, anchorY: 0.88 };
   const image = getTintedUnitSprite(source.image, source.url, color) || source.image;
-  const targetHeight = layout.height * scale / 2.1;
+  const renderScale = scale * getUnitRenderScale(unit);
+  const targetHeight = layout.height * renderScale / 2.1;
   const aspectRatio = (image.width || 1) / (image.height || 1);
   const targetWidth = targetHeight * aspectRatio;
   ctx.drawImage(
@@ -1411,6 +1503,7 @@ function updateFactionBanner(faction) {
 function updateUnit(unit, faction, battle, dt) {
   if (unit.dead || unit.fled) return;
   const unitDef = getUnitDefinition(unit);
+  const stats = getUnitStats(unit, unitDef);
   if (unit.liftedBySpellId) {
     unit.vx = 0;
     unit.vy = 0;
@@ -1471,7 +1564,7 @@ function updateUnit(unit, faction, battle, dt) {
     unit.cooldown -= dt;
     if (unit.cooldown <= 0) {
       unitDef.performAttack?.({ unit, target, battle, unitDef });
-      unit.cooldown = unitDef.stats.cooldown * (0.8 + Math.random() * 0.5);
+      unit.cooldown = stats.cooldown * (0.8 + Math.random() * 0.5);
     }
   }
 
@@ -1505,12 +1598,14 @@ function selectUnitTarget(unit, unitDef, enemies, allies) {
 }
 
 function getAttackRange(unit, unitDef = getUnitDefinition(unit)) {
-  return unitDef.getAttackRange ? unitDef.getAttackRange(unitDef, unit) : unitDef.stats.range;
+  const stats = getUnitStats(unit, unitDef);
+  return unitDef.getAttackRange ? unitDef.getAttackRange(unitDef, unit) : stats.range;
 }
 
 function getUnitMoveSpeed(unit, unitDef = getUnitDefinition(unit)) {
+  const stats = getUnitStats(unit, unitDef);
   if (unitDef.getMoveSpeed) return unitDef.getMoveSpeed(unit, unitDef);
-  return unitDef.stats.speed * (0.42 + 0.58 * (unit.health / unit.maxHealth));
+  return stats.speed * (0.42 + 0.58 * (unit.health / unit.maxHealth));
 }
 
 function getDesiredDestination(unit, unitDef, target, distance, battle) {
@@ -1550,13 +1645,14 @@ function selectMedicTarget({ unit, allies }) {
 }
 
 function updateAssassinState({ unit, faction, battle, enemies }) {
+  const stats = getUnitStats(unit);
   if (unit.behaviorState !== "retreat") {
     unit.invisible = true;
   }
   if (unit.behaviorState === "retreat") {
     unit.invisible = false;
     const homeBase = findFaction(battle, faction.id)?.homeBase || { x: unit.x, y: unit.y };
-    if (Math.hypot(unit.x - homeBase.x, unit.y - homeBase.y) <= UNIT_DEFINITIONS.assassin.stats.resetRadius) {
+    if (Math.hypot(unit.x - homeBase.x, unit.y - homeBase.y) <= stats.resetRadius) {
       unit.behaviorState = "stalking";
       unit.invisible = true;
       unit.focusTargetId = null;
@@ -1598,12 +1694,14 @@ function getAssassinDestination({ unit, target, battle, destination }) {
 }
 
 function getAssassinAttackRange(unitDef, unit) {
-  return unit.behaviorState === "retreat" ? 0 : Math.max(unitDef.stats.range, 24);
+  const stats = getUnitStats(unit, unitDef);
+  return unit.behaviorState === "retreat" ? 0 : Math.max(stats.range, 24);
 }
 
 function performAssassinAttack({ unit, target, battle, unitDef }) {
+  const stats = getUnitStats(unit, unitDef);
   if (unit.behaviorState === "retreat") return;
-  applyDamage(target, unitDef.stats.backstabDamage * (0.92 + Math.random() * 0.24), battle, unit);
+  applyDamage(target, stats.backstabDamage * (0.92 + Math.random() * 0.24), battle, unit);
   battle.swipes.push({ x: target.x, y: target.y - 10, angle: unit.facing, life: 0.24, maxLife: 0.24, color: "rgba(240, 240, 255, 0.78)" });
   spawnBurst(battle, target.x, target.y - 4, "#d8d8ff", 14);
   unit.behaviorState = "retreat";
@@ -1614,6 +1712,7 @@ function performAssassinAttack({ unit, target, battle, unitDef }) {
 }
 
 function handleAssassinAfterMove({ unit, battle, dt }) {
+  const stats = getUnitStats(unit);
   if (unit.behaviorState !== "retreat") return;
   unit.slashCooldown = Math.max(0, (unit.slashCooldown || 0) - dt);
   if (unit.slashCooldown > 0) return;
@@ -1622,7 +1721,7 @@ function handleAssassinAfterMove({ unit, battle, dt }) {
     .flatMap((faction) => faction.units)
     .find((enemy) => !enemy.dead && !enemy.fled && Math.hypot(enemy.x - unit.x, enemy.y - unit.y) <= 18);
   if (!nearbyEnemy) return;
-  applyDamage(nearbyEnemy, UNIT_DEFINITIONS.assassin.stats.slashDamage * (0.9 + Math.random() * 0.28), battle, unit);
+  applyDamage(nearbyEnemy, stats.slashDamage * (0.9 + Math.random() * 0.28), battle, unit);
   battle.swipes.push({ x: nearbyEnemy.x, y: nearbyEnemy.y - 10, angle: unit.facing, life: 0.18, maxLife: 0.18, color: "rgba(255, 214, 214, 0.75)" });
   spawnBurst(battle, nearbyEnemy.x, nearbyEnemy.y - 3, "#ffd3d3", 8);
   unit.slashCooldown = 0.42;
@@ -1713,11 +1812,12 @@ function selectMountainTarget({ unit, enemies }) {
 }
 
 function selectCatapultTarget({ unit, enemies }) {
+  const stats = getUnitStats(unit);
   let best = enemies[0] || null;
   let bestScore = -Infinity;
   enemies.forEach((enemy) => {
     const distance = Math.hypot(enemy.x - unit.x, enemy.y - unit.y);
-    if (distance > UNIT_DEFINITIONS.catapult.stats.range) return;
+    if (distance > stats.range) return;
     let cluster = 0;
     enemies.forEach((other) => {
       const neighborDistance = Math.hypot(other.x - enemy.x, other.y - enemy.y);
@@ -1733,16 +1833,18 @@ function selectCatapultTarget({ unit, enemies }) {
 }
 
 function performArcherAttack({ unit, target, battle, unitDef }) {
+  const stats = getUnitStats(unit, unitDef);
   const endX = target.x + (Math.random() - 0.5) * 30;
   const endY = target.y + (Math.random() - 0.5) * 26;
   const distance = Math.hypot(endX - unit.x, endY - unit.y);
-  battle.projectiles.push({ kind: "arrow", sourceId: unit.id, progress: 0, duration: clamp(0.35 + distance / 230 + Math.random() * 0.15, 0.38, 1.3), startX: unit.x, startY: unit.y - 18, endX, endY, impactAngle: Math.atan2(endY - unit.y, endX - unit.x), targetId: target.id, damage: unitDef.stats.damage * (0.85 + Math.random() * 0.5) });
+  battle.projectiles.push({ kind: "arrow", sourceId: unit.id, progress: 0, duration: clamp(0.35 + distance / 230 + Math.random() * 0.15, 0.38, 1.3), startX: unit.x, startY: unit.y - 18, endX, endY, impactAngle: Math.atan2(endY - unit.y, endX - unit.x), targetId: target.id, damage: stats.damage * (0.85 + Math.random() * 0.5) });
 }
 
 function performMageAttack({ unit, target, battle, unitDef }) {
+  const stats = getUnitStats(unit, unitDef);
   const spellExists = battle.spells.some((spell) => spell.sourceId === unit.id || spell.targetId === target.id);
   const distance = Math.hypot(target.x - unit.x, target.y - unit.y);
-  const abductEligible = distance <= unitDef.stats.abductRange && !target.liftedBySpellId && !unit.activeSpellId;
+  const abductEligible = distance <= stats.abductRange && !target.liftedBySpellId && !unit.activeSpellId;
   if (abductEligible && !spellExists && Math.random() < 0.45) {
     const pullAngle = Math.atan2(unit.y - target.y, unit.x - target.x);
     const endX = unit.x - Math.cos(pullAngle) * 58;
@@ -1753,27 +1855,29 @@ function performMageAttack({ unit, target, battle, unitDef }) {
     target.liftedBySpellId = spellId;
     return;
   }
-  if (distance <= unitDef.stats.range) {
-    battle.projectiles.push({ kind: "orb", sourceId: unit.id, progress: 0, duration: 0.44 + Math.random() * 0.24, startX: unit.x, startY: unit.y - 24, endX: target.x, endY: target.y, targetId: target.id, damage: unitDef.stats.damage * (1.05 + Math.random() * 0.65), radius: 44 });
+  if (distance <= stats.range) {
+    battle.projectiles.push({ kind: "orb", sourceId: unit.id, progress: 0, duration: 0.44 + Math.random() * 0.24, startX: unit.x, startY: unit.y - 24, endX: target.x, endY: target.y, targetId: target.id, damage: stats.damage * (1.05 + Math.random() * 0.65), radius: 44 * (unit.veteran ? VETERAN_BONUSES.radius : 1) });
   }
 }
 
-function getMountainAttackRange(unitDef) {
-  return Math.max(unitDef.stats.range, unitDef.stats.impulseRange, unitDef.stats.holdRange);
+function getMountainAttackRange(unitDef, unit) {
+  const stats = getUnitStats(unit, unitDef);
+  return Math.max(stats.range, stats.impulseRange, stats.holdRange);
 }
 
-function getCatapultAttackRange(unitDef) {
-  return unitDef.stats.range;
+function getCatapultAttackRange(unitDef, unit) {
+  return getUnitStats(unit, unitDef).range;
 }
 
 function performMountainAttack({ unit, target, battle, unitDef }) {
+  const stats = getUnitStats(unit, unitDef);
   if (!target || unit.activeSpellId) return;
   const distance = Math.hypot(target.x - unit.x, target.y - unit.y);
   const abilities = [];
-  if (!target.liftedBySpellId && !target.displacedBySpellId && distance <= unitDef.stats.impulseRange) {
+  if (!target.liftedBySpellId && !target.displacedBySpellId && distance <= stats.impulseRange) {
     abilities.push("impulse");
   }
-  if (!target.liftedBySpellId && !target.displacedBySpellId && distance <= unitDef.stats.holdRange) {
+  if (!target.liftedBySpellId && !target.displacedBySpellId && distance <= stats.holdRange) {
     abilities.push("hold");
   }
   if (!abilities.length) return;
@@ -1786,6 +1890,7 @@ function performMountainAttack({ unit, target, battle, unitDef }) {
 }
 
 function castMountainImpulse(unit, target, battle, unitDef) {
+  const stats = getUnitStats(unit, unitDef);
   const dx = target.x - unit.x;
   const dy = target.y - unit.y;
   const length = Math.hypot(dx, dy) || 1;
@@ -1801,18 +1906,19 @@ function castMountainImpulse(unit, target, battle, unitDef) {
     duration: 0.42,
     startX: target.x,
     startY: target.y,
-    endX: clamp(target.x + directionX * unitDef.stats.impulseDistance, 24, battle.field.width - 24),
-    endY: clamp(target.y + directionY * unitDef.stats.impulseDistance * 0.72, 24, battle.field.height - 24),
+    endX: clamp(target.x + directionX * stats.impulseDistance, 24, battle.field.width - 24),
+    endY: clamp(target.y + directionY * stats.impulseDistance * 0.72, 24, battle.field.height - 24),
     color: "#9fe1a7",
   });
   target.displacedBySpellId = spellId;
   unit.activeSpellId = spellId;
-  applyDamage(target, unitDef.stats.impulseDamage * (0.88 + Math.random() * 0.3), battle, unit);
+  applyDamage(target, stats.impulseDamage * (0.88 + Math.random() * 0.3), battle, unit);
   spawnBurst(battle, target.x, target.y - 6, "#bbf0b0", 18);
   setHighlight(`${findFaction(battle, unit.factionId).title}'s Men of the Mountain hurl an enemy backward`);
 }
 
 function castMountainHold(unit, target, battle, unitDef) {
+  const stats = getUnitStats(unit, unitDef);
   const spellId = `${unit.id}-hold-${Math.random().toString(36).slice(2, 7)}`;
   battle.spells.push({
     id: spellId,
@@ -1820,10 +1926,10 @@ function castMountainHold(unit, target, battle, unitDef) {
     sourceId: unit.id,
     targetId: target.id,
     time: 0,
-    duration: unitDef.stats.holdDuration,
+    duration: stats.holdDuration,
     damageTickTimer: 0,
-    damagePerTick: unitDef.stats.holdDamage,
-    tickInterval: unitDef.stats.holdTick,
+    damagePerTick: stats.holdDamage,
+    tickInterval: stats.holdTick,
     holdOffsetX: (unit.displayFacingX || 1) * 30,
     holdOffsetY: 6,
     color: "#8fdb93",
@@ -1835,10 +1941,11 @@ function castMountainHold(unit, target, battle, unitDef) {
 }
 
 function performCatapultAttack({ unit, target, battle, unitDef }) {
+  const stats = getUnitStats(unit, unitDef);
   if (!target) return;
   const distance = Math.hypot(target.x - unit.x, target.y - unit.y);
-  if (distance > unitDef.stats.range) return;
-  const scatterScale = unitDef.stats.variance * (0.8 + Math.random() * 0.8);
+  if (distance > stats.range) return;
+  const scatterScale = stats.variance * (0.8 + Math.random() * 0.8);
   const endX = clamp(target.x + (Math.random() - 0.5) * scatterScale * 2.1, 28, battle.field.width - 28);
   const endY = clamp(target.y + (Math.random() - 0.5) * scatterScale * 1.7, 28, battle.field.height - 28);
   const flightDistance = Math.hypot(endX - unit.x, endY - unit.y);
@@ -1851,16 +1958,19 @@ function performCatapultAttack({ unit, target, battle, unitDef }) {
     startY: unit.y - 20,
     endX,
     endY,
-    damage: unitDef.stats.damage,
-    radius: unitDef.stats.splash,
+    damage: stats.damage,
+    radius: stats.splash,
     impactAngle: Math.atan2(endY - unit.y, endX - unit.x),
     spin: (Math.random() > 0.5 ? 1 : -1) * (4.5 + Math.random() * 2.5),
   });
 }
 
 function performMedicHeal({ unit, target, battle, unitDef }) {
+  const stats = getUnitStats(unit, unitDef);
   if (!target || target.id === unit.id || target.health >= target.maxHealth) return;
-  target.health = Math.min(target.maxHealth, target.health + unitDef.stats.heal * (0.9 + Math.random() * 0.35));
+  const amountHealed = Math.min(target.maxHealth - target.health, stats.heal * (0.9 + Math.random() * 0.35));
+  target.health = Math.min(target.maxHealth, target.health + amountHealed);
+  recordUnitContribution(unit, "healing", amountHealed, battle);
   battle.particles.push({ x: target.x, y: target.y - 10, vx: 0, vy: -20, life: 0.55, age: 0, color: "#b8ffbf", size: 7 });
   setHighlight(`${findFaction(battle, unit.factionId).title}'s medic stabilizes a soldier`);
   if (target.health >= target.maxHealth) {
@@ -1869,15 +1979,17 @@ function performMedicHeal({ unit, target, battle, unitDef }) {
 }
 
 function performBomberAttack({ unit, target, battle, unitDef }) {
+  const stats = getUnitStats(unit, unitDef);
   const endX = target.x + (Math.random() - 0.5) * 14;
   const endY = target.y + (Math.random() - 0.5) * 14;
   const throwDistance = Math.hypot(endX - unit.x, endY - unit.y);
-  battle.projectiles.push({ kind: "bomb", sourceId: unit.id, progress: 0, duration: clamp(0.48 + throwDistance / 250 + Math.random() * 0.12, 0.5, 1.15), startX: unit.x, startY: unit.y - 16, endX, endY, targetId: target.id, damage: unitDef.stats.damage, radius: unitDef.stats.splash, fuse: unitDef.stats.fuse, landed: false, timer: 0 });
+  battle.projectiles.push({ kind: "bomb", sourceId: unit.id, progress: 0, duration: clamp(0.48 + throwDistance / 250 + Math.random() * 0.12, 0.5, 1.15), startX: unit.x, startY: unit.y - 16, endX, endY, targetId: target.id, damage: stats.damage, radius: stats.splash, fuse: stats.fuse, landed: false, timer: 0 });
 }
 
 function performKnightAttack({ unit, target, battle, unitDef }) {
-  if (Math.hypot(target.x - unit.x, target.y - unit.y) > unitDef.stats.range + 4) return;
-  applyDamage(target, unitDef.stats.damage * (0.92 + Math.random() * 0.46), battle, unit);
+  const stats = getUnitStats(unit, unitDef);
+  if (Math.hypot(target.x - unit.x, target.y - unit.y) > stats.range + 4) return;
+  applyDamage(target, stats.damage * (0.92 + Math.random() * 0.46), battle, unit);
   battle.swipes.push({ x: target.x, y: target.y - 12, angle: unit.facing, life: 0.22, maxLife: 0.22, color: shadeColor(findFaction(battle, unit.factionId).color, 0.35) });
   spawnBurst(battle, target.x, target.y, "#ffd59b", 10);
 }
@@ -2131,7 +2243,12 @@ function explodeAt(battle, x, y, radius, damage, attacker, color, burstCount, sh
 }
 
 function applyDamage(unit, amount, battle, attacker = null) {
+  const previousHealth = unit.health;
   unit.health -= amount;
+  const actualDamage = Math.max(0, Math.min(previousHealth, amount));
+  if (attacker && attacker.factionId !== unit.factionId && actualDamage > 0) {
+    recordUnitContribution(attacker, "damage", actualDamage, battle);
+  }
   if (unit.health <= 0) {
     const unitDef = getUnitDefinition(unit);
     unit.dead = true;
@@ -2141,13 +2258,15 @@ function applyDamage(unit, amount, battle, attacker = null) {
     unitDef.onDeath?.({ unit, battle, attacker, unitDef });
     if (attacker && !attacker.dead) {
       attacker.killStreak = (attacker.killStreak || 0) + 1;
+      recordUnitContribution(attacker, "kills", 1, battle);
     }
     spawnBurst(battle, unit.x, unit.y, "#f3c58a", 16);
   }
 }
 
 function handleBomberDeath({ unit, battle, attacker, unitDef }) {
-  explodeAt(battle, unit.x, unit.y, unitDef.stats.deathSplash, unitDef.stats.damage * 1.2, attacker || unit, "#ff8b4a", 44);
+  const stats = getUnitStats(unit, unitDef);
+  explodeAt(battle, unit.x, unit.y, stats.deathSplash, stats.damage * 1.2, unit, "#ff8b4a", 44);
   setHighlight(`${findFaction(battle, unit.factionId).title} loses a bomber in a huge blast`);
 }
 function spawnBurst(battle, x, y, color, count) {
@@ -3169,13 +3288,14 @@ function drawUnits(viewport, factions) {
     const unitDef = getUnitDefinition(unit);
     const pose = getUnitRenderPose(unit, viewport);
     const { point, scale, bodyY } = pose;
+    const renderScale = scale * getUnitRenderScale(unit);
     const strideOffset = unit.stride * 2.8 * scale / 2.1;
     const main = unit.factionColor;
     const dark = shadeColor(main, -0.28);
     const light = shadeColor(main, 0.26);
     ctx.fillStyle = "rgba(0,0,0,0.22)";
     ctx.beginPath();
-    ctx.ellipse(point.x, point.y + 10 * scale / 2.1, (10 + Math.abs(unit.stride) * 1.6) * scale / 2.1, (5 - unit.bob * 0.9) * scale / 2.1, 0, 0, Math.PI * 2);
+    ctx.ellipse(point.x, point.y + 10 * scale / 2.1, (10 + Math.abs(unit.stride) * 1.6) * renderScale / 2.1, (5 - unit.bob * 0.9) * renderScale / 2.1, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.save();
     ctx.globalAlpha = unitDef.getRenderAlpha ? unitDef.getRenderAlpha(unit, unitDef) : 1;
@@ -3183,15 +3303,41 @@ function drawUnits(viewport, factions) {
     ctx.rotate(unit.walkTilt);
     ctx.scale(unit.displayFacingX, 1);
     if (!drawUnitSprite(unit, main, scale)) {
-      unitDef.render?.(main, dark, light, scale, unit);
+      unitDef.render?.(main, dark, light, renderScale, unit);
     }
     ctx.restore();
     const hpWidth = unitDef.healthBarWidth || 20;
+    if (unit.veteran) {
+      drawVeteranChevron(point.x + 16 * renderScale / 2.1, bodyY - 30 * renderScale / 2.1, scale);
+    }
     ctx.fillStyle = "rgba(37,24,16,0.5)";
-    ctx.fillRect(point.x - hpWidth * scale / 4.2, bodyY - 24 * scale / 2.1, hpWidth * scale / 2.1, 4 * scale / 2.1);
+    ctx.fillRect(point.x - hpWidth * renderScale / 4.2, bodyY - 24 * scale / 2.1, hpWidth * renderScale / 2.1, 4 * scale / 2.1);
     ctx.fillStyle = unit.health / unit.maxHealth > 0.4 ? "#9ae085" : "#e7915d";
-    ctx.fillRect(point.x - hpWidth * scale / 4.2, bodyY - 24 * scale / 2.1, hpWidth * scale / 2.1 * (unit.health / unit.maxHealth), 4 * scale / 2.1);
+    ctx.fillRect(point.x - hpWidth * renderScale / 4.2, bodyY - 24 * scale / 2.1, hpWidth * renderScale / 2.1 * (unit.health / unit.maxHealth), 4 * scale / 2.1);
   });
+}
+
+function drawVeteranChevron(x, y, scale) {
+  ctx.save();
+  ctx.translate(x, y);
+  const badgeRadius = 8 * scale / 2.1;
+  ctx.fillStyle = "rgba(31, 22, 12, 0.82)";
+  ctx.beginPath();
+  ctx.arc(0, 0, badgeRadius, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "rgba(255, 232, 176, 0.95)";
+  ctx.lineWidth = 1.5 * scale / 2.1;
+  ctx.stroke();
+  ctx.strokeStyle = "#ffe39b";
+  ctx.lineWidth = 2.6 * scale / 2.1;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.beginPath();
+  ctx.moveTo(-5.5 * scale / 2.1, 1.5 * scale / 2.1);
+  ctx.lineTo(0, -4.5 * scale / 2.1);
+  ctx.lineTo(5.5 * scale / 2.1, 1.5 * scale / 2.1);
+  ctx.stroke();
+  ctx.restore();
 }
 
 function drawStepLegs(dark, scale, unit, spread = 7, back = 10) {
