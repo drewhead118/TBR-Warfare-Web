@@ -15,6 +15,16 @@ const UNIT_SPRITE_CANDIDATE_PATHS = [
   (unitId) => `art/${unitId}.png`,
   (unitId) => `${unitId}.png`,
 ];
+const STATUS_BADGE_CANDIDATE_PATHS = [
+  (statusId) => `assets/status-badges/${statusId}.png`,
+  (statusId) => `assets/status-icons/${statusId}.png`,
+  (statusId) => `output/status-badges/${statusId}.png`,
+  (statusId) => `output/status-icons/${statusId}.png`,
+  (statusId) => `status-badges/${statusId}.png`,
+  (statusId) => `status-icons/${statusId}.png`,
+  (statusId) => `${statusId}-status.png`,
+  (statusId) => `${statusId}.png`,
+];
 const UNIT_SPRITE_LAYOUTS = {
   archer: { height: 38, anchorX: 0.5, anchorY: 0.88 },
   mage: { height: 39, anchorX: 0.5, anchorY: 0.88 },
@@ -230,10 +240,11 @@ const UNIT_DEFINITIONS = {
     id: "firebreather",
     name: "Firebreather",
     keywords: ["fire", "flame", "breath", "burn", "dragonfire"],
-    stats: { maxHealth: 76, speed: 46, range: 118, damage: 24, coneAngle: 0.85, igniteStacks: 1, igniteDuration: 3.6, igniteDamage: 8.5, contagionRadius: 42, cooldown: 1.85 },
+    stats: { maxHealth: 76, speed: 46, range: 118, damage: 22, coneAngle: 0.85, breathDuration: 1.05, ignitionExposure: 0.95, exposureGrace: 0.18, igniteStacks: 1, igniteDuration: 3.6, igniteDamage: 8.5, contagionRadius: 42, cooldown: 1.85 },
     healthBarWidth: 22,
     iconPaths: getFirebreatherIconSvgPaths,
     getDesiredDestination: getFirebreatherDestination,
+    getMoveSpeed: (unit, unitDef) => (unit.activeSpellId ? getUnitStats(unit, unitDef).speed * 0.35 : getUnitStats(unit, unitDef).speed),
     performAttack: performFirebreatherAttack,
     render: drawFirebreather,
     veteran: { metric: "damage", threshold: 150, label: "Deal 150 damage" },
@@ -335,6 +346,7 @@ const state = {
   tournament: null,
   images: new Map(),
   unitSpriteSources: new Map(),
+  statusBadgeSources: new Map(),
   tintedUnitSprites: new Map(),
   running: false,
   roundsApplied: 0,
@@ -451,6 +463,14 @@ function bindUi() {
 
 function renderSpeedControls() {
   els.speedControls.innerHTML = "";
+  const pauseButton = document.createElement("button");
+  const canResume = state.battle && !state.battle.completed && state.battle.time > 0;
+  pauseButton.className = `speed-btn${!state.running && canResume ? " active" : ""}`;
+  pauseButton.textContent = "Pause";
+  pauseButton.title = state.running ? "Pause the current battle" : "Resume the current battle";
+  pauseButton.disabled = !state.battle || state.battle.completed || (!state.running && !canResume);
+  pauseButton.addEventListener("click", togglePauseBattle);
+  els.speedControls.appendChild(pauseButton);
   SPEED_OPTIONS.forEach((speed, index) => {
     const button = document.createElement("button");
     button.className = `speed-btn${index === state.speedIndex ? " active" : ""}`;
@@ -978,6 +998,7 @@ function resetBattle() {
   renderArmyEditors();
   renderBracketTracker();
   updateAdvanceButtonLabel();
+  renderSpeedControls();
   setTicker(state.factions.length ? getReadyMessage() : "Add at least one army to begin.");
 }
 
@@ -1006,6 +1027,7 @@ function startBattle() {
   setTicker(state.tournament ? `${getCurrentMatchLabel(state.tournament)} begins in ${state.battle.arena.name}.` : "The war for the next read has begun.");
   setHighlight("Scouts report movement across the field");
   renderBracketTracker();
+  renderSpeedControls();
 }
 
 function shouldUseTournament(factions) {
@@ -1332,7 +1354,7 @@ function scaleVeteranStat(stat, value) {
   if (["range", "abductRange", "splash", "deathSplash", "impulseRange", "impulseDistance", "holdRange", "resetRadius", "contagionRadius"].includes(stat)) return value * VETERAN_BONUSES.radius;
   if (stat === "speed") return value * VETERAN_BONUSES.speed;
   if (stat === "cooldown") return value * VETERAN_BONUSES.cooldown;
-  if (["holdDuration", "poisonDuration", "igniteDuration"].includes(stat)) return value * VETERAN_BONUSES.duration;
+  if (["holdDuration", "poisonDuration", "igniteDuration", "breathDuration"].includes(stat)) return value * VETERAN_BONUSES.duration;
   return value;
 }
 
@@ -1438,10 +1460,13 @@ function applyStatus(unit, kind, stacks = 1, duration = null, source = null, bat
 }
 
 function clearNegativeStatuses(unit) {
-  if (!unit?.statuses?.length) return false;
-  const kept = unit.statuses.filter((status) => !getStatusDefinition(status.kind)?.negative);
-  const changed = kept.length !== unit.statuses.length;
+  if (!unit) return false;
+  const beforeExposure = Object.keys(unit.flameExposure || {}).length;
+  const hadStatuses = unit.statuses?.length || 0;
+  const kept = (unit.statuses || []).filter((status) => !getStatusDefinition(status.kind)?.negative);
+  const changed = kept.length !== hadStatuses || beforeExposure > 0;
   unit.statuses = kept;
+  unit.flameExposure = {};
   return changed;
 }
 
@@ -1484,6 +1509,7 @@ function makeUnit(factionId, type, x, y) {
     totalHealingDone: 0,
     totalKills: 0,
     statuses: [],
+    flameExposure: {},
     statusVisualSeed: Math.random() * Math.PI * 2,
   };
 }
@@ -1516,6 +1542,23 @@ function getUnitSpriteSource(unitId) {
   return state.unitSpriteSources.get(unitId);
 }
 
+function getStatusBadgeSource(statusId) {
+  if (!statusId) return null;
+  if (!state.statusBadgeSources.has(statusId)) {
+    const entry = {
+      statusId,
+      candidates: STATUS_BADGE_CANDIDATE_PATHS.map((buildPath) => buildPath(statusId)),
+      candidateIndex: 0,
+      status: "pending",
+      image: null,
+      url: null,
+    };
+    state.statusBadgeSources.set(statusId, entry);
+    loadNextStatusBadgeCandidate(entry);
+  }
+  return state.statusBadgeSources.get(statusId);
+}
+
 function loadNextUnitSpriteCandidate(entry) {
   if (!entry || entry.status === "loaded") return;
   const nextUrl = entry.candidates[entry.candidateIndex];
@@ -1532,6 +1575,26 @@ function loadNextUnitSpriteCandidate(entry) {
   image.onerror = () => {
     entry.candidateIndex += 1;
     loadNextUnitSpriteCandidate(entry);
+  };
+  image.src = nextUrl;
+}
+
+function loadNextStatusBadgeCandidate(entry) {
+  if (!entry || entry.status === "loaded") return;
+  const nextUrl = entry.candidates[entry.candidateIndex];
+  if (!nextUrl) {
+    entry.status = "missing";
+    return;
+  }
+  const image = new Image();
+  image.onload = () => {
+    entry.status = "loaded";
+    entry.image = image;
+    entry.url = nextUrl;
+  };
+  image.onerror = () => {
+    entry.candidateIndex += 1;
+    loadNextStatusBadgeCandidate(entry);
   };
   image.src = nextUrl;
 }
@@ -1570,6 +1633,14 @@ function drawUnitSprite(unit, color, scale) {
     targetWidth,
     targetHeight,
   );
+  return true;
+}
+
+function drawStatusBadgeSprite(statusId, scale) {
+  const source = getStatusBadgeSource(statusId);
+  if (!source || source.status !== "loaded" || !source.image?.complete) return false;
+  const size = 11.5 * scale / 2.1;
+  ctx.drawImage(source.image, -size / 2, -size / 2, size, size);
   return true;
 }
 
@@ -1617,6 +1688,7 @@ function stepBattle(battle, dt) {
     }
     renderBracketTracker();
     updateAdvanceButtonLabel();
+    renderSpeedControls();
   }
 }
 
@@ -1647,6 +1719,7 @@ function updateStatuses(battle, dt) {
 }
 
 function updateUnitStatuses(unit, battle, dt) {
+  updateFlameExposure(unit, dt);
   if (unit.dead || unit.fled || !unit.statuses?.length) return;
   unit.statuses = unit.statuses.filter((status) => {
     const statusDef = getStatusDefinition(status.kind);
@@ -1668,6 +1741,26 @@ function updateUnitStatuses(unit, battle, dt) {
       battle.particles.push({ x: unit.x + (Math.random() - 0.5) * 12, y: unit.y - 14 + Math.random() * 10, vx: (Math.random() - 0.5) * 12, vy: -20 - Math.random() * 10, life: 0.3 + Math.random() * 0.18, age: 0, color: Math.random() > 0.35 ? "#ff9f43" : "#ffe08a", size: 3 + Math.random() * 3 });
     }
     return status.duration > 0 && status.stacks > 0 && !unit.dead;
+  });
+}
+
+function togglePauseBattle() {
+  if (!state.battle || state.battle.completed || (!state.running && state.battle.time <= 0)) return;
+  state.running = !state.running;
+  els.battleState.textContent = state.running
+    ? (state.tournament ? `${getCurrentMatchLabel(state.tournament)} in progress` : "Battling")
+    : "Paused";
+  renderSpeedControls();
+}
+
+function updateFlameExposure(unit, dt) {
+  if (!unit?.flameExposure) return;
+  Object.keys(unit.flameExposure).forEach((sourceId) => {
+    const entry = unit.flameExposure[sourceId];
+    entry.gap = (entry.gap || 0) + dt;
+    if (entry.gap > entry.grace) {
+      delete unit.flameExposure[sourceId];
+    }
   });
 }
 
@@ -2094,36 +2187,24 @@ function performMageAttack({ unit, target, battle, unitDef }) {
 function performFirebreatherAttack({ unit, target, battle, unitDef }) {
   const stats = getUnitStats(unit, unitDef);
   if (!target) return;
-  const breathAngle = Math.atan2(target.y - unit.y, target.x - unit.x);
-  unit.facing = breathAngle;
-  battle.factions.forEach((faction) => {
-    faction.units.forEach((other) => {
-      if (other.id === unit.id || other.dead || other.fled) return;
-      const dx = other.x - unit.x;
-      const dy = other.y - unit.y;
-      const distance = Math.hypot(dx, dy);
-      if (distance > stats.range) return;
-      const angleDiff = Math.abs(normalizeAngle(Math.atan2(dy, dx) - breathAngle));
-      if (angleDiff > stats.coneAngle * 0.5) return;
-      const distanceScale = clamp(1 - distance / stats.range, 0.38, 1);
-      applyDamage(other, stats.damage * distanceScale * (0.85 + Math.random() * 0.25), battle, unit);
-      applyStatus(other, "ignite", stats.igniteStacks, stats.igniteDuration, unit, battle);
-    });
+  const spellId = `${unit.id}-flame-${Math.random().toString(36).slice(2, 7)}`;
+  battle.spells.push({
+    id: spellId,
+    kind: "flame-breath",
+    sourceId: unit.id,
+    targetId: target.id,
+    time: 0,
+    duration: stats.breathDuration,
+    range: stats.range,
+    coneAngle: stats.coneAngle,
+    dps: stats.damage,
+    ignitionExposure: stats.ignitionExposure,
+    exposureGrace: stats.exposureGrace,
+    igniteStacks: stats.igniteStacks,
+    igniteDuration: stats.igniteDuration,
+    color: "#ff9b48",
   });
-  for (let i = 0; i < 18; i += 1) {
-    const travel = (0.2 + Math.random() * 0.8) * stats.range;
-    const angle = breathAngle + (Math.random() - 0.5) * stats.coneAngle;
-    battle.particles.push({
-      x: unit.x + Math.cos(angle) * travel * 0.45,
-      y: unit.y - 8 + Math.sin(angle) * travel * 0.45,
-      vx: Math.cos(angle) * (40 + Math.random() * 70),
-      vy: Math.sin(angle) * (20 + Math.random() * 45) - 18,
-      life: 0.24 + Math.random() * 0.18,
-      age: 0,
-      color: Math.random() > 0.35 ? "#ff8f3d" : "#ffe08c",
-      size: 4 + Math.random() * 4,
-    });
-  }
+  unit.activeSpellId = spellId;
   setHighlight(`${findFaction(battle, unit.factionId).title}'s firebreather washes the line in flame`);
 }
 
@@ -2389,6 +2470,16 @@ function spawnCatapultImpactDebris(battle, x, y) {
 }
 function updateSpells(battle, dt) {
   battle.spells = battle.spells.filter((spell) => {
+    if (spell.kind === "flame-breath") {
+      spell.time += dt;
+      const source = findUnitById(battle, spell.sourceId);
+      const target = findUnitById(battle, spell.targetId);
+      if (!source || !target || source.dead || source.fled || target.dead || target.fled) {
+        releaseSpellUnitState(spell, source, target);
+        return false;
+      }
+      return updateFireBreathSpell(spell, battle, source, target, dt);
+    }
     spell.time += dt;
     const source = findUnitById(battle, spell.sourceId);
     const target = findUnitById(battle, spell.targetId);
@@ -2411,6 +2502,67 @@ function updateSpells(battle, dt) {
     }
     return true;
   });
+}
+
+function updateFireBreathSpell(spell, battle, source, target, dt) {
+  const breathAngle = Math.atan2(target.y - source.y, target.x - source.x);
+  source.facing = breathAngle;
+  battle.factions.forEach((faction) => {
+    faction.units.forEach((other) => {
+      if (other.id === source.id || other.dead || other.fled) return;
+      const dx = other.x - source.x;
+      const dy = other.y - source.y;
+      const distance = Math.hypot(dx, dy);
+      if (distance > spell.range) return;
+      const angleDiff = Math.abs(normalizeAngle(Math.atan2(dy, dx) - breathAngle));
+      if (angleDiff > spell.coneAngle * 0.5) return;
+      const distanceScale = clamp(1 - distance / spell.range, 0.35, 1);
+      applyDamage(other, spell.dps * distanceScale * dt, battle, source);
+      if (faction.id !== source.factionId) {
+        trackFlameExposure(other, source, spell, dt, battle);
+      }
+    });
+  });
+  spawnFireBreathParticles(battle, source, breathAngle, spell);
+  if (spell.time >= spell.duration) {
+    releaseSpellUnitState(spell, source, target);
+    return false;
+  }
+  return true;
+}
+
+function trackFlameExposure(unit, source, spell, dt, battle) {
+  if (!unit.flameExposure) unit.flameExposure = {};
+  const entry = unit.flameExposure[source.id] || {
+    time: 0,
+    gap: 0,
+    grace: spell.exposureGrace,
+  };
+  entry.time += dt;
+  entry.gap = 0;
+  entry.grace = spell.exposureGrace;
+  unit.flameExposure[source.id] = entry;
+  if (entry.time >= spell.ignitionExposure) {
+    applyStatus(unit, "ignite", spell.igniteStacks, spell.igniteDuration, source, battle);
+    entry.time = 0;
+  }
+}
+
+function spawnFireBreathParticles(battle, source, breathAngle, spell) {
+  for (let i = 0; i < 7; i += 1) {
+    const travel = (0.18 + Math.random() * 0.82) * spell.range;
+    const angle = breathAngle + (Math.random() - 0.5) * spell.coneAngle;
+    battle.particles.push({
+      x: source.x + Math.cos(angle) * travel * 0.48,
+      y: source.y - 8 + Math.sin(angle) * travel * 0.48,
+      vx: Math.cos(angle) * (35 + Math.random() * 55),
+      vy: Math.sin(angle) * (16 + Math.random() * 34) - 10,
+      life: 0.18 + Math.random() * 0.12,
+      age: 0,
+      color: Math.random() > 0.35 ? "#ff7a1f" : "#ffcf73",
+      size: 4 + Math.random() * 4,
+    });
+  }
 }
 
 function updateMountainImpulseSpell(spell, source, target) {
@@ -3648,7 +3800,7 @@ function getUnitStatusBadges(unit) {
   (unit.statuses || []).forEach((status) => {
     const statusDef = getStatusDefinition(status.kind);
     if (!statusDef) return;
-    badges.push({ kind: status.kind, stacks: status.stacks, color: statusDef.badgeColor, accentColor: statusDef.accentColor });
+    badges.push({ kind: status.kind, stacks: Math.max(1, Math.round(status.stacks)), color: statusDef.badgeColor, accentColor: statusDef.accentColor });
   });
   return badges.slice(0, 3);
 }
@@ -3671,15 +3823,25 @@ function drawStatusBadge(badge, x, y, scale) {
   ctx.strokeStyle = hexToRgba(badge.color, 0.95);
   ctx.lineWidth = 1.5 * scale / 2.1;
   ctx.stroke();
-  if (badge.kind === "veteran") drawVeteranBadgeIcon(scale, badge.accentColor);
-  if (badge.kind === "poison") drawPoisonBadgeIcon(scale, badge.accentColor);
-  if (badge.kind === "ignite") drawIgniteBadgeIcon(scale, badge.accentColor);
+  if (!drawStatusBadgeSprite(badge.kind, scale)) {
+    if (badge.kind === "veteran") drawVeteranBadgeIcon(scale, badge.accentColor);
+    if (badge.kind === "poison") drawPoisonBadgeIcon(scale, badge.accentColor);
+    if (badge.kind === "ignite") drawIgniteBadgeIcon(scale, badge.accentColor);
+  }
   if (badge.stacks > 1) {
+    const pipRadius = 4.4 * scale / 2.1;
+    ctx.fillStyle = "rgba(20, 14, 9, 0.96)";
+    ctx.beginPath();
+    ctx.arc(5 * scale / 2.1, 5 * scale / 2.1, pipRadius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(255,255,255,0.2)";
+    ctx.lineWidth = 1 * scale / 2.1;
+    ctx.stroke();
     ctx.fillStyle = "#fff7e6";
-    ctx.font = `${Math.max(8, 9 * scale / 2.1)}px Georgia`;
+    ctx.font = `700 ${Math.max(7, 7.5 * scale / 2.1)}px Georgia`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText(`${badge.stacks}`, 0, 0.5 * scale / 2.1);
+    ctx.fillText(`${badge.stacks}`, 5 * scale / 2.1, 5.2 * scale / 2.1);
   }
   ctx.restore();
 }
@@ -3708,19 +3870,24 @@ function drawPoisonBadgeIcon(scale, color) {
 function drawIgniteBadgeIcon(scale, color) {
   ctx.fillStyle = color;
   ctx.beginPath();
-  ctx.moveTo(0, -6.4 * scale / 2.1);
-  ctx.bezierCurveTo(3.4 * scale / 2.1, -4.6 * scale / 2.1, 5.5 * scale / 2.1, -1.2 * scale / 2.1, 5 * scale / 2.1, 2.2 * scale / 2.1);
-  ctx.bezierCurveTo(4.5 * scale / 2.1, 5.4 * scale / 2.1, 2.1 * scale / 2.1, 6.8 * scale / 2.1, 0, 6.8 * scale / 2.1);
-  ctx.bezierCurveTo(-2.4 * scale / 2.1, 6.8 * scale / 2.1, -4.7 * scale / 2.1, 5.1 * scale / 2.1, -5 * scale / 2.1, 2 * scale / 2.1);
-  ctx.bezierCurveTo(-5.3 * scale / 2.1, -1.3 * scale / 2.1, -3.2 * scale / 2.1, -4.3 * scale / 2.1, 0, -6.4 * scale / 2.1);
+  ctx.moveTo(0, -6.3 * scale / 2.1);
+  ctx.bezierCurveTo(2.4 * scale / 2.1, -4.8 * scale / 2.1, 3.7 * scale / 2.1, -1.8 * scale / 2.1, 3.6 * scale / 2.1, 1.2 * scale / 2.1);
+  ctx.bezierCurveTo(3.5 * scale / 2.1, 4.2 * scale / 2.1, 1.8 * scale / 2.1, 6.2 * scale / 2.1, 0, 6.2 * scale / 2.1);
+  ctx.bezierCurveTo(-2.1 * scale / 2.1, 6.2 * scale / 2.1, -3.9 * scale / 2.1, 4.3 * scale / 2.1, -3.9 * scale / 2.1, 1.4 * scale / 2.1);
+  ctx.bezierCurveTo(-3.9 * scale / 2.1, -0.7 * scale / 2.1, -3 * scale / 2.1, -2.5 * scale / 2.1, -1.9 * scale / 2.1, -4.2 * scale / 2.1);
+  ctx.bezierCurveTo(-1.5 * scale / 2.1, -2.8 * scale / 2.1, -0.8 * scale / 2.1, -1.6 * scale / 2.1, -0.2 * scale / 2.1, -0.5 * scale / 2.1);
+  ctx.bezierCurveTo(0.4 * scale / 2.1, -2.3 * scale / 2.1, 1.1 * scale / 2.1, -4.1 * scale / 2.1, 0, -6.3 * scale / 2.1);
   ctx.fill();
-  ctx.fillStyle = "rgba(255, 248, 214, 0.82)";
+
+  ctx.fillStyle = "rgba(255, 223, 150, 0.95)";
   ctx.beginPath();
-  ctx.moveTo(0.2 * scale / 2.1, -3.7 * scale / 2.1);
-  ctx.bezierCurveTo(2.1 * scale / 2.1, -2.5 * scale / 2.1, 2.9 * scale / 2.1, -0.4 * scale / 2.1, 2.5 * scale / 2.1, 1.6 * scale / 2.1);
-  ctx.bezierCurveTo(2.1 * scale / 2.1, 3.7 * scale / 2.1, 1.1 * scale / 2.1, 4.9 * scale / 2.1, -0.1 * scale / 2.1, 5.1 * scale / 2.1);
-  ctx.bezierCurveTo(-1.5 * scale / 2.1, 4.8 * scale / 2.1, -2.3 * scale / 2.1, 3.5 * scale / 2.1, -2.2 * scale / 2.1, 1.8 * scale / 2.1);
-  ctx.bezierCurveTo(-2.1 * scale / 2.1, 0.1 * scale / 2.1, -1.2 * scale / 2.1, -1.9 * scale / 2.1, 0.2 * scale / 2.1, -3.7 * scale / 2.1);
+  ctx.moveTo(0.1 * scale / 2.1, -3.6 * scale / 2.1);
+  ctx.bezierCurveTo(1.4 * scale / 2.1, -2.6 * scale / 2.1, 2.1 * scale / 2.1, -1.0 * scale / 2.1, 2.1 * scale / 2.1, 0.8 * scale / 2.1);
+  ctx.bezierCurveTo(2.1 * scale / 2.1, 2.9 * scale / 2.1, 1.0 * scale / 2.1, 4.1 * scale / 2.1, 0, 4.1 * scale / 2.1);
+  ctx.bezierCurveTo(-1.2 * scale / 2.1, 4.1 * scale / 2.1, -2.1 * scale / 2.1, 3.0 * scale / 2.1, -2.1 * scale / 2.1, 1.3 * scale / 2.1);
+  ctx.bezierCurveTo(-2.1 * scale / 2.1, 0.0, -1.6 * scale / 2.1, -1.1 * scale / 2.1, -0.8 * scale / 2.1, -2.2 * scale / 2.1);
+  ctx.bezierCurveTo(-0.5 * scale / 2.1, -1.2 * scale / 2.1, -0.1 * scale / 2.1, -0.4 * scale / 2.1, 0.2 * scale / 2.1, 0.5 * scale / 2.1);
+  ctx.bezierCurveTo(0.5 * scale / 2.1, -0.6 * scale / 2.1, 0.9 * scale / 2.1, -1.9 * scale / 2.1, 0.1 * scale / 2.1, -3.6 * scale / 2.1);
   ctx.fill();
 }
 
@@ -4101,6 +4268,10 @@ function drawSpells(viewport, battle) {
     const source = findUnitById(battle, spell.sourceId);
     const target = findUnitById(battle, spell.targetId);
     if (!source || !target) return;
+    if (spell.kind === "flame-breath") {
+      drawFireBreathSpell(viewport, spell, source, target);
+      return;
+    }
     const sourcePose = getUnitRenderPose(source, viewport);
     const targetPose = getUnitRenderPose(target, viewport);
     const start = {
@@ -4120,6 +4291,36 @@ function drawSpells(viewport, battle) {
     ctx.lineTo(end.x, end.y);
     ctx.stroke();
   });
+}
+
+function drawFireBreathSpell(viewport, spell, source, target) {
+  const sourcePose = getUnitRenderPose(source, viewport);
+  const startX = sourcePose.point.x + (source.displayFacingX || 1) * 8 * sourcePose.scale / 2.1;
+  const startY = sourcePose.bodyY - 7 * sourcePose.scale / 2.1;
+  const breathAngle = Math.atan2(target.y - source.y, target.x - source.x);
+  const coneLength = spell.range * sourcePose.scale / 2.1;
+  const leftAngle = breathAngle - spell.coneAngle * 0.5;
+  const rightAngle = breathAngle + spell.coneAngle * 0.5;
+  const leftX = startX + Math.cos(leftAngle) * coneLength;
+  const leftY = startY + Math.sin(leftAngle) * coneLength * 0.72;
+  const rightX = startX + Math.cos(rightAngle) * coneLength;
+  const rightY = startY + Math.sin(rightAngle) * coneLength * 0.72;
+  const gradient = ctx.createRadialGradient(startX, startY, 3, startX, startY, coneLength);
+  gradient.addColorStop(0, "rgba(255, 244, 194, 0.92)");
+  gradient.addColorStop(0.35, "rgba(255, 161, 72, 0.72)");
+  gradient.addColorStop(1, "rgba(255, 98, 24, 0.04)");
+  ctx.fillStyle = gradient;
+  ctx.beginPath();
+  ctx.moveTo(startX, startY);
+  ctx.lineTo(leftX, leftY);
+  ctx.quadraticCurveTo(
+    startX + Math.cos(breathAngle) * coneLength * 0.85,
+    startY + Math.sin(breathAngle) * coneLength * 0.64,
+    rightX,
+    rightY,
+  );
+  ctx.closePath();
+  ctx.fill();
 }
 
 function getUnitRenderPose(unit, viewport) {
