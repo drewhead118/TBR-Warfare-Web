@@ -4,7 +4,7 @@ const FIELD = { width: 1180, height: 760 };
 const SPEED_OPTIONS = [0.35, 0.65, 1, 1.4, 1.85];
 const BANNER_FLOAT_OFFSET = 76;
 const MAX_BATTLE_FACTIONS = 10;
-const DEFAULT_COMPOSITION = { archer: 1, mage: 1, knight: 1, medic: 0, bomber: 0, assassin: 0, mountainman: 0, catapult: 0, poisoner: 0, firebreather: 0 };
+const DEFAULT_COMPOSITION = { archer: 1, mage: 1, knight: 1, medic: 0, bomber: 0, assassin: 0, mountainman: 0, catapult: 0, poisoner: 0, firebreather: 0, necromancer: 0, graverobber: 0 };
 const UNIT_SPRITE_CANDIDATE_PATHS = [
   (unitId) => `assets/unit-sprites/${unitId}.png`,
   (unitId) => `assets/units/${unitId}.png`,
@@ -36,6 +36,8 @@ const UNIT_SPRITE_LAYOUTS = {
   catapult: { height: 48, anchorX: 0.5, anchorY: 0.9 },
   poisoner: { height: 40, anchorX: 0.5, anchorY: 0.88 },
   firebreather: { height: 42, anchorX: 0.5, anchorY: 0.88 },
+  necromancer: { height: 42, anchorX: 0.5, anchorY: 0.88 },
+  graverobber: { height: 40, anchorX: 0.5, anchorY: 0.88 },
 };
 const UNIT_SPRITE_TINT_ALPHA = 0.56;
 const VETERAN_BONUSES = {
@@ -47,6 +49,25 @@ const VETERAN_BONUSES = {
   cooldown: 0.9,
   duration: 1.1,
 };
+const ZOMBIE_PENALTIES = {
+  maxHealth: 0.72,
+  power: 0.76,
+  radius: 0.9,
+  speed: 0.78,
+  cooldown: 1.24,
+  duration: 0.9,
+};
+const THRALL_LEASH_DISTANCE = 94;
+const THRALL_TUG_START_DISTANCE = 56;
+const THRALL_TUG_FACTOR = 0.14;
+const GRAVE_VARIANTS = [
+  { id: "headstone-round", kind: "grave", bodyPath: "M -8 10 L -8 -2 C -8 -10 8 -10 8 -2 L 8 10 Z", accentPath: "M -5 -1 L 5 -1 L 5 2 L -5 2 Z" },
+  { id: "headstone-slab", kind: "grave", bodyPath: "M -7 10 L -7 -7 L 7 -7 L 7 10 Z", accentPath: "M -4 -3 L 4 -3 L 4 0 L -4 0 Z" },
+  { id: "cross-stone", kind: "grave", bodyPath: "M -3 10 L -3 1 L -8 1 L -8 -3 L -3 -3 L -3 -10 L 3 -10 L 3 -3 L 8 -3 L 8 1 L 3 1 L 3 10 Z", accentPath: "M -2 4 L 2 4 L 2 8 L -2 8 Z" },
+  { id: "grave-marker", kind: "grave", bodyPath: "M -6 10 L -8 -4 L 0 -10 L 8 -4 L 6 10 Z", accentPath: "M -3 -1 L 3 -1 L 3 2 L -3 2 Z" },
+  { id: "bones", kind: "remains", bodyPath: "M -10 2 C -8 -1 -5 -1 -3 2 C -1 5 1 5 3 2 C 5 -1 8 -1 10 2 L 8 4 C 6 2 4 2 2 5 C 0 8 -2 8 -4 5 C -6 2 -8 2 -10 4 Z", accentPath: "M -2 -5 C -2 -8 2 -8 2 -5 C 2 -2 -2 -2 -2 -5 Z" },
+  { id: "skull-bones", kind: "remains", bodyPath: "M -9 7 L -4 2 L -7 -1 L -4 -4 L 0 0 L 4 -4 L 7 -1 L 4 2 L 9 7 L 6 10 L 0 4 L -6 10 Z", accentPath: "M -5 -7 C -5 -11 5 -11 5 -7 L 5 -2 C 5 1 -5 1 -5 -2 Z" },
+];
 const STATUS_DEFINITIONS = {
   poison: {
     kind: "poison",
@@ -71,6 +92,18 @@ const STATUS_DEFINITIONS = {
     contagionInterval: 0.55,
     badgeColor: "#ff9b54",
     accentColor: "#ffe0a8",
+  },
+  zombie: {
+    kind: "zombie",
+    name: "Zombie",
+    negative: true,
+    cleansable: false,
+    stackable: false,
+    defaultDuration: Infinity,
+    tickInterval: 1,
+    dps: 0,
+    badgeColor: "#7a8f5e",
+    accentColor: "#dce8c5",
   },
 };
 const DEFAULT_PROP_WEIGHTS = {
@@ -248,6 +281,39 @@ const UNIT_DEFINITIONS = {
     performAttack: performFirebreatherAttack,
     render: drawFirebreather,
     veteran: { metric: "damage", threshold: 150, label: "Deal 150 damage" },
+  },
+  necromancer: {
+    id: "necromancer",
+    name: "Necromancer",
+    keywords: ["undead", "corpse", "raise dead", "thrall", "bite"],
+    stats: { maxHealth: 235, speed: 30, range: 26, raiseRange: 54, biteDamage: 16, biteHeal: 15, cooldown: 2.45, maxThralls: 3 },
+    healthBarWidth: 30,
+    iconPaths: getNecromancerIconSvgPaths,
+    canActWithoutEnemies: true,
+    beforeStep: updateNecromancerState,
+    selectTarget: selectNecromancerTarget,
+    getAttackRange: getNecromancerAttackRange,
+    getDesiredDestination: getNecromancerDestination,
+    performAttack: performNecromancerAttack,
+    onDeath: handleNecromancerDeath,
+    render: drawNecromancer,
+    veteran: { metric: "damage", threshold: 160, label: "Deal 160 damage" },
+  },
+  graverobber: {
+    id: "graverobber",
+    name: "Graverobber",
+    keywords: ["grave", "corpse", "raider", "shovel", "melee"],
+    stats: { maxHealth: 78, speed: 34, range: 18, graveRange: 24, damage: 10, cooldown: 1.25 },
+    healthBarWidth: 22,
+    iconPaths: getGraverobberIconSvgPaths,
+    canActWithoutEnemies: true,
+    selectTarget: selectGraverobberTarget,
+    getAttackRange: getGraverobberAttackRange,
+    getDesiredDestination: getGraverobberDestination,
+    performAttack: performGraverobberAttack,
+    modifyStats: modifyGraverobberStats,
+    render: drawGraverobber,
+    veteran: { metric: "damage", threshold: 135, label: "Deal 135 damage" },
   },
 };
 const UNIT_LIBRARY = Object.values(UNIT_DEFINITIONS).map(({ id, name, keywords }) => ({ id, name, keywords }));
@@ -618,6 +684,30 @@ function getFirebreatherIconSvgPaths() {
     <circle cx="-1" cy="-12" r="5.1" fill="rgba(255,240,222,0.72)"></circle>
     <path d="M6 -6 Q15 -6 18 0 Q12 2 8 6" fill="#ffb055"></path>
     <path d="M8 -4 Q13 -3 15 0 Q11 1 8 4" fill="#fff0b3"></path>
+  `;
+}
+
+function getNecromancerIconSvgPaths() {
+  return `
+    <path fill="rgba(24, 15, 33, 0.98)" d="M0 -20 L8 -12 L12 -2 L10 12 L4 10 L1 14 L-2 10 L-9 12 L-11 -2 L-8 -12 Z"></path>
+    <path fill="currentColor" d="M0 -16 L7 -10 L9 -2 L7 10 L2 8 L0 12 L-2 8 L-7 10 L-9 -2 L-7 -10 Z"></path>
+    <path fill="rgba(9, 6, 14, 0.72)" d="M-8 -2 L-14 4 L-12 8 L-7 7 Z"></path>
+    <path fill="rgba(9, 6, 14, 0.72)" d="M8 -2 L14 4 L12 8 L7 7 Z"></path>
+    <path fill="rgba(235, 229, 220, 0.92)" d="M0 -17 L4 -13 L4 -8 L1 -4 L-1 -4 L-4 -8 L-4 -13 Z"></path>
+    <path fill="rgba(60, 255, 172, 0.9)" d="M-3 -11 L-1 -10 L-2 -8.2 L-4.2 -9 Z"></path>
+    <path fill="rgba(60, 255, 172, 0.9)" d="M3 -11 L1 -10 L2 -8.2 L4.2 -9 Z"></path>
+    <path fill="rgba(88, 40, 124, 0.8)" d="M-1 -4 L1 -4 L1 -1 L3 2 L0 5 L-3 2 L-1 -1 Z"></path>
+    <path d="M9 -3 L18 -17" fill="none" stroke="rgba(32,20,44,0.95)" stroke-width="2.4" stroke-linecap="round"></path>
+    <path d="M16 -18 L19 -13 L17 -6 L12 -9 L12 -15 Z" fill="#a47ae0"></path>
+  `;
+}
+
+function getGraverobberIconSvgPaths() {
+  return `
+    <path fill="currentColor" d="M0 -14 L9 -5 L8 11 L-7 12 L-10 -4 Z"></path>
+    <circle cx="-1" cy="-14" r="4.7" fill="rgba(255,243,223,0.68)"></circle>
+    <path d="M8 -4 L16 -14" fill="none" stroke="rgba(84,58,32,0.94)" stroke-width="2.2" stroke-linecap="round"></path>
+    <path d="M14 -16 Q18 -12 16 -7 L11 -9 Q12 -14 14 -16 Z" fill="#b8b4ac"></path>
   `;
 }
 
@@ -1072,6 +1162,7 @@ function buildBattle(factionPool = state.factions, arena = createArenaVariant(0,
   return {
     field,
     factions,
+    graves: [],
     projectiles: [],
     particles: [],
     spells: [],
@@ -1089,6 +1180,43 @@ function buildBattle(factionPool = state.factions, arena = createArenaVariant(0,
     knockoutQueue: [],
     activeKnockout: null,
   };
+}
+
+function createGrave(unit, battle) {
+  const variant = GRAVE_VARIANTS[Math.floor(Math.random() * GRAVE_VARIANTS.length)];
+  return {
+    id: `grave-${unit.id}-${Math.random().toString(36).slice(2, 7)}`,
+    x: unit.x,
+    y: unit.y,
+    factionId: unit.factionId,
+    unitType: unit.type,
+    variantId: variant.id,
+    variantKind: variant.kind,
+    raisedById: null,
+  };
+}
+
+function spawnGrave(unit, battle) {
+  if (!battle || !unit) return null;
+  const grave = createGrave(unit, battle);
+  battle.graves.push(grave);
+  return grave;
+}
+
+function findGraveById(battle, graveId) {
+  return battle?.graves?.find((grave) => grave.id === graveId) || null;
+}
+
+function removeGrave(battle, graveId) {
+  if (!battle?.graves?.length) return null;
+  const index = battle.graves.findIndex((grave) => grave.id === graveId);
+  if (index < 0) return null;
+  const [grave] = battle.graves.splice(index, 1);
+  return grave || null;
+}
+
+function getGraveVariant(grave) {
+  return GRAVE_VARIANTS.find((variant) => variant.id === grave?.variantId) || GRAVE_VARIANTS[0];
 }
 
 function findSourceFaction(factionId) {
@@ -1350,22 +1478,47 @@ function getVeteranGoal(unitOrType) {
 function scaleVeteranStat(stat, value) {
   if (typeof value !== "number") return value;
   if (stat === "maxHealth") return value * VETERAN_BONUSES.maxHealth;
-  if (["damage", "heal", "backstabDamage", "slashDamage", "impulseDamage", "holdDamage", "poisonDamage", "igniteDamage"].includes(stat)) return value * VETERAN_BONUSES.power;
-  if (["range", "abductRange", "splash", "deathSplash", "impulseRange", "impulseDistance", "holdRange", "resetRadius", "contagionRadius"].includes(stat)) return value * VETERAN_BONUSES.radius;
+  if (["damage", "heal", "backstabDamage", "slashDamage", "impulseDamage", "holdDamage", "poisonDamage", "igniteDamage", "biteDamage", "biteHeal"].includes(stat)) return value * VETERAN_BONUSES.power;
+  if (["range", "abductRange", "splash", "deathSplash", "impulseRange", "impulseDistance", "holdRange", "resetRadius", "contagionRadius", "raiseRange", "graveRange"].includes(stat)) return value * VETERAN_BONUSES.radius;
   if (stat === "speed") return value * VETERAN_BONUSES.speed;
   if (stat === "cooldown") return value * VETERAN_BONUSES.cooldown;
   if (["holdDuration", "poisonDuration", "igniteDuration", "breathDuration"].includes(stat)) return value * VETERAN_BONUSES.duration;
   return value;
 }
 
+function scaleZombieStat(stat, value) {
+  if (typeof value !== "number") return value;
+  if (stat === "maxHealth") return value * ZOMBIE_PENALTIES.maxHealth;
+  if (["damage", "heal", "backstabDamage", "slashDamage", "impulseDamage", "holdDamage", "poisonDamage", "igniteDamage", "biteDamage", "biteHeal"].includes(stat)) return value * ZOMBIE_PENALTIES.power;
+  if (["range", "abductRange", "splash", "deathSplash", "impulseRange", "impulseDistance", "holdRange", "resetRadius", "contagionRadius", "raiseRange", "graveRange"].includes(stat)) return value * ZOMBIE_PENALTIES.radius;
+  if (stat === "speed") return value * ZOMBIE_PENALTIES.speed;
+  if (stat === "cooldown") return value * ZOMBIE_PENALTIES.cooldown;
+  if (["holdDuration", "poisonDuration", "igniteDuration", "breathDuration"].includes(stat)) return value * ZOMBIE_PENALTIES.duration;
+  return value;
+}
+
 function getUnitStats(unitOrType, unitDef = getUnitDefinition(unitOrType)) {
   const unit = typeof unitOrType === "string" ? null : unitOrType;
-  if (!unit?.veteran) return unitDef.stats;
+  const zombie = Boolean(unit && getUnitStatus(unit, "zombie"));
+  if (!unit?.veteran && !zombie && !unitDef.modifyStats) return unitDef.stats;
   const scaledStats = {};
   Object.entries(unitDef.stats).forEach(([stat, value]) => {
-    scaledStats[stat] = scaleVeteranStat(stat, value);
+    let nextValue = value;
+    if (unit?.veteran) nextValue = scaleVeteranStat(stat, nextValue);
+    if (zombie) nextValue = scaleZombieStat(stat, nextValue);
+    scaledStats[stat] = nextValue;
   });
-  return scaledStats;
+  return unitDef.modifyStats ? unitDef.modifyStats(unit, scaledStats) : scaledStats;
+}
+
+function syncUnitMaxHealth(unit, preserveRatio = true) {
+  if (!unit) return;
+  const oldMaxHealth = Math.max(1, unit.maxHealth || getUnitDefinition(unit).stats.maxHealth || 1);
+  const currentRatio = clamp(unit.health / oldMaxHealth, 0, 1);
+  unit.maxHealth = getUnitStats(unit).maxHealth;
+  unit.health = preserveRatio
+    ? clamp(unit.maxHealth * currentRatio, 0, unit.maxHealth)
+    : Math.min(unit.health, unit.maxHealth);
 }
 
 function getUnitRenderScale(unit) {
@@ -1380,7 +1533,7 @@ function getVeteranProgressValue(unit, metric) {
 }
 
 function tryPromoteUnit(unit, battle) {
-  if (!unit || unit.veteran) return false;
+  if (!unit || unit.veteran || getUnitStatus(unit, "zombie")) return false;
   const veteranGoal = getVeteranGoal(unit);
   if (!veteranGoal) return false;
   if (getVeteranProgressValue(unit, veteranGoal.metric) < veteranGoal.threshold) return false;
@@ -1456,6 +1609,7 @@ function applyStatus(unit, kind, stacks = 1, duration = null, source = null, bat
   status.sourceFactionId = source?.factionId || status.sourceFactionId || null;
   status.dps = Math.max(status.dps || 0, statusDps);
   status.stacks = statusDef.stackable ? status.stacks + stacks : Math.max(status.stacks, stacks);
+  if (kind === "zombie") syncUnitMaxHealth(unit, false);
   return status;
 }
 
@@ -1463,10 +1617,15 @@ function clearNegativeStatuses(unit) {
   if (!unit) return false;
   const beforeExposure = Object.keys(unit.flameExposure || {}).length;
   const hadStatuses = unit.statuses?.length || 0;
-  const kept = (unit.statuses || []).filter((status) => !getStatusDefinition(status.kind)?.negative);
+  const kept = (unit.statuses || []).filter((status) => {
+    const definition = getStatusDefinition(status.kind);
+    if (!definition?.negative) return true;
+    return definition.cleansable === false;
+  });
   const changed = kept.length !== hadStatuses || beforeExposure > 0;
   unit.statuses = kept;
   unit.flameExposure = {};
+  if (changed) syncUnitMaxHealth(unit, true);
   return changed;
 }
 
@@ -1511,6 +1670,12 @@ function makeUnit(factionId, type, x, y) {
     statuses: [],
     flameExposure: {},
     statusVisualSeed: Math.random() * Math.PI * 2,
+    thrallOwnerId: null,
+    thrallIds: [],
+    raisedThrall: false,
+    currentTargetKind: null,
+    currentGraveId: null,
+    gravesRobbed: 0,
   };
 }
 
@@ -1783,6 +1948,7 @@ function updateUnit(unit, faction, battle, dt) {
   if (unit.dead || unit.fled) return;
   const unitDef = getUnitDefinition(unit);
   const stats = getUnitStats(unit, unitDef);
+  const graves = battle.graves || [];
   if (unit.liftedBySpellId) {
     unit.vx = 0;
     unit.vy = 0;
@@ -1803,14 +1969,14 @@ function updateUnit(unit, faction, battle, dt) {
   unit.z += (0 - unit.z) * 0.18;
   const allies = findFaction(battle, faction.id).units.filter((ally) => !ally.dead && !ally.fled);
   const enemies = getTargetableEnemies(battle, faction.id, unit);
-  unitDef.beforeStep?.({ unit, faction, battle, allies, enemies, unitDef, dt });
-  if (!enemies.length && !unitDef.canActWithoutEnemies) return;
-  const target = selectUnitTarget(unit, unitDef, enemies, allies);
+  unitDef.beforeStep?.({ unit, faction, battle, allies, enemies, graves, unitDef, dt });
+  if (!enemies.length && !graves.length && !unitDef.canActWithoutEnemies) return;
+  const target = selectUnitTarget(unit, unitDef, enemies, allies, graves);
   const distance = target ? Math.hypot(target.x - unit.x, target.y - unit.y) : 9999;
   const panicThreshold = unit.maxHealth * (0.28 + (1 - unit.bravery) * 0.3);
   unit.fleeing = unit.health < panicThreshold && Math.random() > unit.bravery * 0.86;
 
-  let destination = getDesiredDestination(unit, unitDef, target, distance, battle, allies, enemies);
+  let destination = getDesiredDestination(unit, unitDef, target, distance, battle, allies, enemies, graves);
   if (unit.fleeing) {
     const awayX = unit.x - battle.field.centerX;
     const awayY = unit.y - battle.field.centerY;
@@ -1850,7 +2016,8 @@ function updateUnit(unit, faction, battle, dt) {
   unit.x += unit.vx * dt;
   unit.y += unit.vy * dt;
   keepOnField(unit, battle.field);
-  unitDef.afterMove?.({ unit, faction, battle, allies, enemies, target, unitDef, dt });
+  applyThrallLeash(unit, battle, dt);
+  unitDef.afterMove?.({ unit, faction, battle, allies, enemies, graves, target, unitDef, dt });
 
   const distFromCenter = Math.hypot(unit.x - battle.field.centerX, unit.y - battle.field.centerY);
   if (unit.fleeing && distFromCenter > battle.field.radius + 150) {
@@ -1872,8 +2039,8 @@ function canUnitBeTargeted(unit, attacker = null) {
   return unitDef.isTargetable ? unitDef.isTargetable({ unit, attacker, unitDef }) : true;
 }
 
-function selectUnitTarget(unit, unitDef, enemies, allies) {
-  return (unitDef.selectTarget || selectDefaultTarget)({ unit, unitDef, enemies, allies });
+function selectUnitTarget(unit, unitDef, enemies, allies, graves = []) {
+  return (unitDef.selectTarget || selectDefaultTarget)({ unit, unitDef, enemies, allies, graves });
 }
 
 function getAttackRange(unit, unitDef = getUnitDefinition(unit)) {
@@ -1887,10 +2054,10 @@ function getUnitMoveSpeed(unit, unitDef = getUnitDefinition(unit)) {
   return stats.speed * (0.42 + 0.58 * (unit.health / unit.maxHealth));
 }
 
-function getDesiredDestination(unit, unitDef, target, distance, battle, allies = [], enemies = []) {
+function getDesiredDestination(unit, unitDef, target, distance, battle, allies = [], enemies = [], graves = []) {
   const baseDestination = { x: target ? target.x : unit.x, y: target ? target.y : unit.y };
   if (!unitDef.getDesiredDestination) return baseDestination;
-  return unitDef.getDesiredDestination({ unit, unitDef, target, distance, battle, allies, enemies, destination: baseDestination });
+  return unitDef.getDesiredDestination({ unit, unitDef, target, distance, battle, allies, enemies, graves, destination: baseDestination });
 }
 
 function getRetreatingDestination(threshold, multiplier) {
@@ -2045,7 +2212,88 @@ function keepOnField(unit, field) {
   unit.y = clamp(unit.y, 20, field.height - 20);
 }
 
+function findNearestGrave(unit, graves, predicate = null) {
+  const pool = (graves || []).filter((grave) => !predicate || predicate(grave));
+  if (!pool.length) return null;
+  let best = pool[0];
+  let bestDistance = Math.hypot(best.x - unit.x, best.y - unit.y);
+  for (let i = 1; i < pool.length; i += 1) {
+    const grave = pool[i];
+    const distance = Math.hypot(grave.x - unit.x, grave.y - unit.y);
+    if (distance < bestDistance) {
+      best = grave;
+      bestDistance = distance;
+    }
+  }
+  return best;
+}
+
+function getLivingThrallIds(unit, battle) {
+  if (!unit?.thrallIds?.length) return [];
+  return unit.thrallIds.filter((thrallId) => {
+    const thrall = findUnitById(battle, thrallId);
+    return thrall && !thrall.dead && !thrall.fled && thrall.thrallOwnerId === unit.id;
+  });
+}
+
+function getNecromancerParticipants(unit, battle) {
+  if (!unit || !battle) return [];
+  if (unit.type === "necromancer") {
+    const thralls = getLivingThrallIds(unit, battle).map((thrallId) => findUnitById(battle, thrallId)).filter(Boolean);
+    return [unit, ...thralls].filter((entry) => !entry.dead && !entry.fled);
+  }
+  if (unit.thrallOwnerId) {
+    const owner = findUnitById(battle, unit.thrallOwnerId);
+    if (!owner || owner.dead || owner.fled || owner.type !== "necromancer") return [];
+    return getNecromancerParticipants(owner, battle);
+  }
+  return [];
+}
+
+function applyThrallLeash(unit, battle, dt) {
+  if (!unit?.thrallOwnerId || unit.dead || unit.fled) return;
+  const owner = findUnitById(battle, unit.thrallOwnerId);
+  if (!owner || owner.dead || owner.fled) return;
+  const dx = unit.x - owner.x;
+  const dy = unit.y - owner.y;
+  const distance = Math.hypot(dx, dy);
+  if (distance <= 0.001) return;
+  const dirX = dx / distance;
+  const dirY = dy / distance;
+  const outwardIntent = ((unit.vx || 0) * dirX) + ((unit.vy || 0) * dirY);
+
+  if (distance > THRALL_TUG_START_DISTANCE && outwardIntent > 0) {
+    const tugStrength = outwardIntent * dt * THRALL_TUG_FACTOR * clamp((distance - THRALL_TUG_START_DISTANCE) / (THRALL_LEASH_DISTANCE - THRALL_TUG_START_DISTANCE || 1), 0, 1);
+    owner.x += dirX * tugStrength;
+    owner.y += dirY * tugStrength;
+    keepOnField(owner, battle.field);
+  }
+
+  if (distance > THRALL_LEASH_DISTANCE) {
+    unit.x = owner.x + dirX * THRALL_LEASH_DISTANCE;
+    unit.y = owner.y + dirY * THRALL_LEASH_DISTANCE;
+    const inward = Math.max(0, outwardIntent);
+    unit.vx = Math.min(unit.vx || 0, 0) - dirX * inward * 0.45;
+    unit.vy = Math.min(unit.vy || 0, 0) - dirY * inward * 0.45;
+    keepOnField(unit, battle.field);
+  }
+}
+
+function modifyGraverobberStats(unit, stats) {
+  if (!unit) return stats;
+  const robbed = unit.gravesRobbed || 0;
+  return {
+    ...stats,
+    damage: stats.damage * (1 + robbed * 0.32),
+    speed: stats.speed * (1 + robbed * 0.08),
+    range: stats.range + robbed * 3.5,
+    graveRange: stats.graveRange + robbed * 2,
+  };
+}
+
 function selectDefaultTarget({ unit, enemies }) {
+  unit.currentTargetKind = "enemy";
+  unit.currentGraveId = null;
   let best = enemies[0];
   let bestScore = Infinity;
   enemies.forEach((enemy) => {
@@ -2058,6 +2306,141 @@ function selectDefaultTarget({ unit, enemies }) {
     }
   });
   return best;
+}
+
+function updateNecromancerState({ unit, battle }) {
+  if (unit.thrallOwnerId) {
+    unit.thrallIds = [];
+    return;
+  }
+  unit.thrallIds = getLivingThrallIds(unit, battle);
+}
+
+function selectNecromancerTarget({ unit, enemies, graves, unitDef }) {
+  const stats = getUnitStats(unit, unitDef);
+  if (unit.thrallOwnerId) {
+    unit.currentTargetKind = "enemy";
+    unit.currentGraveId = null;
+    return selectDefaultTarget({ unit, enemies });
+  }
+  unit.thrallIds = unit.thrallIds || [];
+  if (unit.thrallIds.length < stats.maxThralls) {
+    const grave = findNearestGrave(unit, graves);
+    if (grave) {
+      unit.currentTargetKind = "grave";
+      unit.currentGraveId = grave.id;
+      return grave;
+    }
+  }
+  unit.currentTargetKind = "enemy";
+  unit.currentGraveId = null;
+  return selectDefaultTarget({ unit, enemies });
+}
+
+function getNecromancerAttackRange(unitDef, unit) {
+  const stats = getUnitStats(unit, unitDef);
+  return Math.max(stats.range, stats.raiseRange);
+}
+
+function getNecromancerDestination({ unit, target, distance, destination, unitDef }) {
+  if (!target) return destination;
+  const stats = getUnitStats(unit, unitDef);
+  if (unit.currentTargetKind === "grave" && distance <= stats.raiseRange * 0.9) return { x: unit.x, y: unit.y };
+  return unit.currentTargetKind === "enemy"
+    ? getRetreatingDestination(20, 0.15)({ unit, target, distance, destination })
+    : destination;
+}
+
+function createThrallFromGrave(necromancer, grave, battle) {
+  const faction = findFaction(battle, necromancer.factionId);
+  if (!faction) return null;
+  const angle = Math.random() * Math.PI * 2;
+  const thrall = makeUnit(
+    necromancer.factionId,
+    grave.unitType,
+    clamp(grave.x + Math.cos(angle) * 18, 24, battle.field.width - 24),
+    clamp(grave.y + Math.sin(angle) * 14, 24, battle.field.height - 24),
+  );
+  thrall.raisedThrall = true;
+  thrall.thrallOwnerId = necromancer.id;
+  thrall.veteran = false;
+  thrall.statuses = [];
+  applyStatus(thrall, "zombie", 1, Infinity, necromancer, battle);
+  thrall.health = thrall.maxHealth;
+  faction.units.push(thrall);
+  necromancer.thrallIds.push(thrall.id);
+  return thrall;
+}
+
+function performNecromancerAttack({ unit, target, battle, unitDef }) {
+  const stats = getUnitStats(unit, unitDef);
+  if (!target) return;
+  if (unit.currentTargetKind === "grave") {
+    const grave = findGraveById(battle, target.id || unit.currentGraveId);
+    if (!grave || unit.thrallIds.length >= stats.maxThralls || Math.hypot(grave.x - unit.x, grave.y - unit.y) > stats.raiseRange + 4) return;
+    const thrall = createThrallFromGrave(unit, grave, battle);
+    if (!thrall) return;
+    removeGrave(battle, grave.id);
+    spawnBurst(battle, grave.x, grave.y - 4, "#7d5ab8", 20);
+    battle.particles.push({ kind: "ring", x: grave.x, y: grave.y, vx: 0, vy: 0, life: 0.55, age: 0, color: "#5e3f82", size: 18, lineWidth: 4 });
+    setHighlight(`${findFaction(battle, unit.factionId).title}'s necromancer raises a ${getUnitDefinition(thrall).name.toLowerCase()} thrall`);
+    return;
+  }
+  if (Math.hypot(target.x - unit.x, target.y - unit.y) > stats.range + 6) return;
+  applyDamage(target, stats.biteDamage * (0.9 + Math.random() * 0.3), battle, unit);
+  battle.swipes.push({ x: target.x, y: target.y - 10, angle: unit.facing, life: 0.24, maxLife: 0.24, color: "rgba(112, 72, 154, 0.86)" });
+  spawnBurst(battle, target.x, target.y - 2, "#8f63c9", 9);
+  distributeNecromancerHealing(unit, stats.biteHeal * (0.9 + Math.random() * 0.2), battle);
+}
+
+function handleNecromancerDeath({ unit, battle }) {
+  const thrallIds = [...(unit.thrallIds || [])];
+  thrallIds.forEach((thrallId) => {
+    const thrall = findUnitById(battle, thrallId);
+    if (!thrall || thrall.dead) return;
+    applyDamage(thrall, thrall.health + 999, battle, unit, { bypassSharedDamage: true, skipGrave: false, noAttackerCredit: true });
+  });
+}
+
+function selectGraverobberTarget({ unit, enemies, graves }) {
+  const grave = findNearestGrave(unit, graves);
+  if (grave) {
+    unit.currentTargetKind = "grave";
+    unit.currentGraveId = grave.id;
+    return grave;
+  }
+  unit.currentTargetKind = "enemy";
+  unit.currentGraveId = null;
+  return selectDefaultTarget({ unit, enemies });
+}
+
+function getGraverobberAttackRange(unitDef, unit) {
+  const stats = getUnitStats(unit, unitDef);
+  return Math.max(stats.range, stats.graveRange);
+}
+
+function getGraverobberDestination({ target, destination, unit }) {
+  if (!target) return destination;
+  return unit.currentTargetKind === "grave" ? destination : getRetreatingDestination(16, 0.08)({ unit, target, distance: Math.hypot(target.x - unit.x, target.y - unit.y), destination });
+}
+
+function performGraverobberAttack({ unit, target, battle, unitDef }) {
+  const stats = getUnitStats(unit, unitDef);
+  if (!target) return;
+  if (unit.currentTargetKind === "grave") {
+    const grave = findGraveById(battle, target.id || unit.currentGraveId);
+    if (!grave || Math.hypot(grave.x - unit.x, grave.y - unit.y) > stats.graveRange + 4) return;
+    removeGrave(battle, grave.id);
+    unit.gravesRobbed = (unit.gravesRobbed || 0) + 1;
+    syncUnitMaxHealth(unit, true);
+    spawnBurst(battle, grave.x, grave.y - 3, "#b59363", 16);
+    setHighlight(`${findFaction(battle, unit.factionId).title}'s graverobber plunders a grave and grows bolder`);
+    return;
+  }
+  if (Math.hypot(target.x - unit.x, target.y - unit.y) > stats.range + 4) return;
+  applyDamage(target, stats.damage * (0.92 + Math.random() * 0.36), battle, unit);
+  battle.swipes.push({ x: target.x, y: target.y - 11, angle: unit.facing, life: 0.2, maxLife: 0.2, color: "rgba(178, 146, 104, 0.86)" });
+  spawnBurst(battle, target.x, target.y - 1, "#e0c089", 8);
 }
 
 function selectBomberTarget({ unit, enemies, allies }) {
@@ -2313,11 +2696,41 @@ function performCatapultAttack({ unit, target, battle, unitDef }) {
   });
 }
 
+function applyHealing(target, amount, battle, source = null, options = {}) {
+  if (!target || target.dead || amount <= 0) return 0;
+  if (getUnitStatus(target, "zombie") && !options.ignoreZombieInversion) {
+    applyDamage(target, amount, battle, source, { damageKind: "healing" });
+    return -amount;
+  }
+  const previousHealth = target.health;
+  target.health = Math.min(target.maxHealth, target.health + amount);
+  return Math.max(0, target.health - previousHealth);
+}
+
+function distributeNecromancerHealing(unit, totalAmount, battle) {
+  const members = getNecromancerParticipants(unit, battle);
+  if (!members.length || totalAmount <= 0) return 0;
+  const share = totalAmount / members.length;
+  let totalApplied = 0;
+  members.forEach((member) => {
+    totalApplied += applyHealing(member, share, battle, unit, { ignoreZombieInversion: true });
+    battle.particles.push({ x: member.x, y: member.y - 10, vx: 0, vy: -14, life: 0.42, age: 0, color: "#8d5bc8", size: 5 });
+  });
+  return totalApplied;
+}
+
 function performMedicHeal({ unit, target, battle, unitDef }) {
   const stats = getUnitStats(unit, unitDef);
   if (!target || target.id === unit.id || (target.health >= target.maxHealth && !hasNegativeStatuses(target))) return;
-  const amountHealed = Math.min(Math.max(0, target.maxHealth - target.health), stats.heal * (0.9 + Math.random() * 0.35));
-  target.health = Math.min(target.maxHealth, target.health + amountHealed);
+  const amount = stats.heal * (0.9 + Math.random() * 0.35);
+  if (getUnitStatus(target, "zombie")) {
+    applyDamage(target, amount, battle, unit, { damageKind: "healing" });
+    battle.particles.push({ x: target.x, y: target.y - 10, vx: 0, vy: -14, life: 0.5, age: 0, color: "#7f6a57", size: 6 });
+    setHighlight(`${findFaction(battle, unit.factionId).title}'s medic burns a zombie thrall with restorative energy`);
+    if (target.dead) unit.focusTargetId = null;
+    return;
+  }
+  const amountHealed = applyHealing(target, Math.min(Math.max(0, target.maxHealth - target.health), amount), battle, unit);
   recordUnitContribution(unit, "healing", amountHealed, battle);
   const cleansed = clearNegativeStatuses(target);
   battle.particles.push({ x: target.x, y: target.y - 10, vx: 0, vy: -20, life: 0.55, age: 0, color: "#b8ffbf", size: 7 });
@@ -2680,11 +3093,26 @@ function explodeAt(battle, x, y, radius, damage, attacker, color, burstCount, sh
   }
 }
 
-function applyDamage(unit, amount, battle, attacker = null) {
+function applyDamage(unit, amount, battle, attacker = null, options = {}) {
+  if (!unit || unit.dead || amount <= 0) return 0;
+  const participants = !options.bypassSharedDamage ? getNecromancerParticipants(unit, battle) : [];
+  if (participants.length > 1) {
+    const share = amount / participants.length;
+    let totalApplied = 0;
+    participants.forEach((member) => {
+      totalApplied += applyDamage(member, share, battle, attacker, { ...options, bypassSharedDamage: true });
+    });
+    return totalApplied;
+  }
+  return applyRawDamage(unit, amount, battle, attacker, options);
+}
+
+function applyRawDamage(unit, amount, battle, attacker = null, options = {}) {
+  if (!unit || unit.dead || amount <= 0) return 0;
   const previousHealth = unit.health;
   unit.health -= amount;
   const actualDamage = Math.max(0, Math.min(previousHealth, amount));
-  if (attacker && attacker.factionId !== unit.factionId && actualDamage > 0) {
+  if (!options.noAttackerCredit && attacker && attacker.factionId !== unit.factionId && actualDamage > 0) {
     recordUnitContribution(attacker, "damage", actualDamage, battle);
   }
   if (unit.health <= 0) {
@@ -2693,13 +3121,15 @@ function applyDamage(unit, amount, battle, attacker = null) {
     unit.health = 0;
     unit.liftedBySpellId = null;
     unit.displacedBySpellId = null;
+    spawnGrave(unit, battle);
     unitDef.onDeath?.({ unit, battle, attacker, unitDef });
-    if (attacker && !attacker.dead) {
+    if (!options.noAttackerCredit && attacker && !attacker.dead) {
       attacker.killStreak = (attacker.killStreak || 0) + 1;
       recordUnitContribution(attacker, "kills", 1, battle);
     }
     spawnBurst(battle, unit.x, unit.y, "#f3c58a", 16);
   }
+  return actualDamage;
 }
 
 function handleBomberDeath({ unit, battle, attacker, unitDef }) {
@@ -3090,10 +3520,12 @@ function render() {
   drawField(viewport, state.battle);
   drawGroundDecor(viewport, state.battle);
   drawGroundProps(viewport, state.battle.props || []);
+  drawGraves(viewport, state.battle.graves || []);
   drawStuckArrows(viewport, state.battle.stuckArrows);
   drawBanners(viewport, state.battle.factions);
   drawProjectiles(viewport, state.battle.projectiles);
   drawUnits(viewport, state.battle.factions);
+  drawNecromancerLinks(viewport, state.battle);
   drawSwipes(viewport, state.battle.swipes);
   drawSpells(viewport, state.battle);
   drawParticles(viewport, state.battle.particles);
@@ -3789,6 +4221,64 @@ function drawUnits(viewport, factions) {
   });
 }
 
+function drawGraves(viewport, graves) {
+  graves
+    .slice()
+    .sort((a, b) => a.y - b.y)
+    .forEach((grave) => {
+      const point = worldToScreen(grave.x, grave.y, viewport);
+      const variant = getGraveVariant(grave);
+      const scale = point.scale / 2.1;
+      const bodyPath = new Path2D(variant.bodyPath);
+      const accentPath = variant.accentPath ? new Path2D(variant.accentPath) : null;
+      ctx.save();
+      ctx.translate(point.x, point.y + 2 * point.scale / 2.1);
+      ctx.fillStyle = "rgba(0,0,0,0.18)";
+      ctx.beginPath();
+      ctx.ellipse(0, 6 * scale, variant.kind === "remains" ? 9 * scale : 11 * scale, variant.kind === "remains" ? 4 * scale : 5 * scale, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.scale(scale, scale);
+      ctx.fillStyle = variant.kind === "remains" ? "rgba(204, 198, 184, 0.92)" : "rgba(128, 124, 118, 0.94)";
+      ctx.fill(bodyPath);
+      if (accentPath) {
+        ctx.fillStyle = variant.kind === "remains" ? "rgba(126, 117, 102, 0.42)" : "rgba(168, 164, 158, 0.7)";
+        ctx.fill(accentPath);
+      }
+      ctx.restore();
+    });
+}
+
+function drawNecromancerLinks(viewport, battle) {
+  battle.factions.forEach((faction) => {
+    faction.units.forEach((unit) => {
+      if (unit.dead || unit.fled || unit.type !== "necromancer") return;
+      getLivingThrallIds(unit, battle).forEach((thrallId) => {
+        const thrall = findUnitById(battle, thrallId);
+        if (!thrall || thrall.dead || thrall.fled) return;
+        const sourcePose = getUnitRenderPose(unit, viewport);
+        const targetPose = getUnitRenderPose(thrall, viewport);
+        const wobble = Math.sin((battle.time * 5) + unit.statusVisualSeed + thrall.statusVisualSeed) * 7 * sourcePose.scale / 2.1;
+        ctx.save();
+        ctx.strokeStyle = "rgba(70, 31, 102, 0.7)";
+        ctx.lineWidth = 4 * sourcePose.scale / 2.1;
+        ctx.beginPath();
+        ctx.moveTo(sourcePose.point.x, sourcePose.bodyY - 10 * sourcePose.scale / 2.1);
+        ctx.quadraticCurveTo(
+          (sourcePose.point.x + targetPose.point.x) / 2 + wobble,
+          Math.min(sourcePose.bodyY, targetPose.bodyY) - 22 * sourcePose.scale / 2.1,
+          targetPose.point.x,
+          targetPose.bodyY - 6 * targetPose.scale / 2.1,
+        );
+        ctx.stroke();
+        ctx.strokeStyle = "rgba(160, 112, 216, 0.42)";
+        ctx.lineWidth = 1.8 * sourcePose.scale / 2.1;
+        ctx.stroke();
+        ctx.restore();
+      });
+    });
+  });
+}
+
 function drawUnitStatusOverlay(unit, scale) {
   const battleTime = state.battle?.time || 0;
   const poisonStacks = getStatusStacks(unit, "poison");
@@ -3807,6 +4297,13 @@ function drawUnitStatusOverlay(unit, scale) {
     ctx.fillStyle = `rgba(255, 171, 82, ${ignitePulse})`;
     ctx.beginPath();
     ctx.ellipse(0, -1 * scale / 2.1, 13 * scale / 2.1, 19 * scale / 2.1, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  if (getStatusStacks(unit, "zombie") > 0) {
+    const zombiePulse = 0.16 + Math.max(0, Math.sin(battleTime * 5 + unit.statusVisualSeed * 0.8)) * 0.14;
+    ctx.fillStyle = `rgba(118, 145, 88, ${zombiePulse})`;
+    ctx.beginPath();
+    ctx.ellipse(0, 1 * scale / 2.1, 12 * scale / 2.1, 17 * scale / 2.1, 0, 0, Math.PI * 2);
     ctx.fill();
   }
 }
@@ -3844,6 +4341,7 @@ function drawStatusBadge(badge, x, y, scale) {
     if (badge.kind === "veteran") drawVeteranBadgeIcon(scale, badge.accentColor);
     if (badge.kind === "poison") drawPoisonBadgeIcon(scale, badge.accentColor);
     if (badge.kind === "ignite") drawIgniteBadgeIcon(scale, badge.accentColor);
+    if (badge.kind === "zombie") drawZombieBadgeIcon(scale, badge.accentColor);
   }
   if (badge.stacks > 1) {
     const pipRadius = 4.4 * scale / 2.1;
@@ -3906,6 +4404,23 @@ function drawIgniteBadgeIcon(scale, color) {
   ctx.bezierCurveTo(-0.5 * scale / 2.1, -1.2 * scale / 2.1, -0.1 * scale / 2.1, -0.4 * scale / 2.1, 0.2 * scale / 2.1, 0.5 * scale / 2.1);
   ctx.bezierCurveTo(0.5 * scale / 2.1, -0.6 * scale / 2.1, 0.9 * scale / 2.1, -1.9 * scale / 2.1, 0.1 * scale / 2.1, -3.6 * scale / 2.1);
   ctx.fill();
+}
+
+function drawZombieBadgeIcon(scale, color) {
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2.1 * scale / 2.1;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.arc(0, -1 * scale / 2.1, 4.2 * scale / 2.1, Math.PI * 0.15, Math.PI * 0.85);
+  ctx.moveTo(-5 * scale / 2.1, 3 * scale / 2.1);
+  ctx.lineTo(-2 * scale / 2.1, 6 * scale / 2.1);
+  ctx.moveTo(5 * scale / 2.1, 3 * scale / 2.1);
+  ctx.lineTo(2 * scale / 2.1, 6 * scale / 2.1);
+  ctx.moveTo(-2 * scale / 2.1, -1 * scale / 2.1);
+  ctx.lineTo(-2 * scale / 2.1, -1.2 * scale / 2.1);
+  ctx.moveTo(2 * scale / 2.1, -1 * scale / 2.1);
+  ctx.lineTo(2 * scale / 2.1, -1.2 * scale / 2.1);
+  ctx.stroke();
 }
 
 function drawStepLegs(dark, scale, unit, spread = 7, back = 10) {
@@ -4214,6 +4729,141 @@ function drawFirebreather(main, dark, light, scale, unit) {
     ctx.arc(0, -2 * scale / 2.1, 11 * scale / 2.1, 0, Math.PI * 2);
     ctx.fill();
   }
+}
+
+function drawNecromancer(main, dark, light, scale, unit) {
+  drawStepLegs(dark, scale, unit, 6.3, 11);
+  ctx.fillStyle = "rgba(20, 12, 27, 0.95)";
+  ctx.beginPath();
+  ctx.moveTo(0, -20 * scale / 2.1);
+  ctx.lineTo(9 * scale / 2.1, -13 * scale / 2.1);
+  ctx.lineTo(13 * scale / 2.1, -2 * scale / 2.1);
+  ctx.lineTo(10 * scale / 2.1, 13 * scale / 2.1);
+  ctx.lineTo(4 * scale / 2.1, 10 * scale / 2.1);
+  ctx.lineTo(0, 15 * scale / 2.1);
+  ctx.lineTo(-4 * scale / 2.1, 10 * scale / 2.1);
+  ctx.lineTo(-10 * scale / 2.1, 13 * scale / 2.1);
+  ctx.lineTo(-13 * scale / 2.1, -2 * scale / 2.1);
+  ctx.lineTo(-9 * scale / 2.1, -13 * scale / 2.1);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = dark;
+  ctx.beginPath();
+  ctx.moveTo(-8 * scale / 2.1, -3 * scale / 2.1);
+  ctx.lineTo(-15 * scale / 2.1, 5 * scale / 2.1);
+  ctx.lineTo(-12 * scale / 2.1, 9 * scale / 2.1);
+  ctx.lineTo(-7 * scale / 2.1, 7 * scale / 2.1);
+  ctx.closePath();
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(8 * scale / 2.1, -3 * scale / 2.1);
+  ctx.lineTo(15 * scale / 2.1, 5 * scale / 2.1);
+  ctx.lineTo(12 * scale / 2.1, 9 * scale / 2.1);
+  ctx.lineTo(7 * scale / 2.1, 7 * scale / 2.1);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = main;
+  ctx.beginPath();
+  ctx.moveTo(0, -16 * scale / 2.1);
+  ctx.lineTo(7 * scale / 2.1, -10 * scale / 2.1);
+  ctx.lineTo(9 * scale / 2.1, -2 * scale / 2.1);
+  ctx.lineTo(7 * scale / 2.1, 10 * scale / 2.1);
+  ctx.lineTo(2 * scale / 2.1, 8 * scale / 2.1);
+  ctx.lineTo(0, 12 * scale / 2.1);
+  ctx.lineTo(-2 * scale / 2.1, 8 * scale / 2.1);
+  ctx.lineTo(-7 * scale / 2.1, 10 * scale / 2.1);
+  ctx.lineTo(-9 * scale / 2.1, -2 * scale / 2.1);
+  ctx.lineTo(-7 * scale / 2.1, -10 * scale / 2.1);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = "rgba(232, 226, 215, 0.96)";
+  ctx.beginPath();
+  ctx.moveTo(0, -17 * scale / 2.1);
+  ctx.lineTo(4 * scale / 2.1, -13 * scale / 2.1);
+  ctx.lineTo(4 * scale / 2.1, -8 * scale / 2.1);
+  ctx.lineTo(1 * scale / 2.1, -4 * scale / 2.1);
+  ctx.lineTo(-1 * scale / 2.1, -4 * scale / 2.1);
+  ctx.lineTo(-4 * scale / 2.1, -8 * scale / 2.1);
+  ctx.lineTo(-4 * scale / 2.1, -13 * scale / 2.1);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = "#59f2af";
+  ctx.beginPath();
+  ctx.moveTo(-3 * scale / 2.1, -11.2 * scale / 2.1);
+  ctx.lineTo(-0.8 * scale / 2.1, -10.1 * scale / 2.1);
+  ctx.lineTo(-2 * scale / 2.1, -8 * scale / 2.1);
+  ctx.lineTo(-4.4 * scale / 2.1, -9.1 * scale / 2.1);
+  ctx.closePath();
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(3 * scale / 2.1, -11.2 * scale / 2.1);
+  ctx.lineTo(0.8 * scale / 2.1, -10.1 * scale / 2.1);
+  ctx.lineTo(2 * scale / 2.1, -8 * scale / 2.1);
+  ctx.lineTo(4.4 * scale / 2.1, -9.1 * scale / 2.1);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = "#6f43a0";
+  ctx.beginPath();
+  ctx.moveTo(-1 * scale / 2.1, -4 * scale / 2.1);
+  ctx.lineTo(1 * scale / 2.1, -4 * scale / 2.1);
+  ctx.lineTo(1 * scale / 2.1, -1 * scale / 2.1);
+  ctx.lineTo(3 * scale / 2.1, 2 * scale / 2.1);
+  ctx.lineTo(0, 5 * scale / 2.1);
+  ctx.lineTo(-3 * scale / 2.1, 2 * scale / 2.1);
+  ctx.lineTo(-1 * scale / 2.1, -1 * scale / 2.1);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.strokeStyle = "#402456";
+  ctx.lineWidth = 2.1 * scale / 2.1;
+  ctx.beginPath();
+  ctx.moveTo(8 * scale / 2.1, -3 * scale / 2.1);
+  ctx.lineTo(17 * scale / 2.1, -17 * scale / 2.1);
+  ctx.stroke();
+  ctx.fillStyle = "#a47ae0";
+  ctx.beginPath();
+  ctx.moveTo(15 * scale / 2.1, -18 * scale / 2.1);
+  ctx.lineTo(19 * scale / 2.1, -13 * scale / 2.1);
+  ctx.lineTo(17 * scale / 2.1, -6 * scale / 2.1);
+  ctx.lineTo(12 * scale / 2.1, -9 * scale / 2.1);
+  ctx.lineTo(12 * scale / 2.1, -15 * scale / 2.1);
+  ctx.closePath();
+  ctx.fill();
+}
+
+function drawGraverobber(main, dark, light, scale, unit) {
+  drawStepLegs(dark, scale, unit, 6.1, 10.2);
+  ctx.fillStyle = main;
+  ctx.beginPath();
+  ctx.moveTo(0, -13 * scale / 2.1);
+  ctx.lineTo(9 * scale / 2.1, -4 * scale / 2.1);
+  ctx.lineTo(8 * scale / 2.1, 10 * scale / 2.1);
+  ctx.lineTo(-7 * scale / 2.1, 11 * scale / 2.1);
+  ctx.lineTo(-10 * scale / 2.1, -3 * scale / 2.1);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = light;
+  ctx.beginPath();
+  ctx.arc(-1 * scale / 2.1, -13 * scale / 2.1, 4.7 * scale / 2.1, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "#6b4c2b";
+  ctx.lineWidth = 2.2 * scale / 2.1;
+  ctx.beginPath();
+  ctx.moveTo(8 * scale / 2.1, -4 * scale / 2.1);
+  ctx.lineTo(16 * scale / 2.1, -14 * scale / 2.1);
+  ctx.stroke();
+  ctx.fillStyle = "#bbb7af";
+  ctx.beginPath();
+  ctx.moveTo(12 * scale / 2.1, -16 * scale / 2.1);
+  ctx.quadraticCurveTo(18 * scale / 2.1, -14 * scale / 2.1, 16 * scale / 2.1, -8 * scale / 2.1);
+  ctx.lineTo(11 * scale / 2.1, -10 * scale / 2.1);
+  ctx.quadraticCurveTo(12 * scale / 2.1, -14 * scale / 2.1, 12 * scale / 2.1, -16 * scale / 2.1);
+  ctx.fill();
 }
 
 function drawCatapult(main, dark, light, scale) {
