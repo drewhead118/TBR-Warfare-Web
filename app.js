@@ -286,7 +286,7 @@ const UNIT_DEFINITIONS = {
     id: "necromancer",
     name: "Necromancer",
     keywords: ["undead", "corpse", "raise dead", "thrall", "bite"],
-    stats: { maxHealth: 235, speed: 30, range: 26, raiseRange: 54, biteDamage: 16, biteHeal: 15, cooldown: 2.45, maxThralls: 3 },
+    stats: { maxHealth: 235, speed: 30, range: 26, raiseRange: 30, biteDamage: 16, biteHeal: 15, cooldown: 3.5, maxThralls: 3 },
     healthBarWidth: 30,
     iconPaths: getNecromancerIconSvgPaths,
     canActWithoutEnemies: true,
@@ -4252,27 +4252,71 @@ function drawNecromancerLinks(viewport, battle) {
   battle.factions.forEach((faction) => {
     faction.units.forEach((unit) => {
       if (unit.dead || unit.fled || unit.type !== "necromancer") return;
-      getLivingThrallIds(unit, battle).forEach((thrallId) => {
+      getLivingThrallIds(unit, battle).forEach((thrallId, index, thrallIds) => {
         const thrall = findUnitById(battle, thrallId);
         if (!thrall || thrall.dead || thrall.fled) return;
         const sourcePose = getUnitRenderPose(unit, viewport);
         const targetPose = getUnitRenderPose(thrall, viewport);
-        const wobble = Math.sin((battle.time * 5) + unit.statusVisualSeed + thrall.statusVisualSeed) * 7 * sourcePose.scale / 2.1;
+        const baseScale = Math.min(sourcePose.scale, targetPose.scale) / 2.1;
+        const dx = targetPose.point.x - sourcePose.point.x;
+        const dy = targetPose.bodyY - sourcePose.bodyY;
+        const distance = Math.max(1, Math.hypot(dx, dy));
+        const normalX = -dy / distance;
+        const normalY = dx / distance;
+        const laneIndex = index - (thrallIds.length - 1) / 2;
+        const sideBias = laneIndex === 0 ? (Math.sin(unit.statusVisualSeed + thrall.statusVisualSeed) >= 0 ? 1 : -1) : Math.sign(laneIndex);
+        const laneSpread = Math.min(28, 8 + Math.abs(laneIndex) * 10) * baseScale;
+        const drift = Math.sin((battle.time * 3.8) + unit.statusVisualSeed * 0.7 + thrall.statusVisualSeed) * 5.5 * baseScale;
+        const startX = sourcePose.point.x + normalX * laneSpread * sideBias;
+        const startY = sourcePose.bodyY - 12 * sourcePose.scale / 2.1 + normalY * laneSpread * 0.35 * sideBias;
+        const endX = targetPose.point.x + normalX * laneSpread * sideBias * 0.55;
+        const endY = targetPose.bodyY - 9 * targetPose.scale / 2.1 + normalY * laneSpread * 0.28 * sideBias;
+        const midpointX = (startX + endX) / 2;
+        const midpointY = (startY + endY) / 2;
+        const controlLift = Math.min(24, distance * 0.08) * baseScale;
+        const control1X = midpointX + normalX * (16 * baseScale + laneSpread * 0.55) * sideBias + drift;
+        const control1Y = midpointY - controlLift - 12 * baseScale + normalY * 7 * baseScale * sideBias;
+        const control2X = midpointX + normalX * (22 * baseScale + laneSpread * 0.85) * sideBias - drift * 0.45;
+        const control2Y = midpointY + controlLift + 8 * baseScale + normalY * 10 * baseScale * sideBias;
+        const pulseBase = Math.max(0, Math.sin(2 * battle.time + unit.statusVisualSeed * 0.12 + thrall.statusVisualSeed * 0.08));
+        const pulseAlpha = pulseBase ** 10;
         ctx.save();
-        ctx.strokeStyle = "rgba(70, 31, 102, 0.7)";
-        ctx.lineWidth = 4 * sourcePose.scale / 2.1;
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+        ctx.strokeStyle = `rgba(17, 8, 22, ${0.9 * pulseAlpha})`;
+        ctx.lineWidth = 2.4 * baseScale;
         ctx.beginPath();
-        ctx.moveTo(sourcePose.point.x, sourcePose.bodyY - 10 * sourcePose.scale / 2.1);
-        ctx.quadraticCurveTo(
-          (sourcePose.point.x + targetPose.point.x) / 2 + wobble,
-          Math.min(sourcePose.bodyY, targetPose.bodyY) - 22 * sourcePose.scale / 2.1,
-          targetPose.point.x,
-          targetPose.bodyY - 6 * targetPose.scale / 2.1,
-        );
+        ctx.moveTo(startX, startY);
+        ctx.bezierCurveTo(control1X, control1Y, control2X, control2Y, endX, endY);
         ctx.stroke();
-        ctx.strokeStyle = "rgba(160, 112, 216, 0.42)";
-        ctx.lineWidth = 1.8 * sourcePose.scale / 2.1;
+
+        ctx.strokeStyle = `rgba(87, 48, 102, ${0.56 * pulseAlpha})`;
+        ctx.lineWidth = 1.15 * baseScale;
         ctx.stroke();
+
+        const knotCount = Math.max(2, Math.min(5, Math.round(distance / 150) + 1));
+        for (let knotIndex = 1; knotIndex <= knotCount; knotIndex += 1) {
+          const t = knotIndex / (knotCount + 1);
+          const point = getCubicBezierPoint(
+            startX,
+            startY,
+            control1X,
+            control1Y,
+            control2X,
+            control2Y,
+            endX,
+            endY,
+            t,
+          );
+          const radius = (2.3 - t * 0.65) * baseScale;
+          ctx.fillStyle = `rgba(31, 15, 37, ${(0.82 - t * 0.12) * pulseAlpha})`;
+          ctx.beginPath();
+          ctx.arc(point.x, point.y, radius, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.strokeStyle = `rgba(120, 80, 138, ${(0.24 - t * 0.03) * pulseAlpha})`;
+          ctx.lineWidth = 0.7 * baseScale;
+          ctx.stroke();
+        }
         ctx.restore();
       });
     });
@@ -4407,20 +4451,55 @@ function drawIgniteBadgeIcon(scale, color) {
 }
 
 function drawZombieBadgeIcon(scale, color) {
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 2.1 * scale / 2.1;
+  const scaled = scale / 2.1;
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(-4.8 * scaled, -2.2 * scaled);
+  ctx.quadraticCurveTo(-4.7 * scaled, -6.2 * scaled, 0, -6.2 * scaled);
+  ctx.quadraticCurveTo(4.7 * scaled, -6.2 * scaled, 4.8 * scaled, -2.2 * scaled);
+  ctx.lineTo(4.8 * scaled, 1.1 * scaled);
+  ctx.quadraticCurveTo(4.7 * scaled, 4.1 * scaled, 2.1 * scaled, 4.2 * scaled);
+  ctx.lineTo(1.4 * scaled, 5.8 * scaled);
+  ctx.lineTo(-1.4 * scaled, 5.8 * scaled);
+  ctx.lineTo(-2.1 * scaled, 4.2 * scaled);
+  ctx.quadraticCurveTo(-4.7 * scaled, 4.1 * scaled, -4.8 * scaled, 1.1 * scaled);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = "rgba(36, 30, 20, 0.92)";
+  ctx.beginPath();
+  ctx.arc(-2.05 * scaled, -1.1 * scaled, 1.35 * scaled, 0, Math.PI * 2);
+  ctx.arc(2.05 * scaled, -1.1 * scaled, 1.35 * scaled, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.moveTo(0, 0.2 * scaled);
+  ctx.lineTo(1.05 * scaled, 2.1 * scaled);
+  ctx.lineTo(-1.05 * scaled, 2.1 * scaled);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.strokeStyle = "rgba(36, 30, 20, 0.92)";
+  ctx.lineWidth = 1.25 * scaled;
   ctx.lineCap = "round";
   ctx.beginPath();
-  ctx.arc(0, -1 * scale / 2.1, 4.2 * scale / 2.1, Math.PI * 0.15, Math.PI * 0.85);
-  ctx.moveTo(-5 * scale / 2.1, 3 * scale / 2.1);
-  ctx.lineTo(-2 * scale / 2.1, 6 * scale / 2.1);
-  ctx.moveTo(5 * scale / 2.1, 3 * scale / 2.1);
-  ctx.lineTo(2 * scale / 2.1, 6 * scale / 2.1);
-  ctx.moveTo(-2 * scale / 2.1, -1 * scale / 2.1);
-  ctx.lineTo(-2 * scale / 2.1, -1.2 * scale / 2.1);
-  ctx.moveTo(2 * scale / 2.1, -1 * scale / 2.1);
-  ctx.lineTo(2 * scale / 2.1, -1.2 * scale / 2.1);
+  ctx.moveTo(-2.3 * scaled, 3.9 * scaled);
+  ctx.lineTo(2.3 * scaled, 3.9 * scaled);
+  ctx.moveTo(-1.2 * scaled, 4.8 * scaled);
+  ctx.lineTo(1.2 * scaled, 4.8 * scaled);
   ctx.stroke();
+}
+
+function getCubicBezierPoint(x0, y0, x1, y1, x2, y2, x3, y3, t) {
+  const inverse = 1 - t;
+  const a = inverse ** 3;
+  const b = 3 * inverse * inverse * t;
+  const c = 3 * inverse * t * t;
+  const d = t ** 3;
+  return {
+    x: (a * x0) + (b * x1) + (c * x2) + (d * x3),
+    y: (a * y0) + (b * y1) + (c * y2) + (d * y3),
+  };
 }
 
 function drawStepLegs(dark, scale, unit, spread = 7, back = 10) {
