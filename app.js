@@ -4,7 +4,7 @@ const FIELD = { width: 1180, height: 760 };
 const SPEED_OPTIONS = [0.35, 0.65, 1, 1.4, 1.85];
 const BANNER_FLOAT_OFFSET = 76;
 const MAX_BATTLE_FACTIONS = 10;
-const DEFAULT_COMPOSITION = { archer: 1, mage: 1, knight: 1, medic: 0, bomber: 0, assassin: 0, mountainman: 0, catapult: 0, poisoner: 0, firebreather: 0, necromancer: 0, graverobber: 0 };
+const DEFAULT_COMPOSITION = { archer: 1, mage: 1, knight: 1, medic: 0, bomber: 0, assassin: 0, mountainman: 0, catapult: 0, poisoner: 0, firebreather: 0, necromancer: 0, graverobber: 0, arachnomist: 0 };
 const UNIT_SPRITE_CANDIDATE_PATHS = [
   (unitId) => `assets/unit-sprites/${unitId}.png`,
   (unitId) => `assets/units/${unitId}.png`,
@@ -38,6 +38,8 @@ const UNIT_SPRITE_LAYOUTS = {
   firebreather: { height: 42, anchorX: 0.5, anchorY: 0.88 },
   necromancer: { height: 42, anchorX: 0.5, anchorY: 0.88 },
   graverobber: { height: 40, anchorX: 0.5, anchorY: 0.88 },
+  arachnomist: { height: 41, anchorX: 0.5, anchorY: 0.88 },
+  spiderswarm: { height: 26, anchorX: 0.5, anchorY: 0.92 },
 };
 const UNIT_SPRITE_TINT_ALPHA = 0.56;
 const VETERAN_BONUSES = {
@@ -144,6 +146,7 @@ const UNIT_DEFINITIONS = {
     id: "archer",
     name: "Archer",
     keywords: ["bow", "ranged", "arrow"],
+    description: "Archers are the army's patient skirmishers, trading durability for reach and steady damage. They stay behind the line, loose arrows from a safe distance, and excel when tougher allies buy them time to keep firing.",
     stats: { maxHealth: 58, speed: 48, range: 210, damage: 14, cooldown: 1.65 },
     healthBarWidth: 20,
     iconPaths: getArcherIconSvgPaths,
@@ -156,6 +159,7 @@ const UNIT_DEFINITIONS = {
     id: "mage",
     name: "Mage",
     keywords: ["magic", "orb", "beam", "wizard"],
+    description: "Mages fight like battlefield controllers rather than simple artillery. Their attacks can reach beyond normal spell range to abduct targets, letting them disrupt enemy positioning and punish units that thought they were safe.",
     stats: { maxHealth: 52, speed: 44, range: 180, abductRange: 310, damage: 16, cooldown: 2.05 },
     healthBarWidth: 20,
     iconPaths: getMageIconSvgPaths,
@@ -172,6 +176,7 @@ const UNIT_DEFINITIONS = {
     id: "knight",
     name: "Knight",
     keywords: ["melee", "sword", "tank"],
+    description: "Knights are the anvil of most formations: slow, durable, and brutally efficient once they make contact. Their high health and heavy melee hits let them absorb pressure while opening space for fragile ranged units behind them.",
     stats: { maxHealth: 210, speed: 28, range: 26, damage: 38, cooldown: 1.05 },
     healthBarWidth: 30,
     iconPaths: getKnightIconSvgPaths,
@@ -184,6 +189,7 @@ const UNIT_DEFINITIONS = {
     id: "medic",
     name: "Medic",
     keywords: ["heal", "support", "frail"],
+    description: "Medics contribute no direct offense, but they can swing long fights by repeatedly restoring allies on the front line. They are fragile and need protection, yet a well-screened medic can make an entire formation much harder to grind down.",
     stats: { maxHealth: 36, speed: 56, range: 16, heal: 18, cooldown: 1.9 },
     healthBarWidth: 20,
     iconPaths: getMedicIconSvgPaths,
@@ -198,6 +204,7 @@ const UNIT_DEFINITIONS = {
     id: "bomber",
     name: "Bomber",
     keywords: ["explosive", "grenade", "suicide"],
+    description: "Bombers are volatile area-denial specialists built around explosive splash damage. They threaten clustered enemies from range, and even their deaths are dangerous thanks to a larger final blast that punishes anyone crowding them.",
     stats: { maxHealth: 62, speed: 40, range: 255, damage: 50, splash: 62, deathSplash: 86, cooldown: 2.3, fuse: 1.6 },
     healthBarWidth: 20,
     iconPaths: getBomberIconSvgPaths,
@@ -212,6 +219,7 @@ const UNIT_DEFINITIONS = {
     id: "assassin",
     name: "Assassin",
     keywords: ["stealth", "rogue", "backstab", "dagger"],
+    description: "Assassins are burst killers that rely on stealth, speed, and precision instead of endurance. They slip through openings, vanish from enemy targeting, and can erase vulnerable backliners with devastating backstab damage before resetting for another strike.",
     stats: { maxHealth: 44, speed: 66, range: 18, backstabDamage: 126, slashDamage: 21, cooldown: 1.2, resetRadius: 34 },
     healthBarWidth: 18,
     iconPaths: getAssassinIconSvgPaths,
@@ -231,6 +239,7 @@ const UNIT_DEFINITIONS = {
     id: "mountainman",
     name: "Men of the Mountain",
     keywords: ["wizard", "mountain", "mountainmen", "men of the mountain", "impulse", "restrain", "green robe"],
+    description: "The Men of the Mountain mix spell damage with positional control. Their impulse can shove enemies out of formation, while their holding magic restrains targets in place and slowly wears them down for the rest of the army to finish.",
     stats: { maxHealth: 94, speed: 34, range: 105, impulseRange: 105, impulseDamage: 24, impulseDistance: 124, holdRange: 94, holdDuration: 2.9, holdTick: 0.45, holdDamage: 3.2, cooldown: 2.7 },
     healthBarWidth: 22,
     iconPaths: getMountainManIconSvgPaths,
@@ -246,6 +255,7 @@ const UNIT_DEFINITIONS = {
     id: "catapult",
     name: "Catapult",
     keywords: ["siege", "stone", "artillery", "boulder"],
+    description: "Catapults are siege engines with the longest reach in the roster. They fire slowly and are vulnerable if pressured, but their arcing stones can hammer enemy groups from extreme range and force the battle to revolve around protecting or diving them.",
     stats: { maxHealth: 35, speed: 10, range: 370, damage: 34, splash: 20, cooldown: 6, variance: 60 },
     healthBarWidth: 26,
     iconPaths: getCatapultIconSvgPaths,
@@ -261,7 +271,8 @@ const UNIT_DEFINITIONS = {
     id: "poisoner",
     name: "Poisoner",
     keywords: ["venom", "poison", "potion", "toxin", "alchemist"],
-    stats: { maxHealth: 50, speed: 42, range: 225, damage: 8, splash: 46, poisonStacks: 2, poisonDuration: 9, poisonDamage: 3.2, cooldown: 2.4 },
+    description: "Poisoners specialize in attrition. Their bottles do modest immediate damage, but the real threat is stacking poison over an area, causing enemies to keep losing health after the initial impact and making sustained engagements increasingly costly.",
+    stats: { maxHealth: 50, speed: 42, range: 225, damage: 8, splash: 46, poisonStacks: 1, poisonDuration: 9, poisonDamage: 3.2, cooldown: 2.4 },
     healthBarWidth: 20,
     iconPaths: getPoisonerIconSvgPaths,
     getDesiredDestination: getRetreatingDestination(132, 1.05),
@@ -273,6 +284,7 @@ const UNIT_DEFINITIONS = {
     id: "firebreather",
     name: "Firebreather",
     keywords: ["fire", "flame", "breath", "burn", "dragonfire"],
+    description: "Firebreathers excel at close-range area pressure. Their flame cone can catch multiple enemies at once, ignite survivors for follow-up burn damage, and even spread fire through packed formations if opponents let the blaze jump between targets.",
     stats: { maxHealth: 76, speed: 46, range: 118, damage: 22, coneAngle: 0.85, breathDuration: 1.05, ignitionExposure: 0.95, exposureGrace: 0.18, igniteStacks: 1, igniteDuration: 3.6, igniteDamage: 8.5, contagionRadius: 42, cooldown: 1.85 },
     healthBarWidth: 22,
     iconPaths: getFirebreatherIconSvgPaths,
@@ -286,6 +298,7 @@ const UNIT_DEFINITIONS = {
     id: "necromancer",
     name: "Necromancer",
     keywords: ["undead", "corpse", "raise dead", "thrall", "bite"],
+    description: "Necromancers are durable dark casters who turn casualties into momentum. They can raise fallen bodies as thralls, heal themselves with life-draining bites, and slowly overwhelm opponents by converting the battlefield itself into extra bodies.",
     stats: { maxHealth: 235, speed: 30, range: 26, raiseRange: 30, biteDamage: 16, biteHeal: 15, cooldown: 3.5, maxThralls: 3 },
     healthBarWidth: 30,
     iconPaths: getNecromancerIconSvgPaths,
@@ -303,6 +316,7 @@ const UNIT_DEFINITIONS = {
     id: "graverobber",
     name: "Graverobber",
     keywords: ["grave", "corpse", "raider", "shovel", "melee"],
+    description: "Graverobbers thrive where others have already died. They prowl near corpses and graves, turning battlefield remains into a resource that improves their effectiveness, which makes them especially dangerous in messy, prolonged fights.",
     stats: { maxHealth: 78, speed: 34, range: 18, graveRange: 24, damage: 10, cooldown: 1.25 },
     healthBarWidth: 22,
     iconPaths: getGraverobberIconSvgPaths,
@@ -315,8 +329,44 @@ const UNIT_DEFINITIONS = {
     render: drawGraverobber,
     veteran: { metric: "damage", threshold: 135, label: "Deal 135 damage" },
   },
+  arachnomist: {
+    id: "arachnomist",
+    name: "Arachnomist",
+    keywords: ["spider", "grave", "swarm", "web", "poison", "caster"],
+    description: "Arachnomists weave grave-magic into living infestations. They prefer distant graves that sit in the outer ring of their casting band, then crack them open into fast spider swarms that menace every nearby army, including their own.",
+    stats: { maxHealth: 72, speed: 38, range: 0, graveRange: 224, graveDeadZone: 86, cooldown: 4.4, swarmCount: 5, swarmSpread: 20 },
+    healthBarWidth: 22,
+    iconPaths: getArachnomistIconSvgPaths,
+    selectTarget: selectArachnomistTarget,
+    getAttackRange: getArachnomistAttackRange,
+    getDesiredDestination: getArachnomistDestination,
+    performAttack: performArachnomistAttack,
+    render: drawArachnomist,
+    veteran: null,
+  },
+  spiderswarm: {
+    id: "spiderswarm",
+    name: "Spider Swarm",
+    draftable: false,
+    keywords: ["spider", "swarm", "poison", "bite", "neutral"],
+    description: "Spider swarms are spawned hazards rather than recruitable troops. They skitter quickly, bite lightly, and spread poison with every strike while turning on whatever living target is closest.",
+    stats: { maxHealth: 14, speed: 78, range: 13, biteDamage: 3.2, cooldown: 1.08, poisonStacks: 1, poisonDuration: 5.5, poisonDamage: 2.1 },
+    healthBarWidth: 12,
+    iconPaths: getSpiderSwarmIconSvgPaths,
+    leavesGrave: false,
+    canActWithoutEnemies: true,
+    hostileToAll: true,
+    beforeStep: updateSpiderSwarmState,
+    selectTarget: selectSpiderSwarmTarget,
+    getDesiredDestination: getSpiderSwarmDestination,
+    performAttack: performSpiderSwarmAttack,
+    render: drawSpiderSwarm,
+    veteran: null,
+  },
 };
-const UNIT_LIBRARY = Object.values(UNIT_DEFINITIONS).map(({ id, name, keywords }) => ({ id, name, keywords }));
+const UNIT_LIBRARY = Object.values(UNIT_DEFINITIONS)
+  .filter((unit) => unit.draftable !== false)
+  .map(({ id, name, keywords, description }) => ({ id, name, keywords, description }));
 const UNIT_STATS = Object.fromEntries(Object.values(UNIT_DEFINITIONS).map((unit) => [unit.id, unit.stats]));
 const PROJECTILE_DEFINITIONS = {
   arrow: {
@@ -711,6 +761,25 @@ function getGraverobberIconSvgPaths() {
   `;
 }
 
+function getArachnomistIconSvgPaths() {
+  return `
+    <path fill="currentColor" d="M0 -16 L10 -7 L8 12 L-8 12 L-10 -7 Z"></path>
+    <circle cx="0" cy="-15" r="4.8" fill="rgba(245, 244, 255, 0.72)"></circle>
+    <path d="M-12 -4 L-18 -9 M12 -4 L18 -9 M-13 6 L-19 10 M13 6 L19 10" fill="none" stroke="rgba(56,32,24,0.9)" stroke-width="1.9" stroke-linecap="round"></path>
+    <circle cx="13" cy="-10" r="4.2" fill="#26181a"></circle>
+    <circle cx="11.5" cy="-11" r="1.1" fill="#b8ff72"></circle>
+  `;
+}
+
+function getSpiderSwarmIconSvgPaths() {
+  return `
+    <ellipse cx="0" cy="2" rx="7.5" ry="5.5" fill="currentColor"></ellipse>
+    <circle cx="-4" cy="-2" r="3.2" fill="currentColor"></circle>
+    <circle cx="4.5" cy="-1.5" r="3.1" fill="currentColor"></circle>
+    <path d="M-6 -1 L-15 -6 M6 -1 L15 -6 M-7 4 L-16 8 M7 4 L16 8" fill="none" stroke="rgba(43,26,16,0.92)" stroke-width="1.9" stroke-linecap="round"></path>
+  `;
+}
+
 function clampInt(value, min, max) {
   return Math.min(max, Math.max(min, Math.round(Number(value) || 0)));
 }
@@ -795,6 +864,7 @@ function parseRowComposition(row) {
     catapult: row.catapult ?? row.catapults,
     poisoner: row.poisoner ?? row.poisoners,
     firebreather: row.firebreather ?? row.firebreathers,
+    arachnomist: row.arachnomist ?? row.arachnomists,
   };
 }
 
@@ -1008,30 +1078,43 @@ function renderCompositionModal() {
   const available = UNIT_LIBRARY.filter((unit) => {
     if (draft[unit.id] > 0) return false;
     if (!term) return true;
-    return unit.name.toLowerCase().includes(term) || unit.keywords.some((word) => word.includes(term));
+    return unit.name.toLowerCase().includes(term)
+      || unit.keywords.some((word) => word.includes(term))
+      || unit.description.toLowerCase().includes(term);
   });
 
   els.compositionResults.innerHTML = available.map((unit) => `
     <div class="unit-result">
-      <div class="unit-chip">
+      <div class="unit-panel-main">
         <div class="unit-icon unit-icon-${unit.id}">${getUnitIconMarkup(unit.id)}</div>
         <div class="unit-copy">
-          <strong>${unit.name}</strong>
-          <p>${unit.keywords.join(", ")}</p>
+          <div class="unit-header">
+            <strong>${unit.name}</strong>
+            <p class="unit-keywords">${unit.keywords.join(", ")}</p>
+          </div>
+          <p class="unit-description">${unit.description}</p>
           <p class="unit-veteran-copy">Veteran: ${getVeteranGoalLabel(unit.id)}</p>
         </div>
       </div>
-      <button class="ghost small" data-add-unit="${unit.id}">Select</button>
+      <div class="unit-actions">
+        <button class="ghost small" data-add-unit="${unit.id}">Select</button>
+      </div>
     </div>
   `).join("") || '<p class="hint">No matching units.</p>';
 
   els.compositionSelected.innerHTML = UNIT_LIBRARY.filter((unit) => draft[unit.id] > 0).map((unit) => `
     <div class="selected-unit">
-      <div class="unit-chip">
+      <div class="unit-panel-main">
         <div class="unit-icon unit-icon-${unit.id}">${getUnitIconMarkup(unit.id)}</div>
-        <strong>${unit.name}</strong>
+        <div class="unit-copy">
+          <div class="unit-header">
+            <strong>${unit.name}</strong>
+            <p class="unit-keywords">${unit.keywords.join(", ")}</p>
+          </div>
+          <p class="unit-description">${unit.description}</p>
+        </div>
       </div>
-      <div class="button-row">
+      <div class="button-row unit-actions">
         <input type="number" min="1" max="999" value="${draft[unit.id]}" data-unit-weight="${unit.id}">
         <button class="ghost small" data-remove-unit="${unit.id}">Remove</button>
       </div>
@@ -1479,7 +1562,7 @@ function scaleVeteranStat(stat, value) {
   if (typeof value !== "number") return value;
   if (stat === "maxHealth") return value * VETERAN_BONUSES.maxHealth;
   if (["damage", "heal", "backstabDamage", "slashDamage", "impulseDamage", "holdDamage", "poisonDamage", "igniteDamage", "biteDamage", "biteHeal"].includes(stat)) return value * VETERAN_BONUSES.power;
-  if (["range", "abductRange", "splash", "deathSplash", "impulseRange", "impulseDistance", "holdRange", "resetRadius", "contagionRadius", "raiseRange", "graveRange"].includes(stat)) return value * VETERAN_BONUSES.radius;
+  if (["range", "abductRange", "splash", "deathSplash", "impulseRange", "impulseDistance", "holdRange", "resetRadius", "contagionRadius", "raiseRange", "graveRange", "graveDeadZone"].includes(stat)) return value * VETERAN_BONUSES.radius;
   if (stat === "speed") return value * VETERAN_BONUSES.speed;
   if (stat === "cooldown") return value * VETERAN_BONUSES.cooldown;
   if (["holdDuration", "poisonDuration", "igniteDuration", "breathDuration"].includes(stat)) return value * VETERAN_BONUSES.duration;
@@ -1490,7 +1573,7 @@ function scaleZombieStat(stat, value) {
   if (typeof value !== "number") return value;
   if (stat === "maxHealth") return value * ZOMBIE_PENALTIES.maxHealth;
   if (["damage", "heal", "backstabDamage", "slashDamage", "impulseDamage", "holdDamage", "poisonDamage", "igniteDamage", "biteDamage", "biteHeal"].includes(stat)) return value * ZOMBIE_PENALTIES.power;
-  if (["range", "abductRange", "splash", "deathSplash", "impulseRange", "impulseDistance", "holdRange", "resetRadius", "contagionRadius", "raiseRange", "graveRange"].includes(stat)) return value * ZOMBIE_PENALTIES.radius;
+  if (["range", "abductRange", "splash", "deathSplash", "impulseRange", "impulseDistance", "holdRange", "resetRadius", "contagionRadius", "raiseRange", "graveRange", "graveDeadZone"].includes(stat)) return value * ZOMBIE_PENALTIES.radius;
   if (stat === "speed") return value * ZOMBIE_PENALTIES.speed;
   if (stat === "cooldown") return value * ZOMBIE_PENALTIES.cooldown;
   if (["holdDuration", "poisonDuration", "igniteDuration", "breathDuration"].includes(stat)) return value * ZOMBIE_PENALTIES.duration;
@@ -1676,6 +1759,9 @@ function makeUnit(factionId, type, x, y) {
     currentTargetKind: null,
     currentGraveId: null,
     gravesRobbed: 0,
+    wanderTargetX: x,
+    wanderTargetY: y,
+    wanderTimer: 0,
   };
 }
 
@@ -1967,11 +2053,15 @@ function updateUnit(unit, faction, battle, dt) {
   }
 
   unit.z += (0 - unit.z) * 0.18;
-  const allies = findFaction(battle, faction.id).units.filter((ally) => !ally.dead && !ally.fled);
+  const allies = findFaction(battle, faction.id).units.filter((ally) => (
+    !ally.dead
+    && !ally.fled
+    && (unit.hostileToAll || !ally.hostileToAll || ally.id === unit.id)
+  ));
   const enemies = getTargetableEnemies(battle, faction.id, unit);
   unitDef.beforeStep?.({ unit, faction, battle, allies, enemies, graves, unitDef, dt });
   if (!enemies.length && !graves.length && !unitDef.canActWithoutEnemies) return;
-  const target = selectUnitTarget(unit, unitDef, enemies, allies, graves);
+  const target = selectUnitTarget(unit, unitDef, enemies, allies, graves, battle);
   const distance = target ? Math.hypot(target.x - unit.x, target.y - unit.y) : 9999;
   const panicThreshold = unit.maxHealth * (0.28 + (1 - unit.bravery) * 0.3);
   unit.fleeing = unit.health < panicThreshold && Math.random() > unit.bravery * 0.86;
@@ -2030,8 +2120,13 @@ function updateUnit(unit, faction, battle, dt) {
 
 function getTargetableEnemies(battle, factionId, attacker) {
   return battle.factions
-    .filter((entry) => entry.id !== factionId)
-    .flatMap((entry) => entry.units.filter((enemy) => !enemy.dead && !enemy.fled && canUnitBeTargeted(enemy, attacker)));
+    .flatMap((entry) => entry.units.filter((enemy) => (
+      !enemy.dead
+      && !enemy.fled
+      && enemy.id !== attacker?.id
+      && canUnitBeTargeted(enemy, attacker)
+      && (enemy.factionId !== factionId || enemy.hostileToAll)
+    )));
 }
 
 function canUnitBeTargeted(unit, attacker = null) {
@@ -2039,8 +2134,8 @@ function canUnitBeTargeted(unit, attacker = null) {
   return unitDef.isTargetable ? unitDef.isTargetable({ unit, attacker, unitDef }) : true;
 }
 
-function selectUnitTarget(unit, unitDef, enemies, allies, graves = []) {
-  return (unitDef.selectTarget || selectDefaultTarget)({ unit, unitDef, enemies, allies, graves });
+function selectUnitTarget(unit, unitDef, enemies, allies, graves = [], battle = null) {
+  return (unitDef.selectTarget || selectDefaultTarget)({ unit, unitDef, enemies, allies, graves, battle });
 }
 
 function getAttackRange(unit, unitDef = getUnitDefinition(unit)) {
@@ -2221,6 +2316,22 @@ function findNearestGrave(unit, graves, predicate = null) {
     const grave = pool[i];
     const distance = Math.hypot(grave.x - unit.x, grave.y - unit.y);
     if (distance < bestDistance) {
+      best = grave;
+      bestDistance = distance;
+    }
+  }
+  return best;
+}
+
+function findFarthestGrave(unit, graves, predicate = null) {
+  const pool = (graves || []).filter((grave) => !predicate || predicate(grave));
+  if (!pool.length) return null;
+  let best = pool[0];
+  let bestDistance = Math.hypot(best.x - unit.x, best.y - unit.y);
+  for (let i = 1; i < pool.length; i += 1) {
+    const grave = pool[i];
+    const distance = Math.hypot(grave.x - unit.x, grave.y - unit.y);
+    if (distance > bestDistance) {
       best = grave;
       bestDistance = distance;
     }
@@ -2441,6 +2552,133 @@ function performGraverobberAttack({ unit, target, battle, unitDef }) {
   applyDamage(target, stats.damage * (0.92 + Math.random() * 0.36), battle, unit);
   battle.swipes.push({ x: target.x, y: target.y - 11, angle: unit.facing, life: 0.2, maxLife: 0.2, color: "rgba(178, 146, 104, 0.86)" });
   spawnBurst(battle, target.x, target.y - 1, "#e0c089", 8);
+}
+
+function selectArachnomistTarget({ unit, graves, unitDef }) {
+  const stats = getUnitStats(unit, unitDef);
+  const validGrave = findFarthestGrave(unit, graves, (grave) => {
+    const distance = Math.hypot(grave.x - unit.x, grave.y - unit.y);
+    return grave.factionId !== unit.factionId && distance >= stats.graveDeadZone && distance <= stats.graveRange;
+  });
+  const fallbackFar = findNearestGrave(unit, graves, (grave) => grave.factionId !== unit.factionId && Math.hypot(grave.x - unit.x, grave.y - unit.y) > stats.graveRange);
+  const fallbackNear = findFarthestGrave(unit, graves, (grave) => grave.factionId !== unit.factionId && Math.hypot(grave.x - unit.x, grave.y - unit.y) < stats.graveDeadZone);
+  const target = validGrave || fallbackFar || fallbackNear || null;
+  unit.currentTargetKind = target ? "grave" : null;
+  unit.currentGraveId = target?.id || null;
+  return target;
+}
+
+function getArachnomistAttackRange(unitDef, unit) {
+  const stats = getUnitStats(unit, unitDef);
+  return stats.graveRange;
+}
+
+function getArachnomistDestination({ unit, target, destination, unitDef }) {
+  if (!target || unit.currentTargetKind !== "grave") return destination;
+  const stats = getUnitStats(unit, unitDef);
+  const dx = target.x - unit.x;
+  const dy = target.y - unit.y;
+  const distance = Math.max(0.001, Math.hypot(dx, dy));
+  if (distance > stats.graveRange) return destination;
+  if (distance < stats.graveDeadZone) {
+    const retreat = stats.graveDeadZone - distance + 28;
+    return {
+      x: unit.x - (dx / distance) * retreat,
+      y: unit.y - (dy / distance) * retreat,
+    };
+  }
+  return { x: unit.x, y: unit.y };
+}
+
+function createSpiderSwarm(arachnomist, grave, battle) {
+  const faction = findFaction(battle, arachnomist.factionId);
+  if (!faction) return [];
+  const stats = getUnitStats(arachnomist);
+  const spiders = [];
+  for (let i = 0; i < stats.swarmCount; i += 1) {
+    const angle = (Math.PI * 2 * i) / Math.max(1, stats.swarmCount) + Math.random() * 0.5;
+    const radius = 8 + Math.random() * stats.swarmSpread;
+    const spider = makeUnit(
+      arachnomist.factionId,
+      "spiderswarm",
+      clamp(grave.x + Math.cos(angle) * radius, 18, battle.field.width - 18),
+      clamp(grave.y + Math.sin(angle) * radius * 0.75, 18, battle.field.height - 18),
+    );
+    spider.veteran = false;
+    spider.bravery = 2;
+    spider.health = spider.maxHealth;
+    spiders.push(spider);
+  }
+  faction.units.push(...spiders);
+  return spiders;
+}
+
+function performArachnomistAttack({ unit, target, battle, unitDef }) {
+  if (!target || unit.currentTargetKind !== "grave") return;
+  const stats = getUnitStats(unit, unitDef);
+  const grave = findGraveById(battle, target.id || unit.currentGraveId);
+  if (!grave || grave.factionId === unit.factionId) return;
+  const distance = Math.hypot(grave.x - unit.x, grave.y - unit.y);
+  if (distance > stats.graveRange + 4 || distance < Math.max(0, stats.graveDeadZone - 4)) return;
+  removeGrave(battle, grave.id);
+  const spiders = createSpiderSwarm(unit, grave, battle);
+  if (!spiders.length) return;
+  spawnBurst(battle, grave.x, grave.y - 4, "#96d55f", 18);
+  battle.particles.push({ kind: "ring", x: grave.x, y: grave.y, vx: 0, vy: 0, life: 0.48, age: 0, color: "#7ab34b", size: 22, lineWidth: 4 });
+  setHighlight(`${findFaction(battle, unit.factionId)?.title || "A faction"}'s arachnomist turns a grave into a spider swarm`);
+}
+
+function updateSpiderSwarmState({ unit, battle, dt, unitDef }) {
+  const stats = getUnitStats(unit, unitDef);
+  unit.wanderTimer = Math.max(0, (unit.wanderTimer || 0) - dt);
+  const dx = (unit.wanderTargetX ?? unit.x) - unit.x;
+  const dy = (unit.wanderTargetY ?? unit.y) - unit.y;
+  const distance = Math.hypot(dx, dy);
+  if (unit.wanderTimer <= 0 || distance < 10) {
+    const angle = Math.random() * Math.PI * 2;
+    const radius = 18 + Math.random() * 54;
+    unit.wanderTargetX = clamp(unit.x + Math.cos(angle) * radius, 16, battle.field.width - 16);
+    unit.wanderTargetY = clamp(unit.y + Math.sin(angle) * radius, 16, battle.field.height - 16);
+    unit.wanderTimer = 0.2 + Math.random() * 0.45;
+  }
+  const encountered = [];
+  battle.factions.forEach((faction) => {
+    faction.units.forEach((candidate) => {
+      if (candidate.id === unit.id || candidate.dead || candidate.fled || candidate.type === "spiderswarm") return;
+      if (!canUnitBeTargeted(candidate, unit)) return;
+      const encounterDistance = Math.hypot(candidate.x - unit.x, candidate.y - unit.y);
+      if (encounterDistance <= stats.range + 10) {
+        encountered.push(candidate.id);
+      }
+    });
+  });
+  unit.focusTargetId = encountered.length ? encountered[Math.floor(Math.random() * encountered.length)] : null;
+}
+
+function selectSpiderSwarmTarget({ unit, battle }) {
+  if (!battle) return null;
+  const target = battle.factions
+    .flatMap((faction) => faction.units)
+    .find((candidate) => candidate.id === unit.focusTargetId && !candidate.dead && !candidate.fled && candidate.type !== "spiderswarm");
+  unit.currentTargetKind = target ? "enemy" : null;
+  return target;
+}
+
+function getSpiderSwarmDestination({ unit, target, destination }) {
+  if (target && unit.currentTargetKind === "enemy") return destination;
+  return {
+    x: unit.wanderTargetX ?? unit.x,
+    y: unit.wanderTargetY ?? unit.y,
+  };
+}
+
+function performSpiderSwarmAttack({ unit, target, battle, unitDef }) {
+  const stats = getUnitStats(unit, unitDef);
+  if (!target || Math.hypot(target.x - unit.x, target.y - unit.y) > stats.range + 4) return;
+  applyDamage(target, stats.biteDamage * (0.88 + Math.random() * 0.28), battle, unit);
+  applyStatus(target, "poison", stats.poisonStacks, stats.poisonDuration, unit, battle);
+  battle.swipes.push({ x: target.x, y: target.y - 4, angle: unit.facing, life: 0.14, maxLife: 0.14, color: "rgba(120, 173, 82, 0.9)" });
+  spawnBurst(battle, target.x, target.y - 1, "#8bd266", 4);
 }
 
 function selectBomberTarget({ unit, enemies, allies }) {
@@ -3121,7 +3359,7 @@ function applyRawDamage(unit, amount, battle, attacker = null, options = {}) {
     unit.health = 0;
     unit.liftedBySpellId = null;
     unit.displacedBySpellId = null;
-    spawnGrave(unit, battle);
+    if (unitDef.leavesGrave !== false) spawnGrave(unit, battle);
     unitDef.onDeath?.({ unit, battle, attacker, unitDef });
     if (!options.noAttackerCredit && attacker && !attacker.dead) {
       attacker.killStreak = (attacker.killStreak || 0) + 1;
@@ -4943,6 +5181,87 @@ function drawGraverobber(main, dark, light, scale, unit) {
   ctx.lineTo(11 * scale / 2.1, -10 * scale / 2.1);
   ctx.quadraticCurveTo(12 * scale / 2.1, -14 * scale / 2.1, 12 * scale / 2.1, -16 * scale / 2.1);
   ctx.fill();
+}
+
+function drawArachnomist(main, dark, light, scale, unit) {
+  drawStepLegs(dark, scale, unit, 6, 10.4);
+  ctx.fillStyle = shadeColor(main, -0.24);
+  ctx.beginPath();
+  ctx.moveTo(0, -17 * scale / 2.1);
+  ctx.lineTo(10 * scale / 2.1, -6 * scale / 2.1);
+  ctx.lineTo(8 * scale / 2.1, 12 * scale / 2.1);
+  ctx.lineTo(-8 * scale / 2.1, 12 * scale / 2.1);
+  ctx.lineTo(-10 * scale / 2.1, -6 * scale / 2.1);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = main;
+  ctx.beginPath();
+  ctx.moveTo(0, -13 * scale / 2.1);
+  ctx.lineTo(7 * scale / 2.1, -5 * scale / 2.1);
+  ctx.lineTo(6 * scale / 2.1, 10 * scale / 2.1);
+  ctx.lineTo(-6 * scale / 2.1, 10 * scale / 2.1);
+  ctx.lineTo(-7 * scale / 2.1, -5 * scale / 2.1);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = light;
+  ctx.beginPath();
+  ctx.arc(0, -14 * scale / 2.1, 4.8 * scale / 2.1, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "#2f1c17";
+  ctx.lineWidth = 1.9 * scale / 2.1;
+  ctx.beginPath();
+  ctx.moveTo(-9 * scale / 2.1, -4 * scale / 2.1);
+  ctx.lineTo(-16 * scale / 2.1, -9 * scale / 2.1);
+  ctx.moveTo(9 * scale / 2.1, -4 * scale / 2.1);
+  ctx.lineTo(16 * scale / 2.1, -9 * scale / 2.1);
+  ctx.moveTo(-10 * scale / 2.1, 4 * scale / 2.1);
+  ctx.lineTo(-17 * scale / 2.1, 10 * scale / 2.1);
+  ctx.moveTo(10 * scale / 2.1, 4 * scale / 2.1);
+  ctx.lineTo(17 * scale / 2.1, 10 * scale / 2.1);
+  ctx.stroke();
+  ctx.fillStyle = "#211315";
+  ctx.beginPath();
+  ctx.arc(14 * scale / 2.1, -11 * scale / 2.1, 4.1 * scale / 2.1, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#b7ef76";
+  ctx.beginPath();
+  ctx.arc(12.5 * scale / 2.1, -12 * scale / 2.1, 1.2 * scale / 2.1, 0, Math.PI * 2);
+  ctx.arc(15.8 * scale / 2.1, -12 * scale / 2.1, 1.2 * scale / 2.1, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawSpiderSwarm(main, dark, light, scale, unit) {
+  const bodyScale = scale / 2.1;
+  ctx.fillStyle = dark;
+  [-1, 1].forEach((side) => {
+    [-6, -1, 4, 9].forEach((yOffset, index) => {
+      ctx.beginPath();
+      ctx.moveTo(side * 3 * bodyScale, yOffset * bodyScale);
+      ctx.lineTo(side * (9 + index) * bodyScale, (yOffset - 3) * bodyScale);
+      ctx.strokeStyle = dark;
+      ctx.lineWidth = 1.2 * bodyScale;
+      ctx.stroke();
+    });
+  });
+  ctx.fillStyle = main;
+  ctx.beginPath();
+  ctx.ellipse(0, 3 * bodyScale, 7 * bodyScale, 5 * bodyScale, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(-3.5 * bodyScale, -1.5 * bodyScale, 3.2 * bodyScale, 0, Math.PI * 2);
+  ctx.arc(3.8 * bodyScale, -1.3 * bodyScale, 3.1 * bodyScale, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = light;
+  ctx.beginPath();
+  ctx.arc(-2.8 * bodyScale, -2.2 * bodyScale, 1 * bodyScale, 0, Math.PI * 2);
+  ctx.arc(4.4 * bodyScale, -2 * bodyScale, 1 * bodyScale, 0, Math.PI * 2);
+  ctx.fill();
+  if (getStatusStacks(unit, "poison") > 0) {
+    ctx.fillStyle = "rgba(131, 232, 117, 0.35)";
+    ctx.beginPath();
+    ctx.arc(0, 1 * bodyScale, 9 * bodyScale, 0, Math.PI * 2);
+    ctx.fill();
+  }
 }
 
 function drawCatapult(main, dark, light, scale) {

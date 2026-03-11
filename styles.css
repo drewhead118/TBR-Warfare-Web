@@ -648,11 +648,11 @@ canvas.is-dragging { cursor: grabbing; }
 }
 .unit-result,
 .selected-unit {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px 14px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 16px;
+  padding: 14px 16px;
   border-radius: 16px;
   background: rgba(255, 241, 217, 0.06);
   border: 1px solid rgba(255, 229, 188, 0.08);
@@ -661,35 +661,59 @@ canvas.is-dragging { cursor: grabbing; }
 .selected-unit button {
   white-space: nowrap;
 }
-.unit-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
+.unit-panel-main {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  align-items: flex-start;
+  gap: 14px;
+  min-width: 0;
+}
+.unit-copy {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.unit-header {
+  display: grid;
+  gap: 3px;
 }
 .unit-copy strong {
   display: block;
+  font-size: 0.98rem;
 }
 .unit-copy p {
-  margin: 2px 0 0;
+  margin: 0;
   color: var(--text-muted);
   font-size: 0.82rem;
+}
+.unit-keywords {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.7rem;
+  color: var(--accent-soft);
+}
+.unit-description {
+  font-size: 0.88rem;
+  line-height: 1.45;
 }
 .unit-veteran-copy {
   color: var(--accent-soft);
 }
 .unit-icon {
-  width: 36px;
-  height: 36px;
-  border-radius: 10px;
-  background: rgba(255,255,255,0.08);
+  width: 64px;
+  height: 64px;
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(255, 244, 222, 0.14), rgba(255, 255, 255, 0.05));
+  border: 1px solid rgba(255, 229, 188, 0.12);
   display: grid;
   place-items: center;
   color: var(--accent-soft);
   overflow: hidden;
+  flex-shrink: 0;
 }
 .unit-icon-svg {
-  width: 28px;
-  height: 28px;
+  width: 42px;
+  height: 42px;
   display: block;
 }
 .unit-icon-knight { color: #d8c28e; }
@@ -700,8 +724,40 @@ canvas.is-dragging { cursor: grabbing; }
 .unit-icon-assassin { color: #b8b0df; }
 .unit-icon-poisoner { color: #79d878; }
 .unit-icon-firebreather { color: #f39c55; }
+.unit-icon-necromancer { color: #9a78d3; }
+.unit-icon-graverobber { color: #c0a173; }
+.unit-icon-arachnomist { color: #8cc15c; }
+.unit-icon-spiderswarm { color: #8cc15c; }
 .selected-unit input {
   width: 84px;
+}
+.unit-actions {
+  align-self: center;
+}
+.selected-unit .button-row {
+  align-self: stretch;
+}
+@media (max-width: 700px) {
+  .unit-result,
+  .selected-unit {
+    grid-template-columns: 1fr;
+  }
+  .unit-panel-main {
+    grid-template-columns: 56px minmax(0, 1fr);
+    gap: 12px;
+  }
+  .unit-icon {
+    width: 56px;
+    height: 56px;
+    border-radius: 16px;
+  }
+  .unit-icon-svg {
+    width: 38px;
+    height: 38px;
+  }
+  .unit-actions {
+    justify-self: start;
+  }
 }
 .winner-card {
   display: grid;
