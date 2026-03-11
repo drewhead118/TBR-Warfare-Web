@@ -4,7 +4,7 @@ const FIELD = { width: 1180, height: 760 };
 const SPEED_OPTIONS = [0.35, 0.65, 1, 1.4, 1.85];
 const BANNER_FLOAT_OFFSET = 76;
 const MAX_BATTLE_FACTIONS = 10;
-const DEFAULT_COMPOSITION = { archer: 1, mage: 1, knight: 1, medic: 0, bomber: 0, assassin: 0, mountainman: 0, catapult: 0 };
+const DEFAULT_COMPOSITION = { archer: 1, mage: 1, knight: 1, medic: 0, bomber: 0, assassin: 0, mountainman: 0, catapult: 0, poisoner: 0, firebreather: 0 };
 const UNIT_SPRITE_CANDIDATE_PATHS = [
   (unitId) => `assets/unit-sprites/${unitId}.png`,
   (unitId) => `assets/units/${unitId}.png`,
@@ -24,6 +24,8 @@ const UNIT_SPRITE_LAYOUTS = {
   assassin: { height: 38, anchorX: 0.5, anchorY: 0.88 },
   mountainman: { height: 41, anchorX: 0.5, anchorY: 0.88 },
   catapult: { height: 48, anchorX: 0.5, anchorY: 0.9 },
+  poisoner: { height: 40, anchorX: 0.5, anchorY: 0.88 },
+  firebreather: { height: 42, anchorX: 0.5, anchorY: 0.88 },
 };
 const UNIT_SPRITE_TINT_ALPHA = 0.56;
 const VETERAN_BONUSES = {
@@ -34,6 +36,32 @@ const VETERAN_BONUSES = {
   speed: 1.1,
   cooldown: 0.9,
   duration: 1.1,
+};
+const STATUS_DEFINITIONS = {
+  poison: {
+    kind: "poison",
+    name: "Poisoned",
+    negative: true,
+    stackable: true,
+    defaultDuration: 9,
+    tickInterval: 0.5,
+    dps: 3.2,
+    badgeColor: "#64d477",
+    accentColor: "#d8ffd8",
+  },
+  ignite: {
+    kind: "ignite",
+    name: "Ignited",
+    negative: true,
+    stackable: false,
+    defaultDuration: 3.6,
+    tickInterval: 0.4,
+    dps: 8.5,
+    contagionRadius: 42,
+    contagionInterval: 0.55,
+    badgeColor: "#ff9b54",
+    accentColor: "#ffe0a8",
+  },
 };
 const DEFAULT_PROP_WEIGHTS = {
   stones: 5,
@@ -186,6 +214,30 @@ const UNIT_DEFINITIONS = {
     render: drawCatapult,
     veteran: { metric: "damage", threshold: 160, label: "Deal 160 damage" },
   },
+  poisoner: {
+    id: "poisoner",
+    name: "Poisoner",
+    keywords: ["venom", "poison", "potion", "toxin", "alchemist"],
+    stats: { maxHealth: 50, speed: 42, range: 225, damage: 8, splash: 46, poisonStacks: 2, poisonDuration: 9, poisonDamage: 3.2, cooldown: 2.4 },
+    healthBarWidth: 20,
+    iconPaths: getPoisonerIconSvgPaths,
+    getDesiredDestination: getRetreatingDestination(132, 1.05),
+    performAttack: performPoisonerAttack,
+    render: drawPoisoner,
+    veteran: { metric: "damage", threshold: 125, label: "Deal 125 damage" },
+  },
+  firebreather: {
+    id: "firebreather",
+    name: "Firebreather",
+    keywords: ["fire", "flame", "breath", "burn", "dragonfire"],
+    stats: { maxHealth: 76, speed: 46, range: 118, damage: 24, coneAngle: 0.85, igniteStacks: 1, igniteDuration: 3.6, igniteDamage: 8.5, contagionRadius: 42, cooldown: 1.85 },
+    healthBarWidth: 22,
+    iconPaths: getFirebreatherIconSvgPaths,
+    getDesiredDestination: getFirebreatherDestination,
+    performAttack: performFirebreatherAttack,
+    render: drawFirebreather,
+    veteran: { metric: "damage", threshold: 150, label: "Deal 150 damage" },
+  },
 };
 const UNIT_LIBRARY = Object.values(UNIT_DEFINITIONS).map(({ id, name, keywords }) => ({ id, name, keywords }));
 const UNIT_STATS = Object.fromEntries(Object.values(UNIT_DEFINITIONS).map((unit) => [unit.id, unit.stats]));
@@ -207,6 +259,12 @@ const PROJECTILE_DEFINITIONS = {
     update: updateBombProjectile,
     resolve: resolveBombProjectile,
     render: drawBombProjectile,
+  },
+  poisonBottle: {
+    arcHeight: 52,
+    update: updateStandardProjectile,
+    resolve: resolvePoisonBottleProjectile,
+    render: drawPoisonBottleProjectile,
   },
   catapultStone: {
     arcHeight: 120,
@@ -525,6 +583,24 @@ function getCatapultIconSvgPaths() {
   `;
 }
 
+function getPoisonerIconSvgPaths() {
+  return `
+    <path fill="currentColor" d="M0 -16 L8 -7 L6 10 L-6 10 L-8 -7 Z"></path>
+    <rect x="-4" y="-20" width="8" height="5" rx="2" fill="rgba(232,255,233,0.78)"></rect>
+    <path d="M-7 2 Q0 12 7 2" fill="rgba(52, 121, 55, 0.36)"></path>
+    <circle cx="0" cy="-11" r="4.2" fill="rgba(255,255,255,0.38)"></circle>
+  `;
+}
+
+function getFirebreatherIconSvgPaths() {
+  return `
+    <path fill="currentColor" d="M-8 10 L-6 -6 L2 -12 L10 -6 L8 10 Z"></path>
+    <circle cx="-1" cy="-12" r="5.1" fill="rgba(255,240,222,0.72)"></circle>
+    <path d="M6 -6 Q15 -6 18 0 Q12 2 8 6" fill="#ffb055"></path>
+    <path d="M8 -4 Q13 -3 15 0 Q11 1 8 4" fill="#fff0b3"></path>
+  `;
+}
+
 function clampInt(value, min, max) {
   return Math.min(max, Math.max(min, Math.round(Number(value) || 0)));
 }
@@ -607,6 +683,8 @@ function parseRowComposition(row) {
     assassin: row.assassin ?? row.assassins,
     mountainman: row.mountainman ?? row.mountainmen ?? row.menofthemountain,
     catapult: row.catapult ?? row.catapults,
+    poisoner: row.poisoner ?? row.poisoners,
+    firebreather: row.firebreather ?? row.firebreathers,
   };
 }
 
@@ -1250,11 +1328,11 @@ function getVeteranGoal(unitOrType) {
 function scaleVeteranStat(stat, value) {
   if (typeof value !== "number") return value;
   if (stat === "maxHealth") return value * VETERAN_BONUSES.maxHealth;
-  if (["damage", "heal", "backstabDamage", "slashDamage", "impulseDamage", "holdDamage"].includes(stat)) return value * VETERAN_BONUSES.power;
-  if (["range", "abductRange", "splash", "deathSplash", "impulseRange", "impulseDistance", "holdRange", "resetRadius"].includes(stat)) return value * VETERAN_BONUSES.radius;
+  if (["damage", "heal", "backstabDamage", "slashDamage", "impulseDamage", "holdDamage", "poisonDamage", "igniteDamage"].includes(stat)) return value * VETERAN_BONUSES.power;
+  if (["range", "abductRange", "splash", "deathSplash", "impulseRange", "impulseDistance", "holdRange", "resetRadius", "contagionRadius"].includes(stat)) return value * VETERAN_BONUSES.radius;
   if (stat === "speed") return value * VETERAN_BONUSES.speed;
   if (stat === "cooldown") return value * VETERAN_BONUSES.cooldown;
-  if (stat === "holdDuration") return value * VETERAN_BONUSES.duration;
+  if (["holdDuration", "poisonDuration", "igniteDuration"].includes(stat)) return value * VETERAN_BONUSES.duration;
   return value;
 }
 
@@ -1309,6 +1387,64 @@ function getVeteranGoalLabel(unitOrType) {
   return getVeteranGoal(unitOrType)?.label || "No veteran promotion";
 }
 
+function getStatusDefinition(kind) {
+  return STATUS_DEFINITIONS[kind] || null;
+}
+
+function getUnitStatus(unit, kind) {
+  return unit?.statuses?.find((status) => status.kind === kind) || null;
+}
+
+function getStatusStacks(unit, kind) {
+  return getUnitStatus(unit, kind)?.stacks || 0;
+}
+
+function hasNegativeStatuses(unit) {
+  return (unit?.statuses || []).some((status) => getStatusDefinition(status.kind)?.negative);
+}
+
+function applyStatus(unit, kind, stacks = 1, duration = null, source = null, battle = null) {
+  const statusDef = getStatusDefinition(kind);
+  if (!unit || unit.dead || !statusDef || stacks <= 0) return null;
+  const sourceStats = source ? getUnitStats(source) : null;
+  const statusDuration = duration
+    ?? (kind === "poison" ? sourceStats?.poisonDuration : null)
+    ?? (kind === "ignite" ? sourceStats?.igniteDuration : null)
+    ?? statusDef.defaultDuration;
+  const statusDps = (kind === "poison" ? sourceStats?.poisonDamage : null)
+    ?? (kind === "ignite" ? sourceStats?.igniteDamage : null)
+    ?? statusDef.dps;
+  if (!unit.statuses) unit.statuses = [];
+  let status = getUnitStatus(unit, kind);
+  if (!status) {
+    status = {
+      kind,
+      stacks: 0,
+      duration: statusDuration,
+      tickTimer: 0,
+      contagionTimer: 0,
+      sourceId: source?.id || null,
+      sourceFactionId: source?.factionId || null,
+      dps: statusDps,
+    };
+    unit.statuses.push(status);
+  }
+  status.duration = Math.max(status.duration, statusDuration);
+  status.sourceId = source?.id || status.sourceId || null;
+  status.sourceFactionId = source?.factionId || status.sourceFactionId || null;
+  status.dps = Math.max(status.dps || 0, statusDps);
+  status.stacks = statusDef.stackable ? status.stacks + stacks : Math.max(status.stacks, stacks);
+  return status;
+}
+
+function clearNegativeStatuses(unit) {
+  if (!unit?.statuses?.length) return false;
+  const kept = unit.statuses.filter((status) => !getStatusDefinition(status.kind)?.negative);
+  const changed = kept.length !== unit.statuses.length;
+  unit.statuses = kept;
+  return changed;
+}
+
 function makeUnit(factionId, type, x, y) {
   const stats = getUnitStats(type);
   return {
@@ -1347,6 +1483,8 @@ function makeUnit(factionId, type, x, y) {
     totalDamageDealt: 0,
     totalHealingDone: 0,
     totalKills: 0,
+    statuses: [],
+    statusVisualSeed: Math.random() * Math.PI * 2,
   };
 }
 
@@ -1447,6 +1585,7 @@ function loop(timestamp) {
 
 function stepBattle(battle, dt) {
   battle.time += dt;
+  updateStatuses(battle, dt);
   battle.factions.forEach((faction) => {
     updateFactionBanner(faction);
     faction.alive = faction.units.some((unit) => !unit.dead && !unit.fled);
@@ -1500,6 +1639,53 @@ function updateFactionBanner(faction) {
   faction.bannerPos.x += ((sum.x / active.length) - faction.bannerPos.x) * 0.08;
   faction.bannerPos.y += (((sum.y / active.length) - BANNER_FLOAT_OFFSET) - faction.bannerPos.y) * 0.08;
 }
+
+function updateStatuses(battle, dt) {
+  battle.factions.forEach((faction) => {
+    faction.units.forEach((unit) => updateUnitStatuses(unit, battle, dt));
+  });
+}
+
+function updateUnitStatuses(unit, battle, dt) {
+  if (unit.dead || unit.fled || !unit.statuses?.length) return;
+  unit.statuses = unit.statuses.filter((status) => {
+    const statusDef = getStatusDefinition(status.kind);
+    if (!statusDef) return false;
+    status.duration -= dt;
+    status.tickTimer += dt;
+    while (status.tickTimer >= statusDef.tickInterval) {
+      status.tickTimer -= statusDef.tickInterval;
+      const damagePerTick = (status.dps ?? statusDef.dps) * status.stacks * statusDef.tickInterval;
+      const source = findUnitById(battle, status.sourceId);
+      applyDamage(unit, damagePerTick, battle, source);
+      if (unit.dead) return false;
+    }
+    if (status.kind === "ignite") spreadIgniteStatus(unit, status, battle, dt);
+    if (status.kind === "poison" && Math.sin(battle.time * 7 + unit.statusVisualSeed) > 0.84) {
+      battle.particles.push({ x: unit.x + (Math.random() - 0.5) * 10, y: unit.y - 10 + Math.random() * 8, vx: (Math.random() - 0.5) * 8, vy: -10 - Math.random() * 8, life: 0.24, age: 0, color: "#7de281", size: 3 + Math.random() * 2 });
+    }
+    if (status.kind === "ignite") {
+      battle.particles.push({ x: unit.x + (Math.random() - 0.5) * 12, y: unit.y - 14 + Math.random() * 10, vx: (Math.random() - 0.5) * 12, vy: -20 - Math.random() * 10, life: 0.3 + Math.random() * 0.18, age: 0, color: Math.random() > 0.35 ? "#ff9f43" : "#ffe08a", size: 3 + Math.random() * 3 });
+    }
+    return status.duration > 0 && status.stacks > 0 && !unit.dead;
+  });
+}
+
+function spreadIgniteStatus(unit, status, battle, dt) {
+  status.contagionTimer += dt;
+  const stats = status.sourceId ? getUnitStats(findUnitById(battle, status.sourceId)) : null;
+  const contagionRadius = stats?.contagionRadius || STATUS_DEFINITIONS.ignite.contagionRadius;
+  const contagionInterval = STATUS_DEFINITIONS.ignite.contagionInterval;
+  if (status.contagionTimer < contagionInterval) return;
+  status.contagionTimer = 0;
+  battle.factions.forEach((faction) => {
+    faction.units.forEach((other) => {
+      if (other.id === unit.id || other.dead || other.fled) return;
+      if (Math.hypot(other.x - unit.x, other.y - unit.y) > contagionRadius) return;
+      applyStatus(other, "ignite", 1, stats?.igniteDuration || STATUS_DEFINITIONS.ignite.defaultDuration, unit, battle);
+    });
+  });
+}
 function updateUnit(unit, faction, battle, dt) {
   if (unit.dead || unit.fled) return;
   const unitDef = getUnitDefinition(unit);
@@ -1531,7 +1717,7 @@ function updateUnit(unit, faction, battle, dt) {
   const panicThreshold = unit.maxHealth * (0.28 + (1 - unit.bravery) * 0.3);
   unit.fleeing = unit.health < panicThreshold && Math.random() > unit.bravery * 0.86;
 
-  let destination = getDesiredDestination(unit, unitDef, target, distance, battle);
+  let destination = getDesiredDestination(unit, unitDef, target, distance, battle, allies, enemies);
   if (unit.fleeing) {
     const awayX = unit.x - battle.field.centerX;
     const awayY = unit.y - battle.field.centerY;
@@ -1608,10 +1794,10 @@ function getUnitMoveSpeed(unit, unitDef = getUnitDefinition(unit)) {
   return stats.speed * (0.42 + 0.58 * (unit.health / unit.maxHealth));
 }
 
-function getDesiredDestination(unit, unitDef, target, distance, battle) {
+function getDesiredDestination(unit, unitDef, target, distance, battle, allies = [], enemies = []) {
   const baseDestination = { x: target ? target.x : unit.x, y: target ? target.y : unit.y };
   if (!unitDef.getDesiredDestination) return baseDestination;
-  return unitDef.getDesiredDestination({ unit, unitDef, target, distance, battle, destination: baseDestination });
+  return unitDef.getDesiredDestination({ unit, unitDef, target, distance, battle, allies, enemies, destination: baseDestination });
 }
 
 function getRetreatingDestination(threshold, multiplier) {
@@ -1632,11 +1818,15 @@ function getHoldPositionDestination(threshold) {
 }
 
 function selectMedicTarget({ unit, allies }) {
-  const locked = allies.find((ally) => ally.id === unit.focusTargetId && ally.health < ally.maxHealth && !ally.liftedBySpellId);
+  const locked = allies.find((ally) => ally.id === unit.focusTargetId && (ally.health < ally.maxHealth || hasNegativeStatuses(ally)) && !ally.liftedBySpellId);
   if (locked) return locked;
-  const wounded = allies.filter((ally) => ally.id !== unit.id && ally.health < ally.maxHealth && !ally.liftedBySpellId);
+  const wounded = allies.filter((ally) => ally.id !== unit.id && (ally.health < ally.maxHealth || hasNegativeStatuses(ally)) && !ally.liftedBySpellId);
   if (wounded.length) {
-    const target = wounded.sort((a, b) => (a.health / a.maxHealth) - (b.health / b.maxHealth))[0];
+    const target = wounded.sort((a, b) => {
+      const aUrgency = (hasNegativeStatuses(a) ? 1 : 0) * 2 + (1 - a.health / a.maxHealth);
+      const bUrgency = (hasNegativeStatuses(b) ? 1 : 0) * 2 + (1 - b.health / b.maxHealth);
+      return bUrgency - aUrgency;
+    })[0];
     unit.focusTargetId = target?.id || null;
     return target;
   }
@@ -1832,12 +2022,53 @@ function selectCatapultTarget({ unit, enemies }) {
   return best;
 }
 
+function getFirebreatherDestination({ unit, target, allies, distance, destination }) {
+  if (!target) return destination;
+  const nearbyAllies = allies.filter((ally) => ally.id !== unit.id && Math.hypot(ally.x - unit.x, ally.y - unit.y) <= 84);
+  if (nearbyAllies.length && distance <= getUnitStats(unit).range * 1.1) {
+    const centroid = nearbyAllies.reduce((acc, ally) => ({ x: acc.x + ally.x, y: acc.y + ally.y }), { x: 0, y: 0 });
+    centroid.x /= nearbyAllies.length;
+    centroid.y /= nearbyAllies.length;
+    const awayX = unit.x - centroid.x;
+    const awayY = unit.y - centroid.y;
+    const len = Math.max(0.001, Math.hypot(awayX, awayY));
+    return {
+      x: unit.x + (awayX / len) * 68,
+      y: unit.y + (awayY / len) * 68,
+    };
+  }
+  return getRetreatingDestination(86, 0.96)({ unit, target, distance, destination });
+}
+
 function performArcherAttack({ unit, target, battle, unitDef }) {
   const stats = getUnitStats(unit, unitDef);
   const endX = target.x + (Math.random() - 0.5) * 30;
   const endY = target.y + (Math.random() - 0.5) * 26;
   const distance = Math.hypot(endX - unit.x, endY - unit.y);
   battle.projectiles.push({ kind: "arrow", sourceId: unit.id, progress: 0, duration: clamp(0.35 + distance / 230 + Math.random() * 0.15, 0.38, 1.3), startX: unit.x, startY: unit.y - 18, endX, endY, impactAngle: Math.atan2(endY - unit.y, endX - unit.x), targetId: target.id, damage: stats.damage * (0.85 + Math.random() * 0.5) });
+}
+
+function performPoisonerAttack({ unit, target, battle, unitDef }) {
+  const stats = getUnitStats(unit, unitDef);
+  const endX = target.x + (Math.random() - 0.5) * 18;
+  const endY = target.y + (Math.random() - 0.5) * 18;
+  const throwDistance = Math.hypot(endX - unit.x, endY - unit.y);
+  battle.projectiles.push({
+    kind: "poisonBottle",
+    sourceId: unit.id,
+    progress: 0,
+    duration: clamp(0.52 + throwDistance / 240 + Math.random() * 0.14, 0.6, 1.25),
+    startX: unit.x,
+    startY: unit.y - 18,
+    endX,
+    endY,
+    targetId: target.id,
+    damage: stats.damage,
+    radius: stats.splash,
+    poisonStacks: stats.poisonStacks,
+    poisonDuration: stats.poisonDuration,
+    poisonDamage: stats.poisonDamage,
+  });
 }
 
 function performMageAttack({ unit, target, battle, unitDef }) {
@@ -1858,6 +2089,42 @@ function performMageAttack({ unit, target, battle, unitDef }) {
   if (distance <= stats.range) {
     battle.projectiles.push({ kind: "orb", sourceId: unit.id, progress: 0, duration: 0.44 + Math.random() * 0.24, startX: unit.x, startY: unit.y - 24, endX: target.x, endY: target.y, targetId: target.id, damage: stats.damage * (1.05 + Math.random() * 0.65), radius: 44 * (unit.veteran ? VETERAN_BONUSES.radius : 1) });
   }
+}
+
+function performFirebreatherAttack({ unit, target, battle, unitDef }) {
+  const stats = getUnitStats(unit, unitDef);
+  if (!target) return;
+  const breathAngle = Math.atan2(target.y - unit.y, target.x - unit.x);
+  unit.facing = breathAngle;
+  battle.factions.forEach((faction) => {
+    faction.units.forEach((other) => {
+      if (other.id === unit.id || other.dead || other.fled) return;
+      const dx = other.x - unit.x;
+      const dy = other.y - unit.y;
+      const distance = Math.hypot(dx, dy);
+      if (distance > stats.range) return;
+      const angleDiff = Math.abs(normalizeAngle(Math.atan2(dy, dx) - breathAngle));
+      if (angleDiff > stats.coneAngle * 0.5) return;
+      const distanceScale = clamp(1 - distance / stats.range, 0.38, 1);
+      applyDamage(other, stats.damage * distanceScale * (0.85 + Math.random() * 0.25), battle, unit);
+      applyStatus(other, "ignite", stats.igniteStacks, stats.igniteDuration, unit, battle);
+    });
+  });
+  for (let i = 0; i < 18; i += 1) {
+    const travel = (0.2 + Math.random() * 0.8) * stats.range;
+    const angle = breathAngle + (Math.random() - 0.5) * stats.coneAngle;
+    battle.particles.push({
+      x: unit.x + Math.cos(angle) * travel * 0.45,
+      y: unit.y - 8 + Math.sin(angle) * travel * 0.45,
+      vx: Math.cos(angle) * (40 + Math.random() * 70),
+      vy: Math.sin(angle) * (20 + Math.random() * 45) - 18,
+      life: 0.24 + Math.random() * 0.18,
+      age: 0,
+      color: Math.random() > 0.35 ? "#ff8f3d" : "#ffe08c",
+      size: 4 + Math.random() * 4,
+    });
+  }
+  setHighlight(`${findFaction(battle, unit.factionId).title}'s firebreather washes the line in flame`);
 }
 
 function getMountainAttackRange(unitDef, unit) {
@@ -1967,13 +2234,15 @@ function performCatapultAttack({ unit, target, battle, unitDef }) {
 
 function performMedicHeal({ unit, target, battle, unitDef }) {
   const stats = getUnitStats(unit, unitDef);
-  if (!target || target.id === unit.id || target.health >= target.maxHealth) return;
-  const amountHealed = Math.min(target.maxHealth - target.health, stats.heal * (0.9 + Math.random() * 0.35));
+  if (!target || target.id === unit.id || (target.health >= target.maxHealth && !hasNegativeStatuses(target))) return;
+  const amountHealed = Math.min(Math.max(0, target.maxHealth - target.health), stats.heal * (0.9 + Math.random() * 0.35));
   target.health = Math.min(target.maxHealth, target.health + amountHealed);
   recordUnitContribution(unit, "healing", amountHealed, battle);
+  const cleansed = clearNegativeStatuses(target);
   battle.particles.push({ x: target.x, y: target.y - 10, vx: 0, vy: -20, life: 0.55, age: 0, color: "#b8ffbf", size: 7 });
+  if (cleansed) spawnBurst(battle, target.x, target.y - 10, "#e8fff0", 10);
   setHighlight(`${findFaction(battle, unit.factionId).title}'s medic stabilizes a soldier`);
-  if (target.health >= target.maxHealth) {
+  if (target.health >= target.maxHealth && !hasNegativeStatuses(target)) {
     unit.focusTargetId = null;
   }
 }
@@ -2049,6 +2318,23 @@ function resolveBombProjectile(projectile, battle) {
   const source = findUnitById(battle, projectile.sourceId);
   explodeAt(battle, projectile.endX, projectile.endY, projectile.radius, projectile.damage, source, "#ffbb66", 32);
   setHighlight(`${findFaction(battle, source?.factionId || "")?.title || "A bomber"} detonates a charge`);
+}
+
+function resolvePoisonBottleProjectile(projectile, battle) {
+  const source = findUnitById(battle, projectile.sourceId);
+  battle.factions.forEach((faction) => {
+    if (source && faction.id === source.factionId) return;
+    faction.units.forEach((unit) => {
+      if (unit.dead || unit.fled) return;
+      const dist = Math.hypot(unit.x - projectile.endX, unit.y - projectile.endY);
+      if (dist > projectile.radius) return;
+      applyDamage(unit, projectile.damage * Math.max(0.25, 1 - dist / projectile.radius), battle, source);
+      applyStatus(unit, "poison", projectile.poisonStacks, projectile.poisonDuration, source, battle);
+    });
+  });
+  spawnBurst(battle, projectile.endX, projectile.endY, "#7be07e", 18);
+  battle.particles.push({ kind: "ring", x: projectile.endX, y: projectile.endY, vx: 0, vy: 0, life: 0.42, age: 0, color: "#8af08d", size: projectile.radius * 0.95, lineWidth: 4 });
+  setHighlight(`${findFaction(battle, source?.factionId || "")?.title || "A poisoner"} bursts a toxic vial`);
 }
 
 function resolveCatapultProjectile(projectile, battle) {
@@ -3211,6 +3497,24 @@ function drawBombProjectile({ projectile, point }) {
   ctx.restore();
 }
 
+function drawPoisonBottleProjectile({ projectile, point }) {
+  ctx.save();
+  ctx.translate(point.x, point.y);
+  ctx.rotate(projectile.progress * 6.5);
+  ctx.fillStyle = "#5ebf64";
+  ctx.beginPath();
+  ctx.moveTo(0, -9 * point.scale / 2.1);
+  ctx.lineTo(6 * point.scale / 2.1, -3 * point.scale / 2.1);
+  ctx.lineTo(5 * point.scale / 2.1, 8 * point.scale / 2.1);
+  ctx.lineTo(-5 * point.scale / 2.1, 8 * point.scale / 2.1);
+  ctx.lineTo(-6 * point.scale / 2.1, -3 * point.scale / 2.1);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = "rgba(232,255,236,0.82)";
+  ctx.fillRect(-2.2 * point.scale / 2.1, -12 * point.scale / 2.1, 4.4 * point.scale / 2.1, 4 * point.scale / 2.1);
+  ctx.restore();
+}
+
 function drawCatapultProjectile({ projectile, point, viewport }) {
   const ground = getProjectileGroundPoint(projectile, projectile.progress);
   const groundPoint = worldToScreen(ground.x, ground.y, viewport);
@@ -3305,11 +3609,10 @@ function drawUnits(viewport, factions) {
     if (!drawUnitSprite(unit, main, scale)) {
       unitDef.render?.(main, dark, light, renderScale, unit);
     }
+    drawUnitStatusOverlay(unit, renderScale);
     ctx.restore();
     const hpWidth = unitDef.healthBarWidth || 20;
-    if (unit.veteran) {
-      drawVeteranChevron(point.x + 16 * renderScale / 2.1, bodyY - 30 * renderScale / 2.1, scale);
-    }
+    drawUnitStatusBadges(unit, point.x + 16 * renderScale / 2.1, bodyY - 30 * renderScale / 2.1, scale);
     ctx.fillStyle = "rgba(37,24,16,0.5)";
     ctx.fillRect(point.x - hpWidth * renderScale / 4.2, bodyY - 24 * scale / 2.1, hpWidth * renderScale / 2.1, 4 * scale / 2.1);
     ctx.fillStyle = unit.health / unit.maxHealth > 0.4 ? "#9ae085" : "#e7915d";
@@ -3317,7 +3620,47 @@ function drawUnits(viewport, factions) {
   });
 }
 
-function drawVeteranChevron(x, y, scale) {
+function drawUnitStatusOverlay(unit, scale) {
+  const battleTime = state.battle?.time || 0;
+  const poisonStacks = getStatusStacks(unit, "poison");
+  if (poisonStacks > 0) {
+    const poisonPulse = Math.max(0, Math.sin(battleTime * 8 + unit.statusVisualSeed));
+    if (poisonPulse > 0.7) {
+      ctx.fillStyle = `rgba(126, 234, 132, ${(poisonPulse - 0.68) * 0.35})`;
+      ctx.beginPath();
+      ctx.ellipse(0, -2 * scale / 2.1, 12 * scale / 2.1, 18 * scale / 2.1, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  const igniteStacks = getStatusStacks(unit, "ignite");
+  if (igniteStacks > 0) {
+    const ignitePulse = 0.18 + Math.max(0, Math.sin(battleTime * 12 + unit.statusVisualSeed * 1.7)) * 0.22;
+    ctx.fillStyle = `rgba(255, 171, 82, ${ignitePulse})`;
+    ctx.beginPath();
+    ctx.ellipse(0, -1 * scale / 2.1, 13 * scale / 2.1, 19 * scale / 2.1, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+function getUnitStatusBadges(unit) {
+  const badges = [];
+  if (unit.veteran) badges.push({ kind: "veteran", stacks: 0, color: "#ffe39b", accentColor: "#fff3c7" });
+  (unit.statuses || []).forEach((status) => {
+    const statusDef = getStatusDefinition(status.kind);
+    if (!statusDef) return;
+    badges.push({ kind: status.kind, stacks: status.stacks, color: statusDef.badgeColor, accentColor: statusDef.accentColor });
+  });
+  return badges.slice(0, 3);
+}
+
+function drawUnitStatusBadges(unit, x, y, scale) {
+  const badges = getUnitStatusBadges(unit);
+  badges.forEach((badge, index) => {
+    drawStatusBadge(badge, x, y + index * 18 * scale / 2.1, scale);
+  });
+}
+
+function drawStatusBadge(badge, x, y, scale) {
   ctx.save();
   ctx.translate(x, y);
   const badgeRadius = 8 * scale / 2.1;
@@ -3325,10 +3668,24 @@ function drawVeteranChevron(x, y, scale) {
   ctx.beginPath();
   ctx.arc(0, 0, badgeRadius, 0, Math.PI * 2);
   ctx.fill();
-  ctx.strokeStyle = "rgba(255, 232, 176, 0.95)";
+  ctx.strokeStyle = hexToRgba(badge.color, 0.95);
   ctx.lineWidth = 1.5 * scale / 2.1;
   ctx.stroke();
-  ctx.strokeStyle = "#ffe39b";
+  if (badge.kind === "veteran") drawVeteranBadgeIcon(scale, badge.accentColor);
+  if (badge.kind === "poison") drawPoisonBadgeIcon(scale, badge.accentColor);
+  if (badge.kind === "ignite") drawIgniteBadgeIcon(scale, badge.accentColor);
+  if (badge.stacks > 1) {
+    ctx.fillStyle = "#fff7e6";
+    ctx.font = `${Math.max(8, 9 * scale / 2.1)}px Georgia`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(`${badge.stacks}`, 0, 0.5 * scale / 2.1);
+  }
+  ctx.restore();
+}
+
+function drawVeteranBadgeIcon(scale, color) {
+  ctx.strokeStyle = color;
   ctx.lineWidth = 2.6 * scale / 2.1;
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
@@ -3337,7 +3694,34 @@ function drawVeteranChevron(x, y, scale) {
   ctx.lineTo(0, -4.5 * scale / 2.1);
   ctx.lineTo(5.5 * scale / 2.1, 1.5 * scale / 2.1);
   ctx.stroke();
-  ctx.restore();
+}
+
+function drawPoisonBadgeIcon(scale, color) {
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(0, -5.5 * scale / 2.1);
+  ctx.bezierCurveTo(4.5 * scale / 2.1, -2.5 * scale / 2.1, 4.5 * scale / 2.1, 3.5 * scale / 2.1, 0, 5.5 * scale / 2.1);
+  ctx.bezierCurveTo(-4.5 * scale / 2.1, 3.5 * scale / 2.1, -4.5 * scale / 2.1, -2.5 * scale / 2.1, 0, -5.5 * scale / 2.1);
+  ctx.fill();
+}
+
+function drawIgniteBadgeIcon(scale, color) {
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(0, -6.4 * scale / 2.1);
+  ctx.bezierCurveTo(3.4 * scale / 2.1, -4.6 * scale / 2.1, 5.5 * scale / 2.1, -1.2 * scale / 2.1, 5 * scale / 2.1, 2.2 * scale / 2.1);
+  ctx.bezierCurveTo(4.5 * scale / 2.1, 5.4 * scale / 2.1, 2.1 * scale / 2.1, 6.8 * scale / 2.1, 0, 6.8 * scale / 2.1);
+  ctx.bezierCurveTo(-2.4 * scale / 2.1, 6.8 * scale / 2.1, -4.7 * scale / 2.1, 5.1 * scale / 2.1, -5 * scale / 2.1, 2 * scale / 2.1);
+  ctx.bezierCurveTo(-5.3 * scale / 2.1, -1.3 * scale / 2.1, -3.2 * scale / 2.1, -4.3 * scale / 2.1, 0, -6.4 * scale / 2.1);
+  ctx.fill();
+  ctx.fillStyle = "rgba(255, 248, 214, 0.82)";
+  ctx.beginPath();
+  ctx.moveTo(0.2 * scale / 2.1, -3.7 * scale / 2.1);
+  ctx.bezierCurveTo(2.1 * scale / 2.1, -2.5 * scale / 2.1, 2.9 * scale / 2.1, -0.4 * scale / 2.1, 2.5 * scale / 2.1, 1.6 * scale / 2.1);
+  ctx.bezierCurveTo(2.1 * scale / 2.1, 3.7 * scale / 2.1, 1.1 * scale / 2.1, 4.9 * scale / 2.1, -0.1 * scale / 2.1, 5.1 * scale / 2.1);
+  ctx.bezierCurveTo(-1.5 * scale / 2.1, 4.8 * scale / 2.1, -2.3 * scale / 2.1, 3.5 * scale / 2.1, -2.2 * scale / 2.1, 1.8 * scale / 2.1);
+  ctx.bezierCurveTo(-2.1 * scale / 2.1, 0.1 * scale / 2.1, -1.2 * scale / 2.1, -1.9 * scale / 2.1, 0.2 * scale / 2.1, -3.7 * scale / 2.1);
+  ctx.fill();
 }
 
 function drawStepLegs(dark, scale, unit, spread = 7, back = 10) {
@@ -3565,6 +3949,89 @@ function drawMountainMan(main, dark, light, scale, unit) {
   }
 }
 
+function drawPoisoner(main, dark, light, scale, unit) {
+  drawStepLegs(dark, scale, unit, 5.8, 10);
+  ctx.fillStyle = shadeColor(main, -0.18);
+  ctx.beginPath();
+  ctx.moveTo(0, -15 * scale / 2.1);
+  ctx.lineTo(10 * scale / 2.1, -4 * scale / 2.1);
+  ctx.lineTo(8 * scale / 2.1, 12 * scale / 2.1);
+  ctx.lineTo(-8 * scale / 2.1, 12 * scale / 2.1);
+  ctx.lineTo(-10 * scale / 2.1, -4 * scale / 2.1);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = main;
+  ctx.beginPath();
+  ctx.moveTo(0, -12 * scale / 2.1);
+  ctx.lineTo(7 * scale / 2.1, -4 * scale / 2.1);
+  ctx.lineTo(6 * scale / 2.1, 10 * scale / 2.1);
+  ctx.lineTo(-6 * scale / 2.1, 10 * scale / 2.1);
+  ctx.lineTo(-7 * scale / 2.1, -4 * scale / 2.1);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = light;
+  ctx.beginPath();
+  ctx.arc(0, -14 * scale / 2.1, 4.8 * scale / 2.1, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#6fe17a";
+  ctx.beginPath();
+  ctx.moveTo(8 * scale / 2.1, -5 * scale / 2.1);
+  ctx.lineTo(13 * scale / 2.1, 0);
+  ctx.lineTo(12 * scale / 2.1, 10 * scale / 2.1);
+  ctx.lineTo(4 * scale / 2.1, 10 * scale / 2.1);
+  ctx.lineTo(5 * scale / 2.1, 0);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = "rgba(240,255,242,0.72)";
+  ctx.fillRect(7 * scale / 2.1, -8 * scale / 2.1, 3 * scale / 2.1, 3 * scale / 2.1);
+}
+
+function drawFirebreather(main, dark, light, scale, unit) {
+  drawStepLegs(dark, scale, unit, 6.2, 10.5);
+  ctx.fillStyle = shadeColor(main, -0.2);
+  ctx.beginPath();
+  ctx.moveTo(-9 * scale / 2.1, 12 * scale / 2.1);
+  ctx.lineTo(-8 * scale / 2.1, -5 * scale / 2.1);
+  ctx.lineTo(0, -16 * scale / 2.1);
+  ctx.lineTo(9 * scale / 2.1, -5 * scale / 2.1);
+  ctx.lineTo(10 * scale / 2.1, 12 * scale / 2.1);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = main;
+  ctx.beginPath();
+  ctx.moveTo(-7 * scale / 2.1, 11 * scale / 2.1);
+  ctx.lineTo(-6 * scale / 2.1, -4 * scale / 2.1);
+  ctx.lineTo(0, -12 * scale / 2.1);
+  ctx.lineTo(7 * scale / 2.1, -4 * scale / 2.1);
+  ctx.lineTo(8 * scale / 2.1, 11 * scale / 2.1);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = light;
+  ctx.beginPath();
+  ctx.arc(-1 * scale / 2.1, -13 * scale / 2.1, 5 * scale / 2.1, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#ffac52";
+  ctx.beginPath();
+  ctx.moveTo(6 * scale / 2.1, -6 * scale / 2.1);
+  ctx.quadraticCurveTo(15 * scale / 2.1, -6 * scale / 2.1, 18 * scale / 2.1, 0);
+  ctx.quadraticCurveTo(12 * scale / 2.1, 2 * scale / 2.1, 8 * scale / 2.1, 6 * scale / 2.1);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = "#ffe1a0";
+  ctx.beginPath();
+  ctx.moveTo(8 * scale / 2.1, -4 * scale / 2.1);
+  ctx.quadraticCurveTo(13 * scale / 2.1, -3 * scale / 2.1, 15 * scale / 2.1, 0);
+  ctx.quadraticCurveTo(11 * scale / 2.1, 1 * scale / 2.1, 8 * scale / 2.1, 4 * scale / 2.1);
+  ctx.closePath();
+  ctx.fill();
+  if (getStatusStacks(unit, "ignite") > 0) {
+    ctx.fillStyle = "rgba(255, 185, 102, 0.55)";
+    ctx.beginPath();
+    ctx.arc(0, -2 * scale / 2.1, 11 * scale / 2.1, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
 function drawCatapult(main, dark, light, scale) {
   const wheelY = 11 * scale / 2.1;
   ctx.strokeStyle = "#4f3821";
@@ -3704,6 +4171,12 @@ function drawParticles(viewport, particles) {
 }
 
 function lerp(a, b, t) { return a + (b - a) * t; }
+function normalizeAngle(angle) {
+  let normalized = angle;
+  while (normalized > Math.PI) normalized -= Math.PI * 2;
+  while (normalized < -Math.PI) normalized += Math.PI * 2;
+  return normalized;
+}
 function hexToRgba(hex, alpha) {
   const value = hex.replace("#", "");
   const num = Number.parseInt(value, 16);
