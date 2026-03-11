@@ -4,7 +4,28 @@ const FIELD = { width: 1180, height: 760 };
 const SPEED_OPTIONS = [0.35, 0.65, 1, 1.4, 1.85];
 const BANNER_FLOAT_OFFSET = 76;
 const MAX_BATTLE_FACTIONS = 10;
-const DEFAULT_COMPOSITION = { archer: 1, mage: 1, knight: 1, medic: 0, bomber: 0, assassin: 0 };
+const DEFAULT_COMPOSITION = { archer: 1, mage: 1, knight: 1, medic: 0, bomber: 0, assassin: 0, mountainman: 0, catapult: 0 };
+const UNIT_SPRITE_CANDIDATE_PATHS = [
+  (unitId) => `assets/unit-sprites/${unitId}.png`,
+  (unitId) => `assets/units/${unitId}.png`,
+  (unitId) => `assets/${unitId}.png`,
+  (unitId) => `output/unit-sprites/${unitId}.png`,
+  (unitId) => `output/units/${unitId}.png`,
+  (unitId) => `sprites/${unitId}.png`,
+  (unitId) => `art/${unitId}.png`,
+  (unitId) => `${unitId}.png`,
+];
+const UNIT_SPRITE_LAYOUTS = {
+  archer: { height: 38, anchorX: 0.5, anchorY: 0.88 },
+  mage: { height: 39, anchorX: 0.5, anchorY: 0.88 },
+  knight: { height: 42, anchorX: 0.5, anchorY: 0.88 },
+  medic: { height: 38, anchorX: 0.5, anchorY: 0.88 },
+  bomber: { height: 40, anchorX: 0.5, anchorY: 0.88 },
+  assassin: { height: 38, anchorX: 0.5, anchorY: 0.88 },
+  mountainman: { height: 41, anchorX: 0.5, anchorY: 0.88 },
+  catapult: { height: 48, anchorX: 0.5, anchorY: 0.9 },
+};
+const UNIT_SPRITE_TINT_ALPHA = 0.56;
 const DEFAULT_PROP_WEIGHTS = {
   stones: 5,
   crate: 4,
@@ -117,6 +138,34 @@ const UNIT_DEFINITIONS = {
     getRenderAlpha: (unit) => (unit.invisible ? 0.42 : 0.92),
     render: drawAssassin,
   },
+  mountainman: {
+    id: "mountainman",
+    name: "Men of the Mountain",
+    keywords: ["wizard", "mountain", "mountainmen", "men of the mountain", "impulse", "restrain", "green robe"],
+    stats: { maxHealth: 94, speed: 34, range: 105, impulseRange: 105, impulseDamage: 24, impulseDistance: 124, holdRange: 94, holdDuration: 2.9, holdTick: 0.45, holdDamage: 3.2, cooldown: 2.7 },
+    healthBarWidth: 22,
+    iconPaths: getMountainManIconSvgPaths,
+    selectTarget: selectMountainTarget,
+    getAttackRange: getMountainAttackRange,
+    getMoveSpeed: (unit, unitDef) => (unit.activeSpellId ? 0 : unitDef.stats.speed),
+    getDesiredDestination: getRetreatingDestination(72, 0.88),
+    performAttack: performMountainAttack,
+    render: drawMountainMan,
+  },
+  catapult: {
+    id: "catapult",
+    name: "Catapult",
+    keywords: ["siege", "stone", "artillery", "boulder"],
+    stats: { maxHealth: 35, speed: 10, range: 370, damage: 34, splash: 20, cooldown: 6, variance: 60 },
+    healthBarWidth: 26,
+    iconPaths: getCatapultIconSvgPaths,
+    selectTarget: selectCatapultTarget,
+    getAttackRange: getCatapultAttackRange,
+    getDesiredDestination: getRetreatingDestination(238, 1.18),
+    shouldSlowForAttack: () => false,
+    performAttack: performCatapultAttack,
+    render: drawCatapult,
+  },
 };
 const UNIT_LIBRARY = Object.values(UNIT_DEFINITIONS).map(({ id, name, keywords }) => ({ id, name, keywords }));
 const UNIT_STATS = Object.fromEntries(Object.values(UNIT_DEFINITIONS).map((unit) => [unit.id, unit.stats]));
@@ -138,6 +187,12 @@ const PROJECTILE_DEFINITIONS = {
     update: updateBombProjectile,
     resolve: resolveBombProjectile,
     render: drawBombProjectile,
+  },
+  catapultStone: {
+    arcHeight: 120,
+    update: updateStandardProjectile,
+    resolve: resolveCatapultProjectile,
+    render: drawCatapultProjectile,
   },
 };
 const PROP_RENDERERS = {
@@ -201,6 +256,8 @@ const state = {
   battle: null,
   tournament: null,
   images: new Map(),
+  unitSpriteSources: new Map(),
+  tintedUnitSprites: new Map(),
   running: false,
   roundsApplied: 0,
   speedIndex: 2,
@@ -427,6 +484,27 @@ function getKnightIconSvgPaths() {
     <path d="M9 -3 L16 -17" fill="none" stroke="rgba(78,40,18,0.92)" stroke-width="2.4" stroke-linecap="round"></path>
   `;
 }
+
+function getMountainManIconSvgPaths() {
+  return `
+    <path fill="currentColor" d="M0 -16 L12 -4 L9 12 L-9 12 L-12 -4 Z"></path>
+    <path fill="rgba(40,84,45,0.4)" d="M-8 -3 L0 -10 L8 -3 L7 8 L-7 8 Z"></path>
+    <circle cx="0" cy="-15" r="5" fill="rgba(229,255,231,0.72)"></circle>
+    <path d="M10 -4 L16 -16" fill="none" stroke="rgba(44,34,20,0.92)" stroke-width="2.2" stroke-linecap="round"></path>
+    <circle cx="17" cy="-18" r="3" fill="#9ff2a4"></circle>
+  `;
+}
+
+function getCatapultIconSvgPaths() {
+  return `
+    <path d="M-13 10 L13 10" fill="none" stroke="rgba(82,54,28,0.95)" stroke-width="4" stroke-linecap="round"></path>
+    <path d="M-7 10 L2 -8 L11 10" fill="none" stroke="currentColor" stroke-width="4.4" stroke-linecap="round" stroke-linejoin="round"></path>
+    <circle cx="-8" cy="10" r="5.3" fill="rgba(108,76,42,0.95)"></circle>
+    <circle cx="10" cy="10" r="5.3" fill="rgba(108,76,42,0.95)"></circle>
+    <circle cx="5" cy="-12" r="4" fill="#8a8477"></circle>
+  `;
+}
+
 function clampInt(value, min, max) {
   return Math.min(max, Math.max(min, Math.round(Number(value) || 0)));
 }
@@ -507,6 +585,8 @@ function parseRowComposition(row) {
     medic: row.medic ?? row.medics,
     bomber: row.bomber ?? row.bombers,
     assassin: row.assassin ?? row.assassins,
+    mountainman: row.mountainman ?? row.mountainmen ?? row.menofthemountain,
+    catapult: row.catapult ?? row.catapults,
   };
 }
 
@@ -1165,6 +1245,7 @@ function makeUnit(factionId, type, x, y) {
     fled: false,
     fleeing: false,
     liftedBySpellId: null,
+    displacedBySpellId: null,
     activeSpellId: null,
     killStreak: 0,
     walkTilt: 0,
@@ -1187,6 +1268,79 @@ function getFactionImage(url) {
     state.images.set(url, image);
   }
   return state.images.get(url);
+}
+
+function getUnitSpriteSource(unitId) {
+  if (!unitId) return null;
+  if (!state.unitSpriteSources.has(unitId)) {
+    const entry = {
+      unitId,
+      candidates: UNIT_SPRITE_CANDIDATE_PATHS.map((buildPath) => buildPath(unitId)),
+      candidateIndex: 0,
+      status: "pending",
+      image: null,
+      url: null,
+    };
+    state.unitSpriteSources.set(unitId, entry);
+    loadNextUnitSpriteCandidate(entry);
+  }
+  return state.unitSpriteSources.get(unitId);
+}
+
+function loadNextUnitSpriteCandidate(entry) {
+  if (!entry || entry.status === "loaded") return;
+  const nextUrl = entry.candidates[entry.candidateIndex];
+  if (!nextUrl) {
+    entry.status = "missing";
+    return;
+  }
+  const image = new Image();
+  image.onload = () => {
+    entry.status = "loaded";
+    entry.image = image;
+    entry.url = nextUrl;
+  };
+  image.onerror = () => {
+    entry.candidateIndex += 1;
+    loadNextUnitSpriteCandidate(entry);
+  };
+  image.src = nextUrl;
+}
+
+function getTintedUnitSprite(image, url, color) {
+  if (!image || !image.complete) return null;
+  const cacheKey = `${url}|${color}`;
+  if (!state.tintedUnitSprites.has(cacheKey)) {
+    const canvas = document.createElement("canvas");
+    canvas.width = image.naturalWidth || image.width;
+    canvas.height = image.naturalHeight || image.height;
+    const tintCtx = canvas.getContext("2d");
+    tintCtx.drawImage(image, 0, 0);
+    tintCtx.globalCompositeOperation = "source-atop";
+    tintCtx.fillStyle = hexToRgba(color, UNIT_SPRITE_TINT_ALPHA);
+    tintCtx.fillRect(0, 0, canvas.width, canvas.height);
+    tintCtx.globalCompositeOperation = "source-over";
+    state.tintedUnitSprites.set(cacheKey, canvas);
+  }
+  return state.tintedUnitSprites.get(cacheKey);
+}
+
+function drawUnitSprite(unit, color, scale) {
+  const source = getUnitSpriteSource(unit.type);
+  if (!source || source.status !== "loaded" || !source.image?.complete) return false;
+  const layout = UNIT_SPRITE_LAYOUTS[unit.type] || { height: 39, anchorX: 0.5, anchorY: 0.88 };
+  const image = getTintedUnitSprite(source.image, source.url, color) || source.image;
+  const targetHeight = layout.height * scale / 2.1;
+  const aspectRatio = (image.width || 1) / (image.height || 1);
+  const targetWidth = targetHeight * aspectRatio;
+  ctx.drawImage(
+    image,
+    -targetWidth * layout.anchorX,
+    -targetHeight * layout.anchorY,
+    targetWidth,
+    targetHeight,
+  );
+  return true;
 }
 
 function loop(timestamp) {
@@ -1263,6 +1417,14 @@ function updateUnit(unit, faction, battle, dt) {
     unit.walkTilt += (0 - unit.walkTilt) * 0.24;
     unit.stride += (0 - unit.stride) * 0.24;
     unit.bob += (0 - unit.bob) * 0.2;
+    return;
+  }
+  if (unit.displacedBySpellId) {
+    unit.vx = 0;
+    unit.vy = 0;
+    unit.walkTilt += (0 - unit.walkTilt) * 0.24;
+    unit.stride += (0 - unit.stride) * 0.24;
+    unit.bob += (0 - unit.bob) * 0.18;
     return;
   }
 
@@ -1534,6 +1696,42 @@ function selectBomberTarget({ unit, enemies, allies }) {
   return safest;
 }
 
+function selectMountainTarget({ unit, enemies }) {
+  const candidates = enemies.filter((enemy) => !enemy.liftedBySpellId && !enemy.displacedBySpellId);
+  const pool = candidates.length ? candidates : enemies;
+  let best = pool[0] || null;
+  let bestScore = Infinity;
+  pool.forEach((enemy) => {
+    const distance = Math.hypot(enemy.x - unit.x, enemy.y - unit.y);
+    const score = distance * 0.82 + enemy.health * 0.18;
+    if (score < bestScore) {
+      bestScore = score;
+      best = enemy;
+    }
+  });
+  return best;
+}
+
+function selectCatapultTarget({ unit, enemies }) {
+  let best = enemies[0] || null;
+  let bestScore = -Infinity;
+  enemies.forEach((enemy) => {
+    const distance = Math.hypot(enemy.x - unit.x, enemy.y - unit.y);
+    if (distance > UNIT_DEFINITIONS.catapult.stats.range) return;
+    let cluster = 0;
+    enemies.forEach((other) => {
+      const neighborDistance = Math.hypot(other.x - enemy.x, other.y - enemy.y);
+      if (neighborDistance <= 78) cluster += 1 - (neighborDistance / 78) * 0.7;
+    });
+    const score = cluster * 30 - distance * 0.04 + Math.random() * 4;
+    if (score > bestScore) {
+      bestScore = score;
+      best = enemy;
+    }
+  });
+  return best;
+}
+
 function performArcherAttack({ unit, target, battle, unitDef }) {
   const endX = target.x + (Math.random() - 0.5) * 30;
   const endY = target.y + (Math.random() - 0.5) * 26;
@@ -1558,6 +1756,106 @@ function performMageAttack({ unit, target, battle, unitDef }) {
   if (distance <= unitDef.stats.range) {
     battle.projectiles.push({ kind: "orb", sourceId: unit.id, progress: 0, duration: 0.44 + Math.random() * 0.24, startX: unit.x, startY: unit.y - 24, endX: target.x, endY: target.y, targetId: target.id, damage: unitDef.stats.damage * (1.05 + Math.random() * 0.65), radius: 44 });
   }
+}
+
+function getMountainAttackRange(unitDef) {
+  return Math.max(unitDef.stats.range, unitDef.stats.impulseRange, unitDef.stats.holdRange);
+}
+
+function getCatapultAttackRange(unitDef) {
+  return unitDef.stats.range;
+}
+
+function performMountainAttack({ unit, target, battle, unitDef }) {
+  if (!target || unit.activeSpellId) return;
+  const distance = Math.hypot(target.x - unit.x, target.y - unit.y);
+  const abilities = [];
+  if (!target.liftedBySpellId && !target.displacedBySpellId && distance <= unitDef.stats.impulseRange) {
+    abilities.push("impulse");
+  }
+  if (!target.liftedBySpellId && !target.displacedBySpellId && distance <= unitDef.stats.holdRange) {
+    abilities.push("hold");
+  }
+  if (!abilities.length) return;
+  const selected = abilities[Math.floor(Math.random() * abilities.length)];
+  if (selected === "hold") {
+    castMountainHold(unit, target, battle, unitDef);
+    return;
+  }
+  castMountainImpulse(unit, target, battle, unitDef);
+}
+
+function castMountainImpulse(unit, target, battle, unitDef) {
+  const dx = target.x - unit.x;
+  const dy = target.y - unit.y;
+  const length = Math.hypot(dx, dy) || 1;
+  const directionX = dx / length;
+  const directionY = dy / length;
+  const spellId = `${unit.id}-impulse-${Math.random().toString(36).slice(2, 7)}`;
+  battle.spells.push({
+    id: spellId,
+    kind: "mountain-impulse",
+    sourceId: unit.id,
+    targetId: target.id,
+    time: 0,
+    duration: 0.42,
+    startX: target.x,
+    startY: target.y,
+    endX: clamp(target.x + directionX * unitDef.stats.impulseDistance, 24, battle.field.width - 24),
+    endY: clamp(target.y + directionY * unitDef.stats.impulseDistance * 0.72, 24, battle.field.height - 24),
+    color: "#9fe1a7",
+  });
+  target.displacedBySpellId = spellId;
+  unit.activeSpellId = spellId;
+  applyDamage(target, unitDef.stats.impulseDamage * (0.88 + Math.random() * 0.3), battle, unit);
+  spawnBurst(battle, target.x, target.y - 6, "#bbf0b0", 18);
+  setHighlight(`${findFaction(battle, unit.factionId).title}'s Men of the Mountain hurl an enemy backward`);
+}
+
+function castMountainHold(unit, target, battle, unitDef) {
+  const spellId = `${unit.id}-hold-${Math.random().toString(36).slice(2, 7)}`;
+  battle.spells.push({
+    id: spellId,
+    kind: "mountain-hold",
+    sourceId: unit.id,
+    targetId: target.id,
+    time: 0,
+    duration: unitDef.stats.holdDuration,
+    damageTickTimer: 0,
+    damagePerTick: unitDef.stats.holdDamage,
+    tickInterval: unitDef.stats.holdTick,
+    holdOffsetX: (unit.displayFacingX || 1) * 30,
+    holdOffsetY: 6,
+    color: "#8fdb93",
+  });
+  target.liftedBySpellId = spellId;
+  unit.activeSpellId = spellId;
+  spawnBurst(battle, target.x, target.y - 10, "#d8ffd5", 14);
+  setHighlight(`${findFaction(battle, unit.factionId).title}'s Men of the Mountain seize a foe in a magic hold`);
+}
+
+function performCatapultAttack({ unit, target, battle, unitDef }) {
+  if (!target) return;
+  const distance = Math.hypot(target.x - unit.x, target.y - unit.y);
+  if (distance > unitDef.stats.range) return;
+  const scatterScale = unitDef.stats.variance * (0.8 + Math.random() * 0.8);
+  const endX = clamp(target.x + (Math.random() - 0.5) * scatterScale * 2.1, 28, battle.field.width - 28);
+  const endY = clamp(target.y + (Math.random() - 0.5) * scatterScale * 1.7, 28, battle.field.height - 28);
+  const flightDistance = Math.hypot(endX - unit.x, endY - unit.y);
+  battle.projectiles.push({
+    kind: "catapultStone",
+    sourceId: unit.id,
+    progress: 0,
+    duration: clamp(0.9 + flightDistance / 240 + Math.random() * 0.22, 1.05, 2.1),
+    startX: unit.x + (unit.displayFacingX || 1) * 16,
+    startY: unit.y - 20,
+    endX,
+    endY,
+    damage: unitDef.stats.damage,
+    radius: unitDef.stats.splash,
+    impactAngle: Math.atan2(endY - unit.y, endX - unit.x),
+    spin: (Math.random() > 0.5 ? 1 : -1) * (4.5 + Math.random() * 2.5),
+  });
 }
 
 function performMedicHeal({ unit, target, battle, unitDef }) {
@@ -1641,6 +1939,15 @@ function resolveBombProjectile(projectile, battle) {
   setHighlight(`${findFaction(battle, source?.factionId || "")?.title || "A bomber"} detonates a charge`);
 }
 
+function resolveCatapultProjectile(projectile, battle) {
+  const source = findUnitById(battle, projectile.sourceId);
+  explodeAt(battle, projectile.endX, projectile.endY, projectile.radius, projectile.damage, source, "#c69a62", 24);
+  spawnCatapultImpactDebris(battle, projectile.endX, projectile.endY);
+  battle.particles.push({ kind: "blast-glow", x: projectile.endX, y: projectile.endY, vx: 0, vy: 0, life: 0.34, age: 0, color: "#ffd2a1", size: projectile.radius * 1.06 });
+  battle.particles.push({ kind: "shockwave", x: projectile.endX, y: projectile.endY, vx: 0, vy: 0, life: 0.48, age: 0, color: "#f1c07f", size: projectile.radius * 0.34, startSize: projectile.radius * 0.34, maxSize: projectile.radius * 1.18, lineWidth: clamp(projectile.radius * 0.08, 8, 18) });
+  setHighlight(`${findFaction(battle, source?.factionId || "")?.title || "A catapult"} lands a crushing catapult strike`);
+}
+
 function resolveOrbProjectile(projectile, battle) {
   battle.factions.forEach((faction) => {
     faction.units.forEach((unit) => {
@@ -1651,16 +1958,48 @@ function resolveOrbProjectile(projectile, battle) {
   });
   spawnBurst(battle, projectile.endX, projectile.endY, "#7ce7ff", 18);
 }
+
+function spawnCatapultImpactDebris(battle, x, y) {
+  for (let i = 0; i < 18; i += 1) {
+    battle.particles.push({
+      kind: "debris",
+      x,
+      y,
+      vx: (Math.random() - 0.5) * 180,
+      vy: -40 - Math.random() * 130,
+      life: 0.55 + Math.random() * 0.45,
+      age: 0,
+      color: Math.random() > 0.45 ? "#8f8474" : "#6a5640",
+      size: 3 + Math.random() * 6,
+      rotation: Math.random() * Math.PI * 2,
+      spin: (Math.random() - 0.5) * 12,
+    });
+  }
+  for (let i = 0; i < 14; i += 1) {
+    battle.particles.push({
+      kind: "dust",
+      x,
+      y,
+      vx: (Math.random() - 0.5) * 90,
+      vy: -20 - Math.random() * 35,
+      life: 0.4 + Math.random() * 0.35,
+      age: 0,
+      color: "#d0b08a",
+      size: 6 + Math.random() * 10,
+    });
+  }
+}
 function updateSpells(battle, dt) {
   battle.spells = battle.spells.filter((spell) => {
     spell.time += dt;
     const source = findUnitById(battle, spell.sourceId);
     const target = findUnitById(battle, spell.targetId);
     if (!source || !target || source.dead || target.dead || target.fled) {
-      if (source) source.activeSpellId = null;
-      if (target) target.liftedBySpellId = null;
+      releaseSpellUnitState(spell, source, target);
       return false;
     }
+    if (spell.kind === "mountain-impulse") return updateMountainImpulseSpell(spell, source, target);
+    if (spell.kind === "mountain-hold") return updateMountainHoldSpell(spell, battle, source, target, dt);
     const progress = clamp(spell.time / spell.duration, 0, 1);
     target.x = lerp(spell.startX, spell.endX, progress);
     target.y = lerp(spell.startY, spell.endY, progress);
@@ -1668,13 +2007,62 @@ function updateSpells(battle, dt) {
     target.vx = 0;
     target.vy = 0;
     if (progress >= 1) {
-      target.liftedBySpellId = null;
       target.z = 0;
-      source.activeSpellId = null;
+      releaseSpellUnitState(spell, source, target);
       return false;
     }
     return true;
   });
+}
+
+function updateMountainImpulseSpell(spell, source, target) {
+  const progress = clamp(spell.time / spell.duration, 0, 1);
+  target.x = lerp(spell.startX, spell.endX, progress);
+  target.y = lerp(spell.startY, spell.endY, progress);
+  target.z = 4 + Math.sin(progress * Math.PI) * 14;
+  target.vx = 0;
+  target.vy = 0;
+  if (progress >= 1) {
+    target.z = 0;
+    releaseSpellUnitState(spell, source, target);
+    return false;
+  }
+  return true;
+}
+
+function updateMountainHoldSpell(spell, battle, source, target, dt) {
+  target.x = clamp(source.x + spell.holdOffsetX, 24, battle.field.width - 24);
+  target.y = clamp(source.y - spell.holdOffsetY, 24, battle.field.height - 24);
+  target.z = 24 + Math.sin(spell.time * 7) * 4;
+  target.vx = 0;
+  target.vy = 0;
+  spell.damageTickTimer += dt;
+  while (spell.damageTickTimer >= spell.tickInterval) {
+    spell.damageTickTimer -= spell.tickInterval;
+    applyDamage(target, spell.damagePerTick * (0.94 + Math.random() * 0.16), battle, source);
+    spawnBurst(battle, target.x, target.y - 12, "#c7ffc3", 4);
+    if (target.dead) {
+      releaseSpellUnitState(spell, source, target);
+      return false;
+    }
+  }
+  if (spell.time >= spell.duration) {
+    target.z = 0;
+    releaseSpellUnitState(spell, source, target);
+    return false;
+  }
+  return true;
+}
+
+function releaseSpellUnitState(spell, source, target) {
+  if (source?.activeSpellId === spell.id) source.activeSpellId = null;
+  if (target?.liftedBySpellId === spell.id) target.liftedBySpellId = null;
+  if (target?.displacedBySpellId === spell.id) target.displacedBySpellId = null;
+  if (target) {
+    target.z = 0;
+    target.vx = 0;
+    target.vy = 0;
+  }
 }
 
 function updateParticles(battle, dt) {
@@ -1683,6 +2071,9 @@ function updateParticles(battle, dt) {
     particle.x += particle.vx * dt;
     particle.y += particle.vy * dt;
     particle.vy += 40 * dt;
+    if (particle.kind === "debris") {
+      particle.rotation = (particle.rotation || 0) + (particle.spin || 0) * dt;
+    }
     if (particle.kind === "shockwave") {
       particle.size = lerp(particle.startSize ?? particle.size, particle.maxSize ?? particle.size, clamp(particle.age / particle.life, 0, 1));
     }
@@ -1746,6 +2137,7 @@ function applyDamage(unit, amount, battle, attacker = null) {
     unit.dead = true;
     unit.health = 0;
     unit.liftedBySpellId = null;
+    unit.displacedBySpellId = null;
     unitDef.onDeath?.({ unit, battle, attacker, unitDef });
     if (attacker && !attacker.dead) {
       attacker.killStreak = (attacker.killStreak || 0) + 1;
@@ -2700,6 +3092,38 @@ function drawBombProjectile({ projectile, point }) {
   ctx.restore();
 }
 
+function drawCatapultProjectile({ projectile, point, viewport }) {
+  const ground = getProjectileGroundPoint(projectile, projectile.progress);
+  const groundPoint = worldToScreen(ground.x, ground.y, viewport);
+  const altitude = Math.max(0, groundPoint.y - point.y);
+  const shadowScale = clamp(1 - altitude / 140, 0.36, 1);
+  ctx.fillStyle = `rgba(0,0,0,${0.24 * shadowScale})`;
+  ctx.beginPath();
+  ctx.ellipse(groundPoint.x, groundPoint.y + 3 * groundPoint.scale / 2.1, 10 * groundPoint.scale / 2.1 * shadowScale, 5 * groundPoint.scale / 2.1 * shadowScale, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.save();
+  ctx.translate(point.x, point.y);
+  ctx.rotate(projectile.progress * projectile.spin);
+  ctx.fillStyle = "#6f6254";
+  ctx.beginPath();
+  ctx.arc(0, 0, 9 * point.scale / 2.1, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "rgba(255,255,255,0.14)";
+  ctx.beginPath();
+  ctx.arc(-2.5 * point.scale / 2.1, -3 * point.scale / 2.1, 3 * point.scale / 2.1, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "#4d4136";
+  ctx.lineWidth = 2 * point.scale / 2.1;
+  ctx.beginPath();
+  ctx.moveTo(-5 * point.scale / 2.1, -2 * point.scale / 2.1);
+  ctx.lineTo(3 * point.scale / 2.1, 5 * point.scale / 2.1);
+  ctx.moveTo(4 * point.scale / 2.1, -4 * point.scale / 2.1);
+  ctx.lineTo(-3 * point.scale / 2.1, 2 * point.scale / 2.1);
+  ctx.stroke();
+  ctx.restore();
+}
+
 function drawOrbProjectile({ point }) {
   const gradient = ctx.createRadialGradient(point.x, point.y, 1, point.x, point.y, 10 * point.scale / 2.1);
   gradient.addColorStop(0, "#e0ffff");
@@ -2714,6 +3138,13 @@ function getProjectilePoint(projectile, progress) {
   const x = lerp(projectile.startX, projectile.endX, progress);
   const yBase = lerp(projectile.startY, projectile.endY, progress);
   return { x, y: yBase - Math.sin(progress * Math.PI) * (getProjectileDefinition(projectile)?.arcHeight || 26) };
+}
+
+function getProjectileGroundPoint(projectile, progress) {
+  return {
+    x: lerp(projectile.startX, projectile.endX, progress),
+    y: lerp(projectile.startY, projectile.endY, progress),
+  };
 }
 function drawStuckArrows(viewport, arrows) {
   arrows.forEach((arrow) => {
@@ -2751,7 +3182,9 @@ function drawUnits(viewport, factions) {
     ctx.translate(point.x + strideOffset * unit.displayFacingX * 0.35, bodyY);
     ctx.rotate(unit.walkTilt);
     ctx.scale(unit.displayFacingX, 1);
-    unitDef.render?.(main, dark, light, scale, unit);
+    if (!drawUnitSprite(unit, main, scale)) {
+      unitDef.render?.(main, dark, light, scale, unit);
+    }
     ctx.restore();
     const hpWidth = unitDef.healthBarWidth || 20;
     ctx.fillStyle = "rgba(37,24,16,0.5)";
@@ -2943,6 +3376,97 @@ function drawKnight(main, dark, light, scale, unit) {
   ctx.stroke();
 }
 
+function drawMountainMan(main, dark, light, scale, unit) {
+  drawStepLegs(dark, scale, unit, 5.9, 10);
+  ctx.fillStyle = shadeColor(main, -0.22);
+  ctx.beginPath();
+  ctx.moveTo(0, -17 * scale / 2.1);
+  ctx.lineTo(12 * scale / 2.1, -5 * scale / 2.1);
+  ctx.lineTo(9 * scale / 2.1, 13 * scale / 2.1);
+  ctx.lineTo(-9 * scale / 2.1, 13 * scale / 2.1);
+  ctx.lineTo(-12 * scale / 2.1, -5 * scale / 2.1);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = main;
+  ctx.beginPath();
+  ctx.moveTo(0, -13 * scale / 2.1);
+  ctx.lineTo(9 * scale / 2.1, -4 * scale / 2.1);
+  ctx.lineTo(7 * scale / 2.1, 12 * scale / 2.1);
+  ctx.lineTo(-7 * scale / 2.1, 12 * scale / 2.1);
+  ctx.lineTo(-9 * scale / 2.1, -4 * scale / 2.1);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = light;
+  ctx.beginPath();
+  ctx.arc(0, -15 * scale / 2.1, 5.1 * scale / 2.1, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "#4f3924";
+  ctx.lineWidth = 2 * scale / 2.1;
+  ctx.beginPath();
+  ctx.moveTo(9 * scale / 2.1, -4 * scale / 2.1);
+  ctx.lineTo(15 * scale / 2.1, -17 * scale / 2.1);
+  ctx.stroke();
+  ctx.fillStyle = "#9ff0a1";
+  ctx.beginPath();
+  ctx.arc(16 * scale / 2.1, -18 * scale / 2.1, 3.1 * scale / 2.1, 0, Math.PI * 2);
+  ctx.fill();
+  if (unit.activeSpellId) {
+    ctx.strokeStyle = "rgba(192,255,189,0.6)";
+    ctx.lineWidth = 1.6 * scale / 2.1;
+    ctx.beginPath();
+    ctx.arc(0, -2 * scale / 2.1, 10 * scale / 2.1, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+}
+
+function drawCatapult(main, dark, light, scale) {
+  const wheelY = 11 * scale / 2.1;
+  ctx.strokeStyle = "#4f3821";
+  ctx.lineWidth = 2.2 * scale / 2.1;
+  ctx.beginPath();
+  ctx.moveTo(-13 * scale / 2.1, wheelY);
+  ctx.lineTo(13 * scale / 2.1, wheelY);
+  ctx.moveTo(-6 * scale / 2.1, 5 * scale / 2.1);
+  ctx.lineTo(6 * scale / 2.1, 5 * scale / 2.1);
+  ctx.stroke();
+
+  ctx.strokeStyle = main;
+  ctx.lineWidth = 4.4 * scale / 2.1;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.beginPath();
+  ctx.moveTo(-8 * scale / 2.1, wheelY);
+  ctx.lineTo(1 * scale / 2.1, -11 * scale / 2.1);
+  ctx.lineTo(11 * scale / 2.1, wheelY - 1 * scale / 2.1);
+  ctx.stroke();
+
+  ctx.fillStyle = shadeColor(main, -0.14);
+  ctx.beginPath();
+  ctx.arc(-10 * scale / 2.1, wheelY, 5.6 * scale / 2.1, 0, Math.PI * 2);
+  ctx.arc(11 * scale / 2.1, wheelY, 5.6 * scale / 2.1, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = dark;
+  ctx.lineWidth = 1.4 * scale / 2.1;
+  [-10, 11].forEach((x) => {
+    ctx.beginPath();
+    ctx.moveTo((x - 4) * scale / 2.1, wheelY);
+    ctx.lineTo((x + 4) * scale / 2.1, wheelY);
+    ctx.moveTo(x * scale / 2.1, (11 - 4) * scale / 2.1);
+    ctx.lineTo(x * scale / 2.1, (11 + 4) * scale / 2.1);
+    ctx.stroke();
+  });
+
+  ctx.fillStyle = "#74685e";
+  ctx.beginPath();
+  ctx.arc(4 * scale / 2.1, -14 * scale / 2.1, 4.7 * scale / 2.1, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = light;
+  ctx.beginPath();
+  ctx.arc(2.5 * scale / 2.1, -16 * scale / 2.1, 1.8 * scale / 2.1, 0, Math.PI * 2);
+  ctx.fill();
+}
+
 function drawSwipes(viewport, swipes) {
   swipes.forEach((swipe) => {
     const point = worldToScreen(swipe.x, swipe.y, viewport);
@@ -3003,6 +3527,27 @@ function drawParticles(viewport, particles) {
       ctx.beginPath();
       ctx.arc(point.x, point.y, particle.size * point.scale, 0, Math.PI * 2);
       ctx.stroke();
+      return;
+    }
+    if (particle.kind === "debris") {
+      ctx.save();
+      ctx.translate(point.x, point.y);
+      ctx.rotate(particle.rotation || 0);
+      ctx.fillStyle = hexToRgba(particle.color, alpha);
+      ctx.fillRect(
+        -(particle.size * 0.55) * point.scale / 2.1,
+        -(particle.size * 0.4) * point.scale / 2.1,
+        particle.size * point.scale / 2.1,
+        particle.size * 0.8 * point.scale / 2.1,
+      );
+      ctx.restore();
+      return;
+    }
+    if (particle.kind === "dust") {
+      ctx.fillStyle = hexToRgba(particle.color, alpha * 0.45);
+      ctx.beginPath();
+      ctx.ellipse(point.x, point.y, particle.size * point.scale / 2.1, particle.size * 0.62 * point.scale / 2.1, 0, 0, Math.PI * 2);
+      ctx.fill();
       return;
     }
     ctx.fillStyle = hexToRgba(particle.color, particle.kind === "blast-glow" ? alpha * 0.22 : alpha);

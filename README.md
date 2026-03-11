@@ -29,3 +29,4 @@ A starter file is included at `sample-armies.csv`.
 - Winner removal and reinforcement rules follow the requested queue logic: non-winning digital entries gain 2 troops, paperback entries gain 4.
 - The live OpenAI image generation workflow is documented in `output/imagegen/visual-direction.md`, but generating those assets requires a local `OPENAI_API_KEY`.
 - The current implementation is dependency-free and uses canvas plus localStorage for persistence.
+- Unit art can be overridden with PNG files named after the unit id, such as `archer.png`. The app checks common project subdirectories first, with `assets/unit-sprites/archer.png` as the preferred location, then falls back to the built-in SVG-style canvas rendering if no PNG is found.
