@@ -1050,7 +1050,7 @@ function buildActiveBattle() {
       });
     }
   }
-  return buildBattle(state.factions, createArenaVariant(0, 0, state.factions.length), null);
+  return buildBattle(state.factions, createRandomArenaVariant(0, 0, state.factions.length), null);
 }
 
 function buildBattle(factionPool = state.factions, arena = createArenaVariant(0, 0, factionPool.length), meta = null) {
@@ -3010,13 +3010,13 @@ function onCanvasPointerUp() {
 function onCanvasWheel(event) {
   event.preventDefault();
   markCameraManual();
-  state.camera.zoom = clamp(state.camera.zoom * (Math.sign(event.deltaY) > 0 ? 0.9 : 1.1), 0.7, 2.4);
+  state.camera.zoom = clamp(state.camera.zoom * (Math.sign(event.deltaY) > 0 ? 0.9 : 1.1), 0.28, 4.2);
   state.camera.targetZoom = state.camera.zoom;
   clampCameraToField();
 }
 
 function markCameraManual() {
-  state.camera.manualUntil = performance.now() + 4000;
+  state.camera.manualUntil = performance.now() + 6000;
 }
 
 function updateCamera(dt) {
@@ -3050,7 +3050,7 @@ function getAutoCameraTarget(battle) {
   const viewport = getViewport();
   const baseScale = getBaseScale(viewport);
   const fitZoom = Math.min(viewport.width / Math.max(260, maxX - minX + buffer * 2), viewport.height / Math.max(220, maxY - minY + buffer * 2)) / baseScale;
-  return { x: clamp((minX + maxX) / 2, 0, FIELD.width), y: clamp((minY + maxY) / 2, 0, FIELD.height), zoom: clamp(fitZoom, 0.72, 1.8) };
+  return { x: clamp((minX + maxX) / 2, 0, FIELD.width), y: clamp((minY + maxY) / 2, 0, FIELD.height), zoom: clamp(fitZoom, 0.32, 2.25) };
 }
 
 function clampCameraToField() {
@@ -3058,8 +3058,16 @@ function clampCameraToField() {
   const scale = getBaseScale(viewport) * state.camera.zoom;
   const halfWorldWidth = viewport.width / scale / 2;
   const halfWorldHeight = viewport.height / scale / 2;
-  state.camera.x = clamp(state.camera.x, halfWorldWidth, FIELD.width - halfWorldWidth);
-  state.camera.y = clamp(state.camera.y, halfWorldHeight, FIELD.height - halfWorldHeight);
+  if (halfWorldWidth >= FIELD.width / 2) {
+    state.camera.x = FIELD.width / 2;
+  } else {
+    state.camera.x = clamp(state.camera.x, halfWorldWidth, FIELD.width - halfWorldWidth);
+  }
+  if (halfWorldHeight >= FIELD.height / 2) {
+    state.camera.y = FIELD.height / 2;
+  } else {
+    state.camera.y = clamp(state.camera.y, halfWorldHeight, FIELD.height - halfWorldHeight);
+  }
 }
 
 function getViewport() {
@@ -3160,82 +3168,91 @@ function drawWeather(viewport, battle) {
   const weather = battle.arena?.weather;
   if (!weather || weather === "clear") return;
   const field = battle.weatherField || [];
+  const baseScale = getBaseScale(viewport);
   ctx.save();
   if (weather === "mist") {
     field.forEach((cloud) => {
-      const x = ((cloud.x * viewport.width) + battle.time * cloud.speed) % (viewport.width + cloud.width * 2) - cloud.width;
-      const y = viewport.height * cloud.y;
+      const worldX = ((cloud.x * FIELD.width) + battle.time * cloud.speed) % (FIELD.width + cloud.width * 2) - cloud.width;
+      const worldY = FIELD.height * cloud.y;
+      const point = worldToScreen(worldX, worldY, viewport);
       ctx.fillStyle = `rgba(228, 238, 228, ${cloud.alpha})`;
       ctx.beginPath();
-      ctx.ellipse(x, y, cloud.width, cloud.height, 0, 0, Math.PI * 2);
+      ctx.ellipse(point.x, point.y, cloud.width * point.scale / baseScale, cloud.height * point.scale / baseScale, 0, 0, Math.PI * 2);
       ctx.fill();
     });
   } else if (weather === "drizzle") {
-    ctx.lineWidth = 1.1;
     field.forEach((drop) => {
-      const x = drop.x * viewport.width;
-      const y = ((drop.y * viewport.height) + battle.time * drop.speed) % (viewport.height + drop.length + 80) - drop.length - 40;
+      const worldX = drop.x * FIELD.width;
+      const worldY = ((drop.y * FIELD.height) + battle.time * drop.speed) % (FIELD.height + drop.length + 80) - drop.length - 40;
+      const point = worldToScreen(worldX, worldY, viewport);
       ctx.strokeStyle = `rgba(196, 223, 255, ${drop.alpha})`;
+      ctx.lineWidth = 1.1 * point.scale / baseScale;
       ctx.beginPath();
-      ctx.moveTo(x, y);
-      ctx.lineTo(x - drop.drift, y + drop.length);
+      ctx.moveTo(point.x, point.y);
+      ctx.lineTo(point.x - drop.drift * point.scale / baseScale, point.y + drop.length * point.scale / baseScale);
       ctx.stroke();
     });
   } else if (weather === "embers") {
     field.forEach((ember) => {
-      const x = ((ember.x * viewport.width) + Math.sin((battle.time + ember.x) * 1.4) * ember.sway);
-      const y = viewport.height - (((ember.y * viewport.height) + battle.time * ember.speed) % (viewport.height + 80));
+      const worldX = (ember.x * FIELD.width) + Math.sin((battle.time + ember.x) * 1.4) * ember.sway;
+      const worldY = FIELD.height - (((ember.y * FIELD.height) + battle.time * ember.speed) % (FIELD.height + 80));
+      const point = worldToScreen(worldX, worldY, viewport);
       ctx.fillStyle = `rgba(255, ${ember.glow}, 92, ${ember.alpha})`;
       ctx.beginPath();
-      ctx.arc(x, y, ember.radius, 0, Math.PI * 2);
+      ctx.arc(point.x, point.y, ember.radius * point.scale / baseScale, 0, Math.PI * 2);
       ctx.fill();
     });
   } else if (weather === "downpour") {
-    ctx.lineWidth = 1.4;
     field.forEach((drop) => {
-      const x = drop.x * viewport.width;
-      const y = ((drop.y * viewport.height) + battle.time * drop.speed) % (viewport.height + drop.length + 100) - drop.length - 50;
+      const worldX = drop.x * FIELD.width;
+      const worldY = ((drop.y * FIELD.height) + battle.time * drop.speed) % (FIELD.height + drop.length + 100) - drop.length - 50;
+      const point = worldToScreen(worldX, worldY, viewport);
       ctx.strokeStyle = `rgba(188, 219, 255, ${drop.alpha})`;
+      ctx.lineWidth = 1.4 * point.scale / baseScale;
       ctx.beginPath();
-      ctx.moveTo(x, y);
-      ctx.lineTo(x - drop.drift, y + drop.length);
+      ctx.moveTo(point.x, point.y);
+      ctx.lineTo(point.x - drop.drift * point.scale / baseScale, point.y + drop.length * point.scale / baseScale);
       ctx.stroke();
     });
     ctx.fillStyle = "rgba(187, 213, 255, 0.08)";
     ctx.fillRect(0, 0, viewport.width, viewport.height);
   } else if (weather === "ashfall") {
     field.forEach((flake) => {
-      const x = (flake.x * viewport.width) + Math.sin((battle.time + flake.x) * 1.25) * flake.sway;
-      const y = ((flake.y * viewport.height) + battle.time * flake.speed) % (viewport.height + 40) - 20;
+      const worldX = (flake.x * FIELD.width) + Math.sin((battle.time + flake.x) * 1.25) * flake.sway;
+      const worldY = ((flake.y * FIELD.height) + battle.time * flake.speed) % (FIELD.height + 40) - 20;
+      const point = worldToScreen(worldX, worldY, viewport);
       ctx.fillStyle = `rgba(${flake.shade}, ${flake.shade - 10}, ${flake.shade - 18}, ${flake.alpha})`;
       ctx.beginPath();
-      ctx.arc(x, y, flake.radius, 0, Math.PI * 2);
+      ctx.arc(point.x, point.y, flake.radius * point.scale / baseScale, 0, Math.PI * 2);
       ctx.fill();
     });
   } else if (weather === "fireflies") {
     field.forEach((light) => {
       const pulse = 0.35 + (Math.sin((battle.time + light.x * 2) * light.pulse * 2.2) + 1) * 0.3;
-      const x = (light.x * viewport.width) + Math.sin((battle.time + light.y) * 1.1) * light.sway;
-      const y = (light.y * viewport.height) + Math.cos((battle.time + light.x) * 0.9) * light.drift;
-      const gradient = ctx.createRadialGradient(x, y, 1, x, y, light.radius * 7);
+      const worldX = (light.x * FIELD.width) + Math.sin((battle.time + light.y) * 1.1) * light.sway;
+      const worldY = (light.y * FIELD.height) + Math.cos((battle.time + light.x) * 0.9) * light.drift;
+      const point = worldToScreen(worldX, worldY, viewport);
+      const radius = light.radius * point.scale / baseScale;
+      const gradient = ctx.createRadialGradient(point.x, point.y, 1, point.x, point.y, radius * 7);
       gradient.addColorStop(0, `rgba(255, 247, 157, ${light.alpha * pulse})`);
       gradient.addColorStop(1, "rgba(255, 247, 157, 0)");
       ctx.fillStyle = gradient;
       ctx.beginPath();
-      ctx.arc(x, y, light.radius * 7, 0, Math.PI * 2);
+      ctx.arc(point.x, point.y, radius * 7, 0, Math.PI * 2);
       ctx.fill();
       ctx.fillStyle = `rgba(255, 244, 143, ${Math.min(0.95, light.alpha + pulse * 0.2)})`;
       ctx.beginPath();
-      ctx.arc(x, y, light.radius, 0, Math.PI * 2);
+      ctx.arc(point.x, point.y, radius, 0, Math.PI * 2);
       ctx.fill();
     });
   } else if (weather === "snowfall") {
     field.forEach((flake) => {
-      const x = (flake.x * viewport.width) + Math.sin((battle.time + flake.x) * 0.9) * flake.sway;
-      const y = ((flake.y * viewport.height) + battle.time * flake.speed) % (viewport.height + 50) - 25;
+      const worldX = (flake.x * FIELD.width) + Math.sin((battle.time + flake.x) * 0.9) * flake.sway;
+      const worldY = ((flake.y * FIELD.height) + battle.time * flake.speed) % (FIELD.height + 50) - 25;
+      const point = worldToScreen(worldX, worldY, viewport);
       ctx.fillStyle = `rgba(244, 248, 255, ${flake.alpha})`;
       ctx.beginPath();
-      ctx.arc(x, y, flake.radius, 0, Math.PI * 2);
+      ctx.arc(point.x, point.y, flake.radius * point.scale / baseScale, 0, Math.PI * 2);
       ctx.fill();
     });
   }
