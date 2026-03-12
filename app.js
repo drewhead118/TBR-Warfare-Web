@@ -4,17 +4,22 @@ const FIELD = { width: 1180, height: 760 };
 const SPEED_OPTIONS = [0.35, 0.65, 1, 1.4, 1.85];
 const BANNER_FLOAT_OFFSET = 76;
 const MAX_BATTLE_FACTIONS = 10;
-const INKLORD_DEBUG_DELAY = 5;
+const INKLORD_DEBUG_DELAY = 60;
 const INKLORD_FACTION_ID = "neutral-inklord";
 const INKLORD_FACTION_TITLE = "InkLord";
 const INKLORD_COLOR = "#161418";
 const INKLORD_TAUNTS = [
-  "Perish, inklings!",
+  "Perish, Inklings!",
   "I give you a 0/10 on my INDIE scale!",
   "Your ratings plummet with you!",
   "Back to the slush pile with you!",
-  "You were not greenlit.",
+  "I banish you from KDP!",
   "Be gone from my ink-stained realm!",
+  "To the end of the TBR with ye!",
+  "Your next publication shall be posthumous!",
+  "Your words are as weak as your sales!",
+  "You are but a footnote in my shadow!",
+  "You're on my T.B.R.: To Be Removed!",
 ];
 const DEFAULT_COMPOSITION = { archer: 1, mage: 1, knight: 1, bodyguard: 0, medic: 0, bomber: 0, assassin: 0, mountainman: 0, catapult: 0, poisoner: 0, firebreather: 0, necromancer: 0, graverobber: 0, arachnomist: 0 };
 const UNIT_SPRITE_CANDIDATE_PATHS = [
@@ -3023,7 +3028,7 @@ function updateInkLordPresence({ unit, battle, enemies, dt }) {
   if (unit.spawnInvulnerable) return;
   unit.auraPulse = (unit.auraPulse || 0) + dt;
   unit.tauntCooldown = Math.max(0, (unit.tauntCooldown || 0) - dt);
-  if (Math.random() > 0.22) {
+  if (Math.random() > 0.14) {
     battle.particles.push({
       x: unit.x + (Math.random() - 0.5) * 26,
       y: unit.y - 28 + Math.random() * 20,
@@ -3033,6 +3038,35 @@ function updateInkLordPresence({ unit, battle, enemies, dt }) {
       age: 0,
       color: Math.random() > 0.4 ? "#13121a" : "#8e7cff",
       size: 3 + Math.random() * 5,
+    });
+  }
+  if (Math.random() > 0.4) {
+    const angle = Math.random() * Math.PI * 2;
+    const radius = 18 + Math.random() * 26;
+    battle.particles.push({
+      kind: "ink-spark",
+      x: unit.x + Math.cos(angle) * radius,
+      y: unit.y + 4 + Math.sin(angle) * radius * 0.46,
+      vx: Math.cos(angle) * (4 + Math.random() * 10),
+      vy: -12 - Math.random() * 10,
+      life: 0.42 + Math.random() * 0.22,
+      age: 0,
+      color: Math.random() > 0.5 ? "#c7b8ff" : "#6f60ff",
+      size: 5 + Math.random() * 4,
+      rotation: angle,
+    });
+  }
+  if (Math.random() > 0.58) {
+    battle.particles.push({
+      kind: "dust",
+      x: unit.x + (Math.random() - 0.5) * 34,
+      y: unit.y + 16 + Math.random() * 8,
+      vx: (Math.random() - 0.5) * 16,
+      vy: -6 - Math.random() * 8,
+      life: 0.36 + Math.random() * 0.22,
+      age: 0,
+      color: Math.random() > 0.5 ? "#0e0c13" : "#5e52a5",
+      size: 8 + Math.random() * 6,
     });
   }
   if (enemies.length >= 5 && Math.random() > 0.975) {
@@ -3249,6 +3283,9 @@ function launchUnitsAroundPoint(battle, source, x, y, radius, damage, throwDista
 function spawnInkLordRupture(battle, x, y, radius) {
   spawnBurst(battle, x, y, "#1a1720", 22);
   spawnBurst(battle, x, y, "#8b78ff", 18);
+  battle.particles.push({ kind: "blast-glow", x, y, vx: 0, vy: 0, life: 0.64, age: 0, color: "#231b36", size: radius * 1.08 });
+  battle.particles.push({ kind: "ring", x, y, vx: 0, vy: 0, life: 0.7, age: 0, color: "#7f6cff", size: radius * 0.92, lineWidth: 6 });
+  battle.particles.push({ kind: "ring", x, y, vx: 0, vy: 0, life: 0.9, age: 0, color: "#17131f", size: radius * 1.12, lineWidth: 10 });
   for (let i = 0; i < 18; i += 1) {
     const angle = (Math.PI * 2 * i) / 18;
     const drift = radius * (0.25 + Math.random() * 0.18);
@@ -5166,15 +5203,28 @@ function drawInkLordGroundAura(point, scale, unit) {
   const radiusY = 14 * scale / 2.1;
   const centerY = point.y + 13 * scale / 2.1;
   ctx.save();
-  ctx.fillStyle = `rgba(104, 87, 255, ${0.08 + pulse * 0.08})`;
+  ctx.fillStyle = `rgba(12, 10, 19, ${0.26 + pulse * 0.12})`;
+  ctx.beginPath();
+  ctx.ellipse(point.x, centerY + 2 * scale / 2.1, radiusX * 1.18, radiusY * 1.5, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = `rgba(104, 87, 255, ${0.08 + pulse * 0.09})`;
   ctx.beginPath();
   ctx.ellipse(point.x, centerY, radiusX, radiusY, 0, 0, Math.PI * 2);
   ctx.fill();
-  ctx.strokeStyle = `rgba(174, 158, 255, ${0.24 + pulse * 0.2})`;
-  ctx.lineWidth = 2.2 * scale / 2.1;
+  ctx.strokeStyle = `rgba(174, 158, 255, ${0.18 + pulse * 0.16})`;
+  ctx.lineWidth = 1.8 * scale / 2.1;
   ctx.beginPath();
   ctx.ellipse(point.x, centerY, radiusX, radiusY, 0, 0, Math.PI * 2);
   ctx.stroke();
+  ctx.strokeStyle = `rgba(73, 63, 120, ${0.42 + pulse * 0.18})`;
+  ctx.lineWidth = 1.2 * scale / 2.1;
+  for (let i = 0; i < 6; i += 1) {
+    const start = (battleTime * 0.7) + (i * Math.PI / 3);
+    const end = start + 0.45;
+    ctx.beginPath();
+    ctx.ellipse(point.x, centerY, radiusX * 0.84, radiusY * 0.84, 0, start, end);
+    ctx.stroke();
+  }
   ctx.restore();
 }
 
@@ -6212,6 +6262,30 @@ function drawSpiderSwarm(main, dark, light, scale, unit) {
 
 function drawInkLord(main, dark, light, scale, unit) {
   const bodyScale = (scale * 2.15) / 2.1;
+  const battleTime = state.battle?.time || 0;
+  const pulse = 0.3 + Math.max(0, Math.sin(battleTime * 3.8 + unit.statusVisualSeed)) * 0.28;
+  ctx.fillStyle = `rgba(28, 21, 43, ${0.38 + pulse * 0.18})`;
+  ctx.beginPath();
+  ctx.moveTo(-20 * bodyScale, -10 * bodyScale);
+  ctx.quadraticCurveTo(-30 * bodyScale, 12 * bodyScale, -18 * bodyScale, 28 * bodyScale);
+  ctx.lineTo(0, 35 * bodyScale);
+  ctx.lineTo(18 * bodyScale, 28 * bodyScale);
+  ctx.quadraticCurveTo(31 * bodyScale, 10 * bodyScale, 21 * bodyScale, -12 * bodyScale);
+  ctx.lineTo(10 * bodyScale, -30 * bodyScale);
+  ctx.lineTo(-8 * bodyScale, -30 * bodyScale);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.strokeStyle = `rgba(171, 154, 255, ${0.28 + pulse * 0.22})`;
+  ctx.lineWidth = 2 * bodyScale;
+  for (let i = -1; i <= 1; i += 1) {
+    ctx.beginPath();
+    ctx.moveTo(i * 7 * bodyScale, -25 * bodyScale);
+    ctx.lineTo(i * 13 * bodyScale, -38 * bodyScale);
+    ctx.lineTo(i * 18 * bodyScale, -26 * bodyScale);
+    ctx.stroke();
+  }
+
   drawStepLegs("#0b0911", scale * 1.8, unit, 8.8, 15);
   ctx.fillStyle = "#09090d";
   ctx.beginPath();
@@ -6255,6 +6329,12 @@ function drawInkLord(main, dark, light, scale, unit) {
   ctx.arc(2.4 * bodyScale, -13.5 * bodyScale, 1.2 * bodyScale, 0, Math.PI * 2);
   ctx.fill();
 
+  ctx.strokeStyle = `rgba(201, 187, 255, ${0.4 + pulse * 0.25})`;
+  ctx.lineWidth = 1.4 * bodyScale;
+  ctx.beginPath();
+  ctx.arc(0, -14 * bodyScale, 7.6 * bodyScale, Math.PI * 1.07, Math.PI * 1.93);
+  ctx.stroke();
+
   ctx.strokeStyle = "#efe8ff";
   ctx.lineWidth = 3.1 * bodyScale;
   ctx.lineCap = "round";
@@ -6272,6 +6352,16 @@ function drawInkLord(main, dark, light, scale, unit) {
   ctx.lineTo(22 * bodyScale, -10 * bodyScale);
   ctx.closePath();
   ctx.fill();
+
+  const swordGlow = ctx.createLinearGradient(18 * bodyScale, -24 * bodyScale, 34 * bodyScale, 6 * bodyScale);
+  swordGlow.addColorStop(0, `rgba(251, 244, 255, ${0.36 + pulse * 0.18})`);
+  swordGlow.addColorStop(1, "rgba(109, 92, 255, 0)");
+  ctx.strokeStyle = swordGlow;
+  ctx.lineWidth = 6 * bodyScale;
+  ctx.beginPath();
+  ctx.moveTo(22 * bodyScale, -25 * bodyScale);
+  ctx.lineTo(32 * bodyScale, 8 * bodyScale);
+  ctx.stroke();
 }
 
 function drawCatapult(main, dark, light, scale) {
@@ -6437,6 +6527,24 @@ function drawParticles(viewport, particles) {
       ctx.beginPath();
       ctx.ellipse(point.x, point.y, particle.size * point.scale / 2.1, particle.size * 0.62 * point.scale / 2.1, 0, 0, Math.PI * 2);
       ctx.fill();
+      return;
+    }
+    if (particle.kind === "ink-spark") {
+      ctx.save();
+      ctx.translate(point.x, point.y);
+      ctx.rotate((particle.rotation || 0) + particle.age * 3.5);
+      ctx.fillStyle = hexToRgba(particle.color, alpha * 0.9);
+      ctx.beginPath();
+      ctx.moveTo(0, -(particle.size * 0.85) * point.scale / 2.1);
+      ctx.lineTo((particle.size * 0.35) * point.scale / 2.1, 0);
+      ctx.lineTo(0, (particle.size * 0.85) * point.scale / 2.1);
+      ctx.lineTo(-(particle.size * 0.35) * point.scale / 2.1, 0);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = hexToRgba("#efe8ff", alpha * 0.65);
+      ctx.lineWidth = 1.1 * point.scale / 2.1;
+      ctx.stroke();
+      ctx.restore();
       return;
     }
     ctx.fillStyle = hexToRgba(particle.color, particle.kind === "blast-glow" ? alpha * 0.22 : alpha);
