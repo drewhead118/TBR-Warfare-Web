@@ -2,6 +2,30 @@
 const STORAGE_KEY = "tbr-warfare-state-v1";
 const FIELD = { width: 1180, height: 760 };
 const SPEED_OPTIONS = [0.35, 0.65, 1, 1.4, 1.85];
+const AUDIO_DEFAULT_FADE_SECONDS = 1.8;
+const AUDIO_END_FADE_SECONDS = 0.4;
+const AUDIO_TRACKS = {
+  main: {
+    src: "assets/music/main_battle_music_loop.mp3",
+    loop: true,
+    volume: 0.42,
+  },
+  ambience: {
+    src: "assets/music/combat_sound_ambience_loop.mp3",
+    loop: true,
+    volume: 0.26,
+  },
+  inklord: {
+    src: "assets/music/inklord_cometh.mp3",
+    loop: true,
+    volume: 0.5,
+  },
+  deathBell: {
+    src: "assets/music/death_bell.wav",
+    loop: false,
+    volume: 0.72,
+  },
+};
 const BANNER_FLOAT_OFFSET = 76;
 const MAX_BATTLE_FACTIONS = 10;
 const INKLORD_DEBUG_DELAY = 60;
@@ -539,6 +563,16 @@ function createArenaTheme(name, top, bottom, glow, ground, commonProps = {}, rar
   };
 }
 
+function createAudioState() {
+  return {
+    initialized: false,
+    muted: false,
+    activeMusicKey: null,
+    tracks: {},
+    fades: [],
+  };
+}
+
 const state = {
   factions: [],
   battle: null,
@@ -550,6 +584,7 @@ const state = {
   running: false,
   roundsApplied: 0,
   speedIndex: 2,
+  audio: createAudioState(),
   camera: {
     x: FIELD.width / 2,
     y: FIELD.height / 2,
@@ -616,6 +651,7 @@ function bootstrap() {
     saveState();
   }
   bindUi();
+  initializeBattleAudio();
   renderSpeedControls();
   syncCsvInput();
   renderArmyEditors();
@@ -1265,6 +1301,7 @@ function sizeCanvas() {
 
 function resetBattle() {
   state.running = false;
+  endBattleAudio();
   state.tournament = shouldUseTournament(state.factions) ? createTournament(state.factions) : null;
   state.battle = buildActiveBattle();
   clearKnockoutAnnouncement();
@@ -1302,6 +1339,7 @@ function startBattle() {
   clearKnockoutAnnouncement();
   clearBossAnnouncement();
   state.running = true;
+  startBattleAudio();
   els.battleState.textContent = state.tournament ? `${getCurrentMatchLabel(state.tournament)} in progress` : "Battling";
   setTicker(state.tournament ? `${getCurrentMatchLabel(state.tournament)} begins in ${state.battle.arena.name}.` : "The war for the next read has begun.");
   setHighlight("Scouts report movement across the field");
@@ -2057,6 +2095,7 @@ function loop(timestamp) {
   lastFrame = timestamp;
   const simDt = dt * SPEED_OPTIONS[state.speedIndex];
   if (state.running && state.battle) stepBattle(state.battle, simDt);
+  updateAudioFades(dt);
   updateCamera(dt);
   render();
   requestAnimationFrame(loop);
@@ -2090,6 +2129,7 @@ function stepBattle(battle, dt) {
     battle.pendingWinner = winner ? winner.id : null;
     battle.completed = true;
     state.running = false;
+    endBattleAudio();
     els.battleState.textContent = state.tournament ? `${getCurrentMatchLabel(state.tournament)} complete` : "Complete";
     els.winnerLabel.textContent = winner.title;
     setTicker(`${winner.title} survives the melee.`);
@@ -2104,6 +2144,7 @@ function stepBattle(battle, dt) {
     battle.pendingWinner = winner ? winner.id : null;
     battle.completed = true;
     state.running = false;
+    endBattleAudio();
     els.battleState.textContent = state.tournament ? `${getCurrentMatchLabel(state.tournament)} complete` : "Complete";
     if (winner) {
       els.winnerLabel.textContent = winner.title;
@@ -2216,6 +2257,7 @@ function spawnInkLord(battle) {
   battle.inklordEvent.unitId = unit.id;
   battle.inklordEvent.phase = "descending";
   faction.alive = true;
+  switchMusicTrack("inklord");
   showBossAnnouncement("INKLORD COMETH");
   setTicker("INKLORD COMETH");
   setHighlight("The heavens split as InkLord descends");
@@ -2289,10 +2331,134 @@ function updateUnitStatuses(unit, battle, dt) {
 function togglePauseBattle() {
   if (!state.battle || state.battle.completed || (!state.running && state.battle.time <= 0)) return;
   state.running = !state.running;
+  if (state.running) {
+    resumeBattleAudio();
+  } else {
+    pauseBattleAudio();
+  }
   els.battleState.textContent = state.running
     ? (state.tournament ? `${getCurrentMatchLabel(state.tournament)} in progress` : "Battling")
     : "Paused";
   renderSpeedControls();
+}
+
+function initializeBattleAudio() {
+  if (state.audio.initialized) return;
+  state.audio.initialized = true;
+  Object.entries(AUDIO_TRACKS).forEach(([key, config]) => {
+    const track = new Audio(config.src);
+    track.loop = Boolean(config.loop);
+    track.preload = "auto";
+    track.volume = 0;
+    state.audio.tracks[key] = {
+      key,
+      element: track,
+      baseVolume: config.volume,
+      targetVolume: 0,
+    };
+  });
+}
+
+function ensureTrackPlayback(trackKey) {
+  const track = state.audio.tracks[trackKey];
+  if (!track || state.audio.muted) return;
+  const playAttempt = track.element.play();
+  if (playAttempt?.catch) {
+    playAttempt.catch(() => {
+      state.audio.muted = true;
+    });
+  }
+}
+
+function playOneShotAudio(trackKey) {
+  const track = state.audio.tracks[trackKey];
+  if (!track || state.audio.muted) return;
+  track.element.pause();
+  track.element.currentTime = 0;
+  track.element.volume = track.baseVolume;
+  track.targetVolume = track.baseVolume;
+  const playAttempt = track.element.play();
+  if (playAttempt?.catch) {
+    playAttempt.catch(() => {
+      state.audio.muted = true;
+    });
+  }
+}
+
+function fadeTrackTo(trackKey, targetVolume, duration = AUDIO_DEFAULT_FADE_SECONDS) {
+  const track = state.audio.tracks[trackKey];
+  if (!track) return;
+  const safeTarget = Math.max(0, Math.min(track.baseVolume, targetVolume));
+  track.targetVolume = safeTarget;
+  state.audio.fades = state.audio.fades.filter((fade) => fade.trackKey !== trackKey);
+  if (safeTarget > 0) ensureTrackPlayback(trackKey);
+  if (duration <= 0) {
+    track.element.volume = safeTarget;
+    if (safeTarget === 0) {
+      track.element.pause();
+      track.element.currentTime = 0;
+    }
+    return;
+  }
+  state.audio.fades.push({
+    trackKey,
+    startVolume: track.element.volume,
+    targetVolume: safeTarget,
+    duration,
+    elapsed: 0,
+  });
+}
+
+function updateAudioFades(dt) {
+  if (!state.audio.fades.length) return;
+  state.audio.fades = state.audio.fades.filter((fade) => {
+    const track = state.audio.tracks[fade.trackKey];
+    if (!track) return false;
+    fade.elapsed += dt;
+    const progress = Math.min(1, fade.elapsed / fade.duration);
+    track.element.volume = lerp(fade.startVolume, fade.targetVolume, progress);
+    if (progress < 1) return true;
+    track.element.volume = fade.targetVolume;
+    if (fade.targetVolume === 0) {
+      track.element.pause();
+      track.element.currentTime = 0;
+    }
+    return false;
+  });
+}
+
+function switchMusicTrack(trackKey, duration = AUDIO_DEFAULT_FADE_SECONDS) {
+  if (state.audio.activeMusicKey === trackKey) return;
+  if (state.audio.activeMusicKey) fadeTrackTo(state.audio.activeMusicKey, 0, duration);
+  state.audio.activeMusicKey = trackKey;
+  fadeTrackTo(trackKey, state.audio.tracks[trackKey]?.baseVolume || 0, duration);
+}
+
+function startBattleAudio() {
+  initializeBattleAudio();
+  state.audio.muted = false;
+  fadeTrackTo("ambience", state.audio.tracks.ambience.baseVolume, 0.9);
+  switchMusicTrack("main", 0.9);
+  fadeTrackTo("inklord", 0, 0);
+}
+
+function pauseBattleAudio() {
+  Object.values(state.audio.tracks).forEach((track) => {
+    track.element.pause();
+  });
+}
+
+function resumeBattleAudio() {
+  if (state.audio.activeMusicKey) ensureTrackPlayback(state.audio.activeMusicKey);
+  const ambience = state.audio.tracks.ambience;
+  if (ambience?.targetVolume > 0) ensureTrackPlayback("ambience");
+}
+
+function endBattleAudio() {
+  fadeTrackTo("main", 0, AUDIO_END_FADE_SECONDS);
+  fadeTrackTo("inklord", 0, AUDIO_END_FADE_SECONDS);
+  fadeTrackTo("ambience", 0, AUDIO_END_FADE_SECONDS);
+  state.audio.activeMusicKey = null;
 }
 
 function updateFlameExposure(unit, dt) {
@@ -4260,6 +4426,7 @@ function showNextKnockoutAnnouncement(battle) {
     return;
   }
 
+  playOneShotAudio("deathBell");
   els.knockoutAnnouncement.innerHTML = buildKnockoutAnnouncementMarkup(next);
   els.knockoutAnnouncement.classList.remove("exiting");
   requestAnimationFrame(() => {
