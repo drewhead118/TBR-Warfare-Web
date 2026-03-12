@@ -29,6 +29,8 @@ const AUDIO_TRACKS = {
 const BANNER_FLOAT_OFFSET = 76;
 const MAX_BATTLE_FACTIONS = 10;
 const INKLORD_DEBUG_DELAY = 60;
+const HEALTH_CHART_SAMPLE_INTERVAL = 0.16;
+const HEALTH_CHART_VISIBLE_SECONDS = 30;
 const INKLORD_FACTION_ID = "neutral-inklord";
 const INKLORD_FACTION_TITLE = "InkLord";
 const INKLORD_COLOR = "#161418";
@@ -623,6 +625,8 @@ const els = {
   bracketSummary: document.getElementById("bracketSummary"),
   bracketTracker: document.getElementById("bracketTracker"),
   battleTicker: document.getElementById("battleTicker"),
+  battleHealthChart: document.getElementById("battleHealthChart"),
+  battleHealthChartCanvas: document.getElementById("battleHealthChartCanvas"),
   knockoutAnnouncement: document.getElementById("knockoutAnnouncement"),
   bossAnnouncement: document.getElementById("bossAnnouncement"),
   winnerCard: document.getElementById("winnerCard"),
@@ -640,6 +644,7 @@ const els = {
 };
 
 const ctx = els.canvas.getContext("2d");
+const chartCtx = els.battleHealthChartCanvas.getContext("2d");
 let lastFrame = performance.now();
 
 bootstrap();
@@ -1297,6 +1302,10 @@ function sizeCanvas() {
   els.canvas.width = Math.round(rect.width * dpr);
   els.canvas.height = Math.round(rect.height * dpr);
   ctx.setTransform(1, 0, 0, 1, 0, 0);
+  const chartRect = els.battleHealthChartCanvas.getBoundingClientRect();
+  els.battleHealthChartCanvas.width = Math.max(1, Math.round(chartRect.width * dpr));
+  els.battleHealthChartCanvas.height = Math.max(1, Math.round(chartRect.height * dpr));
+  chartCtx.setTransform(1, 0, 0, 1, 0, 0);
 }
 
 function resetBattle() {
@@ -1386,7 +1395,7 @@ function buildBattle(factionPool = state.factions, arena = createArenaVariant(0,
       image: getFactionImage(faction.coverUrl),
     };
   });
-  return {
+  const battle = {
     field,
     factions,
     graves: [],
@@ -1417,6 +1426,8 @@ function buildBattle(factionPool = state.factions, arena = createArenaVariant(0,
       landingY: field.centerY,
     },
   };
+  initializeBattleHealthTimeline(battle);
+  return battle;
 }
 
 function createInkLordFaction() {
@@ -2120,6 +2131,7 @@ function stepBattle(battle, dt) {
   updateStuckArrows(battle, dt);
   updateFactionExtinctions(battle);
   updateBattleHighlights(battle);
+  recordBattleHealthTimeline(battle);
 
   const contenders = getLivingResultFactions(battle);
   const neutralThreatActive = hasLivingNeutralThreat(battle);
@@ -4666,6 +4678,143 @@ function render() {
   drawSpells(viewport, state.battle);
   drawParticles(viewport, state.battle.particles);
   drawWeather(viewport, state.battle);
+  drawBattleHealthChart(state.battle);
+}
+
+function initializeBattleHealthTimeline(battle) {
+  battle.healthTimeline = [captureBattleHealthSnapshot(battle, 0)];
+  battle.nextHealthChartSampleAt = HEALTH_CHART_SAMPLE_INTERVAL;
+}
+
+function recordBattleHealthTimeline(battle) {
+  if (!battle.healthTimeline) initializeBattleHealthTimeline(battle);
+  if (battle.time + 1e-6 < (battle.nextHealthChartSampleAt || 0)) return;
+  battle.healthTimeline.push(captureBattleHealthSnapshot(battle, battle.time));
+  battle.nextHealthChartSampleAt = battle.time + HEALTH_CHART_SAMPLE_INTERVAL;
+}
+
+function captureBattleHealthSnapshot(battle, time) {
+  const entries = getResultFactions(battle).map((faction) => ({
+    id: faction.id,
+    color: faction.color,
+    health: faction.units.reduce((total, unit) => {
+      if (unit.dead || unit.fled) return total;
+      return total + Math.max(0, unit.health || 0);
+    }, 0),
+  }));
+  const total = entries.reduce((sum, entry) => sum + entry.health, 0);
+  let cumulative = 0;
+  return {
+    time,
+    total,
+    shares: entries.map((entry) => {
+      const share = total > 0 ? entry.health / total : 0;
+      const start = cumulative;
+      cumulative += share;
+      return {
+        id: entry.id,
+        color: entry.color,
+        start,
+        end: cumulative,
+      };
+    }),
+  };
+}
+
+function drawBattleHealthChart(battle) {
+  const width = els.battleHealthChartCanvas.width;
+  const height = els.battleHealthChartCanvas.height;
+  if (!width || !height) return;
+
+  chartCtx.clearRect(0, 0, width, height);
+  const dpr = window.devicePixelRatio || 1;
+  const w = width / dpr;
+  const h = height / dpr;
+  chartCtx.save();
+  chartCtx.scale(dpr, dpr);
+
+  const storedTimeline = battle.healthTimeline || [];
+  const resultFactions = getResultFactions(battle);
+  if (!storedTimeline.length || !resultFactions.length) {
+    chartCtx.restore();
+    return;
+  }
+  const timeline = storedTimeline[storedTimeline.length - 1]?.time < battle.time
+    ? [...storedTimeline, captureBattleHealthSnapshot(battle, battle.time)]
+    : storedTimeline;
+
+  const pad = { top: 6, right: 7, bottom: 8, left: 7 };
+  const plotX = pad.left;
+  const plotY = pad.top;
+  const plotW = Math.max(1, w - pad.left - pad.right);
+  const plotH = Math.max(1, h - pad.top - pad.bottom);
+  const duration = Math.max(
+    HEALTH_CHART_VISIBLE_SECONDS,
+    battle.time,
+    timeline[timeline.length - 1]?.time || 0,
+    HEALTH_CHART_SAMPLE_INTERVAL,
+  );
+  const factionIds = resultFactions.map((faction) => faction.id);
+  const findShare = (snapshot, factionId) => snapshot.shares.find((share) => share.id === factionId) || { start: 0, end: 0 };
+
+  chartCtx.fillStyle = "rgba(255, 249, 237, 0.05)";
+  chartCtx.fillRect(plotX, plotY, plotW, plotH);
+  chartCtx.strokeStyle = "rgba(255, 247, 232, 0.18)";
+  chartCtx.lineWidth = 1;
+  chartCtx.strokeRect(plotX + 0.5, plotY + 0.5, plotW - 1, plotH - 1);
+
+  [0.25, 0.5, 0.75].forEach((ratio) => {
+    const y = plotY + plotH * (1 - ratio);
+    chartCtx.strokeStyle = "rgba(255, 247, 232, 0.08)";
+    chartCtx.beginPath();
+    chartCtx.moveTo(plotX, y);
+    chartCtx.lineTo(plotX + plotW, y);
+    chartCtx.stroke();
+  });
+
+  factionIds.forEach((factionId, index) => {
+    const firstShare = findShare(timeline[0], factionId);
+    const faction = resultFactions[index];
+    chartCtx.beginPath();
+    chartCtx.moveTo(plotX, plotY + plotH * (1 - firstShare.end));
+    timeline.forEach((snapshot) => {
+      const share = findShare(snapshot, factionId);
+      const x = plotX + plotW * (snapshot.time / duration);
+      chartCtx.lineTo(x, plotY + plotH * (1 - share.end));
+    });
+    for (let snapshotIndex = timeline.length - 1; snapshotIndex >= 0; snapshotIndex -= 1) {
+      const snapshot = timeline[snapshotIndex];
+      const share = findShare(snapshot, factionId);
+      const x = plotX + plotW * (snapshot.time / duration);
+      chartCtx.lineTo(x, plotY + plotH * (1 - share.start));
+    }
+    chartCtx.closePath();
+    chartCtx.fillStyle = hexToRgba(faction.color, 0.68);
+    chartCtx.fill();
+
+    chartCtx.strokeStyle = hexToRgba(shadeColor(faction.color, 0.45), 0.78);
+    chartCtx.lineWidth = 1.2;
+    chartCtx.beginPath();
+    timeline.forEach((snapshot, snapshotIndex) => {
+      const share = findShare(snapshot, factionId);
+      const x = plotX + plotW * (snapshot.time / duration);
+      const y = plotY + plotH * (1 - share.end);
+      if (snapshotIndex === 0) {
+        chartCtx.moveTo(x, y);
+      } else {
+        chartCtx.lineTo(x, y);
+      }
+    });
+    chartCtx.stroke();
+  });
+
+  chartCtx.strokeStyle = "rgba(255, 255, 255, 0.14)";
+  chartCtx.lineWidth = 1;
+  chartCtx.beginPath();
+  chartCtx.moveTo(plotX + plotW, plotY);
+  chartCtx.lineTo(plotX + plotW, plotY + plotH);
+  chartCtx.stroke();
+  chartCtx.restore();
 }
 
 function drawField(viewport, battle) {
