@@ -350,7 +350,7 @@ const UNIT_DEFINITIONS = {
     draftable: false,
     keywords: ["spider", "swarm", "poison", "bite", "neutral"],
     description: "Spider swarms are spawned hazards rather than recruitable troops. They skitter quickly, bite lightly, and spread poison with every strike while turning on whatever living target is closest.",
-    stats: { maxHealth: 14, speed: 78, range: 13, biteDamage: 3.2, cooldown: 1.08, poisonStacks: 1, poisonDuration: 5.5, poisonDamage: 2.1 },
+    stats: { maxHealth: 14, speed: 78, range: 13, biteDamage: 3.2, cooldown: 1.08, poisonStacks: 1, poisonDuration: 5.5, poisonDamage: 2.1, lifetime: 20 },
     healthBarWidth: 12,
     iconPaths: getSpiderSwarmIconSvgPaths,
     leavesGrave: false,
@@ -360,6 +360,7 @@ const UNIT_DEFINITIONS = {
     selectTarget: selectSpiderSwarmTarget,
     getDesiredDestination: getSpiderSwarmDestination,
     performAttack: performSpiderSwarmAttack,
+    onDeath: handleSpiderSwarmDeath,
     render: drawSpiderSwarm,
     veteran: null,
   },
@@ -1762,6 +1763,8 @@ function makeUnit(factionId, type, x, y) {
     wanderTargetX: x,
     wanderTargetY: y,
     wanderTimer: 0,
+    lifeTimer: typeof stats.lifetime === "number" ? stats.lifetime : null,
+    expiredByTimer: false,
   };
 }
 
@@ -2060,6 +2063,7 @@ function updateUnit(unit, faction, battle, dt) {
   ));
   const enemies = getTargetableEnemies(battle, faction.id, unit);
   unitDef.beforeStep?.({ unit, faction, battle, allies, enemies, graves, unitDef, dt });
+  if (unit.dead || unit.fled) return;
   if (!enemies.length && !graves.length && !unitDef.canActWithoutEnemies) return;
   const target = selectUnitTarget(unit, unitDef, enemies, allies, graves, battle);
   const distance = target ? Math.hypot(target.x - unit.x, target.y - unit.y) : 9999;
@@ -2573,9 +2577,11 @@ function getArachnomistAttackRange(unitDef, unit) {
   return stats.graveRange;
 }
 
-function getArachnomistDestination({ unit, target, destination, unitDef }) {
+function getArachnomistDestination({ unit, target, destination, unitDef, battle }) {
   if (!target || unit.currentTargetKind !== "grave") return destination;
   const stats = getUnitStats(unit, unitDef);
+  const faction = battle ? findFaction(battle, unit.factionId) : null;
+  const anchor = faction?.bannerPos || unit;
   const dx = target.x - unit.x;
   const dy = target.y - unit.y;
   const distance = Math.max(0.001, Math.hypot(dx, dy));
@@ -2587,7 +2593,15 @@ function getArachnomistDestination({ unit, target, destination, unitDef }) {
       y: unit.y - (dy / distance) * retreat,
     };
   }
-  return { x: unit.x, y: unit.y };
+  const anchorDx = anchor.x - target.x;
+  const anchorDy = anchor.y - target.y;
+  const anchorDistance = Math.hypot(anchorDx, anchorDy);
+  if (anchorDistance <= 0.001) return { x: unit.x, y: unit.y };
+  const desiredRadius = clamp(anchorDistance, stats.graveDeadZone + 6, stats.graveRange - 6);
+  return {
+    x: target.x + (anchorDx / anchorDistance) * desiredRadius,
+    y: target.y + (anchorDy / anchorDistance) * desiredRadius,
+  };
 }
 
 function createSpiderSwarm(arachnomist, grave, battle) {
@@ -2630,6 +2644,14 @@ function performArachnomistAttack({ unit, target, battle, unitDef }) {
 
 function updateSpiderSwarmState({ unit, battle, dt, unitDef }) {
   const stats = getUnitStats(unit, unitDef);
+  if (typeof unit.lifeTimer === "number") {
+    unit.lifeTimer -= dt;
+    if (unit.lifeTimer <= 0) {
+      unit.expiredByTimer = true;
+      applyDamage(unit, unit.health + 999, battle, null, { noAttackerCredit: true, skipDefaultDeathBurst: true });
+      return;
+    }
+  }
   unit.wanderTimer = Math.max(0, (unit.wanderTimer || 0) - dt);
   const dx = (unit.wanderTargetX ?? unit.x) - unit.x;
   const dy = (unit.wanderTargetY ?? unit.y) - unit.y;
@@ -3365,7 +3387,7 @@ function applyRawDamage(unit, amount, battle, attacker = null, options = {}) {
       attacker.killStreak = (attacker.killStreak || 0) + 1;
       recordUnitContribution(attacker, "kills", 1, battle);
     }
-    spawnBurst(battle, unit.x, unit.y, "#f3c58a", 16);
+    if (!options.skipDefaultDeathBurst) spawnBurst(battle, unit.x, unit.y, "#f3c58a", 16);
   }
   return actualDamage;
 }
@@ -3375,6 +3397,14 @@ function handleBomberDeath({ unit, battle, attacker, unitDef }) {
   explodeAt(battle, unit.x, unit.y, stats.deathSplash, stats.damage * 1.2, unit, "#ff8b4a", 44);
   setHighlight(`${findFaction(battle, unit.factionId).title} loses a bomber in a huge blast`);
 }
+
+function handleSpiderSwarmDeath({ unit, battle }) {
+  if (!unit.expiredByTimer) return;
+  spawnBurst(battle, unit.x, unit.y + 1, "#7fb04f", 6);
+  battle.particles.push({ kind: "blast-glow", x: unit.x, y: unit.y + 2, vx: 0, vy: 0, life: 0.18, age: 0, color: "#8fb85f", size: 9 });
+  battle.particles.push({ kind: "ring", x: unit.x, y: unit.y + 2, vx: 0, vy: 0, life: 0.22, age: 0, color: "rgba(93, 56, 34, 0.78)", size: 8, lineWidth: 2 });
+}
+
 function spawnBurst(battle, x, y, color, count) {
   for (let i = 0; i < count; i += 1) {
     battle.particles.push({ x, y, vx: (Math.random() - 0.5) * 90, vy: (Math.random() - 0.5) * 90, life: 0.35 + Math.random() * 0.5, age: 0, color, size: 2 + Math.random() * 5 });
@@ -5232,30 +5262,56 @@ function drawArachnomist(main, dark, light, scale, unit) {
 
 function drawSpiderSwarm(main, dark, light, scale, unit) {
   const bodyScale = scale / 2.1;
-  ctx.fillStyle = dark;
+  ctx.strokeStyle = dark;
+  ctx.lineWidth = 1.35 * bodyScale;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
   [-1, 1].forEach((side) => {
-    [-6, -1, 4, 9].forEach((yOffset, index) => {
+    [
+      { startX: 2.8, startY: -5.4, midX: 7.2, midY: -8.8, endX: 11.3, endY: -10.6 },
+      { startX: 3.4, startY: -2.4, midX: 8.8, midY: -4.9, endX: 12.8, endY: -5.2 },
+      { startX: 3.7, startY: 1.4, midX: 9.2, midY: 2.9, endX: 12.4, endY: 5.8 },
+      { startX: 3.2, startY: 4.7, midX: 7.8, midY: 8.5, endX: 10.6, endY: 12.4 },
+    ].forEach((leg) => {
       ctx.beginPath();
-      ctx.moveTo(side * 3 * bodyScale, yOffset * bodyScale);
-      ctx.lineTo(side * (9 + index) * bodyScale, (yOffset - 3) * bodyScale);
-      ctx.strokeStyle = dark;
-      ctx.lineWidth = 1.2 * bodyScale;
+      ctx.moveTo(side * leg.startX * bodyScale, leg.startY * bodyScale);
+      ctx.lineTo(side * leg.midX * bodyScale, leg.midY * bodyScale);
+      ctx.lineTo(side * leg.endX * bodyScale, leg.endY * bodyScale);
       ctx.stroke();
     });
   });
+
+  ctx.fillStyle = shadeColor(main, -0.22);
+  ctx.beginPath();
+  ctx.ellipse(0, 3.6 * bodyScale, 7.2 * bodyScale, 5.6 * bodyScale, 0, 0, Math.PI * 2);
+  ctx.fill();
+
   ctx.fillStyle = main;
   ctx.beginPath();
-  ctx.ellipse(0, 3 * bodyScale, 7 * bodyScale, 5 * bodyScale, 0, 0, Math.PI * 2);
+  ctx.ellipse(0, -1.4 * bodyScale, 4.9 * bodyScale, 3.8 * bodyScale, 0, 0, Math.PI * 2);
   ctx.fill();
+
+  ctx.fillStyle = shadeColor(main, 0.12);
   ctx.beginPath();
-  ctx.arc(-3.5 * bodyScale, -1.5 * bodyScale, 3.2 * bodyScale, 0, Math.PI * 2);
-  ctx.arc(3.8 * bodyScale, -1.3 * bodyScale, 3.1 * bodyScale, 0, Math.PI * 2);
+  ctx.ellipse(0, 5.1 * bodyScale, 3.5 * bodyScale, 2.4 * bodyScale, 0, 0, Math.PI * 2);
   ctx.fill();
+
+  ctx.strokeStyle = dark;
+  ctx.lineWidth = 1.05 * bodyScale;
+  ctx.beginPath();
+  ctx.moveTo(-1.8 * bodyScale, -3.7 * bodyScale);
+  ctx.lineTo(-3.7 * bodyScale, -6.1 * bodyScale);
+  ctx.moveTo(1.8 * bodyScale, -3.7 * bodyScale);
+  ctx.lineTo(3.7 * bodyScale, -6.1 * bodyScale);
+  ctx.stroke();
+
   ctx.fillStyle = light;
-  ctx.beginPath();
-  ctx.arc(-2.8 * bodyScale, -2.2 * bodyScale, 1 * bodyScale, 0, Math.PI * 2);
-  ctx.arc(4.4 * bodyScale, -2 * bodyScale, 1 * bodyScale, 0, Math.PI * 2);
-  ctx.fill();
+  [-2.2, -0.7, 0.7, 2.2].forEach((xOffset) => {
+    ctx.beginPath();
+    ctx.arc(xOffset * bodyScale, -2.1 * bodyScale, 0.72 * bodyScale, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
   if (getStatusStacks(unit, "poison") > 0) {
     ctx.fillStyle = "rgba(131, 232, 117, 0.35)";
     ctx.beginPath();
