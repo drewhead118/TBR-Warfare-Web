@@ -4,7 +4,7 @@ const FIELD = { width: 1180, height: 760 };
 const SPEED_OPTIONS = [0.35, 0.65, 1, 1.4, 1.85];
 const BANNER_FLOAT_OFFSET = 76;
 const MAX_BATTLE_FACTIONS = 10;
-const DEFAULT_COMPOSITION = { archer: 1, mage: 1, knight: 1, medic: 0, bomber: 0, assassin: 0, mountainman: 0, catapult: 0, poisoner: 0, firebreather: 0, necromancer: 0, graverobber: 0, arachnomist: 0 };
+const DEFAULT_COMPOSITION = { archer: 1, mage: 1, knight: 1, bodyguard: 0, medic: 0, bomber: 0, assassin: 0, mountainman: 0, catapult: 0, poisoner: 0, firebreather: 0, necromancer: 0, graverobber: 0, arachnomist: 0 };
 const UNIT_SPRITE_CANDIDATE_PATHS = [
   (unitId) => `assets/unit-sprites/${unitId}.png`,
   (unitId) => `assets/units/${unitId}.png`,
@@ -29,6 +29,7 @@ const UNIT_SPRITE_LAYOUTS = {
   archer: { height: 38, anchorX: 0.5, anchorY: 0.88 },
   mage: { height: 39, anchorX: 0.5, anchorY: 0.88 },
   knight: { height: 42, anchorX: 0.5, anchorY: 0.88 },
+  bodyguard: { height: 43, anchorX: 0.5, anchorY: 0.88 },
   medic: { height: 38, anchorX: 0.5, anchorY: 0.88 },
   bomber: { height: 40, anchorX: 0.5, anchorY: 0.88 },
   assassin: { height: 38, anchorX: 0.5, anchorY: 0.88 },
@@ -107,6 +108,17 @@ const STATUS_DEFINITIONS = {
     badgeColor: "#7a8f5e",
     accentColor: "#dce8c5",
   },
+  shielded: {
+    kind: "shielded",
+    name: "Shielded",
+    negative: false,
+    stackable: false,
+    defaultDuration: 0.3,
+    tickInterval: 1,
+    dps: 0,
+    badgeColor: "#78bfd6",
+    accentColor: "#def7ff",
+  },
 };
 const DEFAULT_PROP_WEIGHTS = {
   stones: 5,
@@ -184,6 +196,21 @@ const UNIT_DEFINITIONS = {
     performAttack: performKnightAttack,
     render: drawKnight,
     veteran: { metric: "kills", threshold: 4, label: "Score 4 kills" },
+  },
+  bodyguard: {
+    id: "bodyguard",
+    name: "Bodyguard",
+    keywords: ["tank", "shield", "guard", "protector", "melee", "aura"],
+    description: "Bodyguards are slow defensive anchors who hold the army together. They project a shielding aura around themselves, drift toward the banner-centroid when idle, and only peel off to brawl with enemies that stray into their aggro circle.",
+    stats: { maxHealth: 188, speed: 24, range: 24, damage: 24, cooldown: 1.28, auraRadius: 96, aggroRadius: 132, shieldReduction: 0.25 },
+    healthBarWidth: 28,
+    iconPaths: getBodyguardIconSvgPaths,
+    getMoveSpeed: (unit, unitDef) => getUnitStats(unit, unitDef).speed,
+    selectTarget: selectBodyguardTarget,
+    getDesiredDestination: getBodyguardDestination,
+    performAttack: performBodyguardAttack,
+    render: drawBodyguard,
+    veteran: { metric: "kills", threshold: 3, label: "Score 3 kills" },
   },
   medic: {
     id: "medic",
@@ -700,6 +727,16 @@ function getKnightIconSvgPaths() {
   `;
 }
 
+function getBodyguardIconSvgPaths() {
+  return `
+    <path fill="rgba(0,0,0,0.22)" d="M0 -2 L12 4 L10 12 L-10 12 L-12 4 Z"></path>
+    <path fill="currentColor" d="M0 -12 L9 -4 L8 12 L-8 12 L-9 -4 Z"></path>
+    <circle cx="0" cy="-14" r="5.2" fill="rgba(255,255,255,0.6)"></circle>
+    <path d="M0 -2 L0 8 M-4 2 L4 2" fill="none" stroke="rgba(226,247,255,0.9)" stroke-width="1.8" stroke-linecap="round"></path>
+    <path d="M10 -1 L16 -14" fill="none" stroke="rgba(72,48,25,0.94)" stroke-width="2.2" stroke-linecap="round"></path>
+  `;
+}
+
 function getMountainManIconSvgPaths() {
   return `
     <path fill="currentColor" d="M0 -16 L12 -4 L9 12 L-9 12 L-12 -4 Z"></path>
@@ -858,6 +895,7 @@ function parseRowComposition(row) {
     archer: row.archer ?? row.archers,
     mage: row.mage ?? row.mages,
     knight: row.knight ?? row.knights,
+    bodyguard: row.bodyguard ?? row.bodyguards,
     medic: row.medic ?? row.medics,
     bomber: row.bomber ?? row.bombers,
     assassin: row.assassin ?? row.assassins,
@@ -1563,7 +1601,7 @@ function scaleVeteranStat(stat, value) {
   if (typeof value !== "number") return value;
   if (stat === "maxHealth") return value * VETERAN_BONUSES.maxHealth;
   if (["damage", "heal", "backstabDamage", "slashDamage", "impulseDamage", "holdDamage", "poisonDamage", "igniteDamage", "biteDamage", "biteHeal"].includes(stat)) return value * VETERAN_BONUSES.power;
-  if (["range", "abductRange", "splash", "deathSplash", "impulseRange", "impulseDistance", "holdRange", "resetRadius", "contagionRadius", "raiseRange", "graveRange", "graveDeadZone"].includes(stat)) return value * VETERAN_BONUSES.radius;
+  if (["range", "abductRange", "splash", "deathSplash", "impulseRange", "impulseDistance", "holdRange", "resetRadius", "contagionRadius", "raiseRange", "graveRange", "graveDeadZone", "auraRadius", "aggroRadius"].includes(stat)) return value * VETERAN_BONUSES.radius;
   if (stat === "speed") return value * VETERAN_BONUSES.speed;
   if (stat === "cooldown") return value * VETERAN_BONUSES.cooldown;
   if (["holdDuration", "poisonDuration", "igniteDuration", "breathDuration"].includes(stat)) return value * VETERAN_BONUSES.duration;
@@ -1574,7 +1612,7 @@ function scaleZombieStat(stat, value) {
   if (typeof value !== "number") return value;
   if (stat === "maxHealth") return value * ZOMBIE_PENALTIES.maxHealth;
   if (["damage", "heal", "backstabDamage", "slashDamage", "impulseDamage", "holdDamage", "poisonDamage", "igniteDamage", "biteDamage", "biteHeal"].includes(stat)) return value * ZOMBIE_PENALTIES.power;
-  if (["range", "abductRange", "splash", "deathSplash", "impulseRange", "impulseDistance", "holdRange", "resetRadius", "contagionRadius", "raiseRange", "graveRange", "graveDeadZone"].includes(stat)) return value * ZOMBIE_PENALTIES.radius;
+  if (["range", "abductRange", "splash", "deathSplash", "impulseRange", "impulseDistance", "holdRange", "resetRadius", "contagionRadius", "raiseRange", "graveRange", "graveDeadZone", "auraRadius", "aggroRadius"].includes(stat)) return value * ZOMBIE_PENALTIES.radius;
   if (stat === "speed") return value * ZOMBIE_PENALTIES.speed;
   if (stat === "cooldown") return value * ZOMBIE_PENALTIES.cooldown;
   if (["holdDuration", "poisonDuration", "igniteDuration", "breathDuration"].includes(stat)) return value * ZOMBIE_PENALTIES.duration;
@@ -1744,6 +1782,7 @@ function makeUnit(factionId, type, x, y) {
     stride: 0,
     bob: 0,
     focusTargetId: null,
+    guardTargetId: null,
     invisible: type === "assassin",
     behaviorState: type === "assassin" ? "stalking" : "default",
     slashCooldown: 0,
@@ -1910,12 +1949,14 @@ function loop(timestamp) {
 
 function stepBattle(battle, dt) {
   battle.time += dt;
+  updateBodyguardAuras(battle);
   updateStatuses(battle, dt);
   battle.factions.forEach((faction) => {
     updateFactionBanner(faction);
     faction.alive = faction.units.some((unit) => !unit.dead && !unit.fled);
     faction.units.forEach((unit) => updateUnit(unit, faction, battle, dt));
   });
+  updateBodyguardAuras(battle);
   updateProjectiles(battle, dt);
   updateParticles(battle, dt);
   updateSpells(battle, dt);
@@ -1972,6 +2013,22 @@ function updateStatuses(battle, dt) {
   });
 }
 
+function updateBodyguardAuras(battle) {
+  battle.factions.forEach((faction) => {
+    const living = faction.units.filter((unit) => !unit.dead && !unit.fled);
+    const bodyguards = living.filter((unit) => unit.type === "bodyguard");
+    if (!bodyguards.length) return;
+    bodyguards.forEach((bodyguard) => {
+      const stats = getUnitStats(bodyguard);
+      living.forEach((ally) => {
+        if (Math.hypot(ally.x - bodyguard.x, ally.y - bodyguard.y) <= stats.auraRadius) {
+          applyStatus(ally, "shielded", 1, 0.3, bodyguard, battle);
+        }
+      });
+    });
+  });
+}
+
 function updateUnitStatuses(unit, battle, dt) {
   updateFlameExposure(unit, dt);
   if (unit.dead || unit.fled || !unit.statuses?.length) return;
@@ -1984,7 +2041,7 @@ function updateUnitStatuses(unit, battle, dt) {
       status.tickTimer -= statusDef.tickInterval;
       const damagePerTick = (status.dps ?? statusDef.dps) * status.stacks * statusDef.tickInterval;
       const source = findUnitById(battle, status.sourceId);
-      applyDamage(unit, damagePerTick, battle, source);
+      applyDamage(unit, damagePerTick, battle, source, { damageKind: "status" });
       if (unit.dead) return false;
     }
     if (status.kind === "ignite") spreadIgniteStatus(unit, status, battle, dt);
@@ -2191,6 +2248,39 @@ function selectMedicTarget({ unit, allies }) {
   }
   unit.focusTargetId = null;
   return allies.find((ally) => ally.id !== unit.id && !ally.liftedBySpellId) || null;
+}
+
+function selectBodyguardTarget({ unit, enemies, battle, unitDef }) {
+  const locked = unit.guardTargetId ? findUnitById(battle, unit.guardTargetId) : null;
+  if (locked && !locked.dead && !locked.fled && canUnitBeTargeted(locked, unit)) {
+    unit.currentTargetKind = "enemy";
+    unit.currentGraveId = null;
+    return locked;
+  }
+  unit.guardTargetId = null;
+  const stats = getUnitStats(unit, unitDef);
+  let best = null;
+  let bestDistance = Infinity;
+  enemies.forEach((enemy) => {
+    const distance = Math.hypot(enemy.x - unit.x, enemy.y - unit.y);
+    if (distance > stats.aggroRadius || distance >= bestDistance) return;
+    best = enemy;
+    bestDistance = distance;
+  });
+  unit.guardTargetId = best?.id || null;
+  unit.currentTargetKind = best ? "enemy" : null;
+  unit.currentGraveId = null;
+  return best;
+}
+
+function getBodyguardDestination({ unit, target, destination, battle, unitDef }) {
+  if (target && unit.currentTargetKind === "enemy") return destination;
+  const anchor = findFaction(battle, unit.factionId)?.bannerPos;
+  if (!anchor) return { x: unit.x, y: unit.y };
+  const distance = Math.hypot(anchor.x - unit.x, anchor.y - unit.y);
+  if (distance <= 14) return { x: unit.x, y: unit.y };
+  unit.guardTargetId = null;
+  return { x: anchor.x, y: anchor.y };
 }
 
 function updateAssassinState({ unit, faction, battle, enemies }) {
@@ -3009,6 +3099,14 @@ function performBomberAttack({ unit, target, battle, unitDef }) {
   battle.projectiles.push({ kind: "bomb", sourceId: unit.id, progress: 0, duration: clamp(0.48 + throwDistance / 250 + Math.random() * 0.12, 0.5, 1.15), startX: unit.x, startY: unit.y - 16, endX, endY, targetId: target.id, damage: stats.damage, radius: stats.splash, fuse: stats.fuse, landed: false, timer: 0 });
 }
 
+function performBodyguardAttack({ unit, target, battle, unitDef }) {
+  const stats = getUnitStats(unit, unitDef);
+  if (!target || Math.hypot(target.x - unit.x, target.y - unit.y) > stats.range + 4) return;
+  applyDamage(target, stats.damage * (0.9 + Math.random() * 0.3), battle, unit);
+  battle.swipes.push({ x: target.x, y: target.y - 10, angle: unit.facing, life: 0.2, maxLife: 0.2, color: "rgba(188, 233, 247, 0.82)" });
+  spawnBurst(battle, target.x, target.y - 2, "#cdefff", 8);
+}
+
 function performKnightAttack({ unit, target, battle, unitDef }) {
   const stats = getUnitStats(unit, unitDef);
   if (Math.hypot(target.x - unit.x, target.y - unit.y) > stats.range + 4) return;
@@ -3369,9 +3467,17 @@ function applyDamage(unit, amount, battle, attacker = null, options = {}) {
 
 function applyRawDamage(unit, amount, battle, attacker = null, options = {}) {
   if (!unit || unit.dead || amount <= 0) return 0;
+  const damageKind = options.damageKind || "direct";
+  let resolvedAmount = amount;
+  const shieldStatus = getUnitStatus(unit, "shielded");
+  if (damageKind !== "healing" && damageKind !== "status" && shieldStatus) {
+    const shieldSource = shieldStatus.sourceId ? findUnitById(battle, shieldStatus.sourceId) : null;
+    const reduction = getUnitStats(shieldSource || "bodyguard").shieldReduction ?? 0.25;
+    resolvedAmount *= Math.max(0, 1 - reduction);
+  }
   const previousHealth = unit.health;
-  unit.health -= amount;
-  const actualDamage = Math.max(0, Math.min(previousHealth, amount));
+  unit.health -= resolvedAmount;
+  const actualDamage = Math.max(0, Math.min(previousHealth, resolvedAmount));
   if (!options.noAttackerCredit && attacker && attacker.factionId !== unit.factionId && actualDamage > 0) {
     recordUnitContribution(attacker, "damage", actualDamage, battle);
   }
@@ -3792,6 +3898,7 @@ function render() {
   drawStuckArrows(viewport, state.battle.stuckArrows);
   drawBanners(viewport, state.battle.factions);
   drawProjectiles(viewport, state.battle.projectiles);
+  drawBodyguardAuras(viewport, state.battle.factions);
   drawUnits(viewport, state.battle.factions);
   drawNecromancerLinks(viewport, state.battle);
   drawSwipes(viewport, state.battle.swipes);
@@ -4489,6 +4596,33 @@ function drawUnits(viewport, factions) {
   });
 }
 
+function drawBodyguardAuras(viewport, factions) {
+  const battleTime = state.battle?.time || 0;
+  const pulse = Math.sin(2 * battleTime) ** 6;
+  factions.forEach((faction) => {
+    faction.units.forEach((unit) => {
+      if (unit.dead || unit.fled || unit.type !== "bodyguard") return;
+      const point = worldToScreen(unit.x, unit.y, viewport);
+      const stats = getUnitStats(unit);
+      const radius = stats.auraRadius * point.scale;
+      ctx.save();
+      ctx.lineCap = "round";
+      ctx.setLineDash([10 * point.scale, 7 * point.scale]);
+      ctx.strokeStyle = hexToRgba(faction.color, pulse * 0.42);
+      ctx.lineWidth = Math.max(1.4, (pulse * 0.9) * point.scale);
+      ctx.beginPath();
+      ctx.arc(point.x, point.y, radius, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = hexToRgba(shadeColor(faction.color, 0.18), pulse * 0.09);
+      ctx.beginPath();
+      ctx.arc(point.x, point.y, radius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    });
+  });
+}
+
 function drawGraves(viewport, graves) {
   graves
     .slice()
@@ -4618,6 +4752,14 @@ function drawUnitStatusOverlay(unit, scale) {
     ctx.ellipse(0, 1 * scale / 2.1, 12 * scale / 2.1, 17 * scale / 2.1, 0, 0, Math.PI * 2);
     ctx.fill();
   }
+  if (getStatusStacks(unit, "shielded") > 0) {
+    const shieldPulse = 0.12 + Math.max(0, Math.sin(battleTime * 6 + unit.statusVisualSeed * 0.6)) * 0.16;
+    ctx.strokeStyle = `rgba(142, 227, 255, ${shieldPulse + 0.12})`;
+    ctx.lineWidth = 1.4 * scale / 2.1;
+    ctx.beginPath();
+    ctx.arc(0, -3 * scale / 2.1, 14 * scale / 2.1, 0.18, Math.PI - 0.18);
+    ctx.stroke();
+  }
 }
 
 function getUnitStatusBadges(unit) {
@@ -4654,6 +4796,7 @@ function drawStatusBadge(badge, x, y, scale) {
     if (badge.kind === "poison") drawPoisonBadgeIcon(scale, badge.accentColor);
     if (badge.kind === "ignite") drawIgniteBadgeIcon(scale, badge.accentColor);
     if (badge.kind === "zombie") drawZombieBadgeIcon(scale, badge.accentColor);
+    if (badge.kind === "shielded") drawShieldedBadgeIcon(scale, badge.accentColor);
   }
   if (badge.stacks > 1) {
     const pipRadius = 4.4 * scale / 2.1;
@@ -4831,6 +4974,27 @@ function drawMage(main, dark, light, scale, unit) {
   ctx.fill();
 }
 
+function drawShieldedBadgeIcon(scale, color) {
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(0, -5.5 * scale / 2.1);
+  ctx.lineTo(4.9 * scale / 2.1, -3 * scale / 2.1);
+  ctx.lineTo(4 * scale / 2.1, 3.2 * scale / 2.1);
+  ctx.lineTo(0, 6.1 * scale / 2.1);
+  ctx.lineTo(-4 * scale / 2.1, 3.2 * scale / 2.1);
+  ctx.lineTo(-4.9 * scale / 2.1, -3 * scale / 2.1);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = "rgba(27, 63, 81, 0.82)";
+  ctx.lineWidth = 0.9 * scale / 2.1;
+  ctx.beginPath();
+  ctx.moveTo(0, -3 * scale / 2.1);
+  ctx.lineTo(0, 3.9 * scale / 2.1);
+  ctx.moveTo(-2.3 * scale / 2.1, 0.4 * scale / 2.1);
+  ctx.lineTo(2.3 * scale / 2.1, 0.4 * scale / 2.1);
+  ctx.stroke();
+}
+
 function drawMedic(main, dark, light, scale, unit) {
   drawStepLegs(dark, scale, unit, 5.8, 9.5);
   ctx.fillStyle = main;
@@ -4949,6 +5113,47 @@ function drawKnight(main, dark, light, scale, unit) {
   ctx.beginPath();
   ctx.moveTo(9 * scale / 2.1, -3 * scale / 2.1);
   ctx.lineTo(16 * scale / 2.1, -17 * scale / 2.1);
+  ctx.stroke();
+}
+
+function drawBodyguard(main, dark, light, scale, unit) {
+  drawStepLegs(dark, scale, unit, 7.1, 11.6);
+  ctx.fillStyle = shadeColor(main, -0.16);
+  ctx.beginPath();
+  ctx.moveTo(0, -14 * scale / 2.1);
+  ctx.lineTo(9 * scale / 2.1, -5 * scale / 2.1);
+  ctx.lineTo(8 * scale / 2.1, 12 * scale / 2.1);
+  ctx.lineTo(-8 * scale / 2.1, 12 * scale / 2.1);
+  ctx.lineTo(-9 * scale / 2.1, -5 * scale / 2.1);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = light;
+  ctx.beginPath();
+  ctx.arc(0, -14 * scale / 2.1, 5.2 * scale / 2.1, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = shadeColor(main, 0.08);
+  ctx.beginPath();
+  ctx.moveTo(0, -3 * scale / 2.1);
+  ctx.lineTo(8 * scale / 2.1, 1 * scale / 2.1);
+  ctx.lineTo(6.5 * scale / 2.1, 13 * scale / 2.1);
+  ctx.lineTo(0, 16 * scale / 2.1);
+  ctx.lineTo(-6.5 * scale / 2.1, 13 * scale / 2.1);
+  ctx.lineTo(-8 * scale / 2.1, 1 * scale / 2.1);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = "#e1f4ff";
+  ctx.lineWidth = 1.5 * scale / 2.1;
+  ctx.beginPath();
+  ctx.moveTo(0, -1 * scale / 2.1);
+  ctx.lineTo(0, 10 * scale / 2.1);
+  ctx.moveTo(-3.2 * scale / 2.1, 4.3 * scale / 2.1);
+  ctx.lineTo(3.2 * scale / 2.1, 4.3 * scale / 2.1);
+  ctx.stroke();
+  ctx.strokeStyle = dark;
+  ctx.lineWidth = 2.2 * scale / 2.1;
+  ctx.beginPath();
+  ctx.moveTo(10 * scale / 2.1, -2 * scale / 2.1);
+  ctx.lineTo(16 * scale / 2.1, -16 * scale / 2.1);
   ctx.stroke();
 }
 
