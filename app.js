@@ -4,6 +4,18 @@ const FIELD = { width: 1180, height: 760 };
 const SPEED_OPTIONS = [0.35, 0.65, 1, 1.4, 1.85];
 const BANNER_FLOAT_OFFSET = 76;
 const MAX_BATTLE_FACTIONS = 10;
+const INKLORD_DEBUG_DELAY = 5;
+const INKLORD_FACTION_ID = "neutral-inklord";
+const INKLORD_FACTION_TITLE = "InkLord";
+const INKLORD_COLOR = "#161418";
+const INKLORD_TAUNTS = [
+  "Perish, inklings!",
+  "I give you a 0/10 on my INDIE scale!",
+  "Your ratings plummet with you!",
+  "Back to the slush pile with you!",
+  "You were not greenlit.",
+  "Be gone from my ink-stained realm!",
+];
 const DEFAULT_COMPOSITION = { archer: 1, mage: 1, knight: 1, bodyguard: 0, medic: 0, bomber: 0, assassin: 0, mountainman: 0, catapult: 0, poisoner: 0, firebreather: 0, necromancer: 0, graverobber: 0, arachnomist: 0 };
 const UNIT_SPRITE_CANDIDATE_PATHS = [
   (unitId) => `assets/unit-sprites/${unitId}.png`,
@@ -391,6 +403,44 @@ const UNIT_DEFINITIONS = {
     render: drawSpiderSwarm,
     veteran: null,
   },
+  inklord: {
+    id: "inklord",
+    name: "InkLord",
+    keywords: ["boss", "neutral", "sword", "void", "cataclysm"],
+    description: "InkLord is a neutral endgame executioner. He falls into stalled battles, sweeps whole packs away with impossible strength, and exists only to end the field in terror.",
+    stats: {
+      maxHealth: 7200,
+      speed: 58,
+      range: 42,
+      cooldown: 2.25,
+      sweepRange: 136,
+      sweepArc: 1.45,
+      sweepDamage: 120,
+      throwDamage: 82,
+      throwDistance: 178,
+      landingRadius: 68,
+      landingDamage: 78,
+      novaRange: 214,
+      novaDamage: 44,
+      skyfallRange: 270,
+      skyfallRadius: 126,
+      skyfallDamage: 172,
+      crashDamage: 128,
+    },
+    healthBarWidth: 46,
+    iconPaths: getInkLordIconSvgPaths,
+    draftable: false,
+    hostileToAll: true,
+    canActWithoutEnemies: true,
+    isTargetable: ({ unit }) => !unit.spawnInvulnerable,
+    beforeStep: updateInkLordPresence,
+    selectTarget: selectInkLordTarget,
+    getAttackRange: getInkLordAttackRange,
+    getMoveSpeed: (unit, unitDef) => (unit.activeSpellId ? 0 : getUnitStats(unit, unitDef).speed),
+    performAttack: performInkLordAttack,
+    render: drawInkLord,
+    veteran: null,
+  },
 };
 const UNIT_LIBRARY = Object.values(UNIT_DEFINITIONS)
   .filter((unit) => unit.draftable !== false)
@@ -534,6 +584,7 @@ const els = {
   bracketTracker: document.getElementById("bracketTracker"),
   battleTicker: document.getElementById("battleTicker"),
   knockoutAnnouncement: document.getElementById("knockoutAnnouncement"),
+  bossAnnouncement: document.getElementById("bossAnnouncement"),
   winnerCard: document.getElementById("winnerCard"),
   winnerModal: document.getElementById("winnerModal"),
   closeWinnerModalBtn: document.getElementById("closeWinnerModalBtn"),
@@ -815,6 +866,15 @@ function getSpiderSwarmIconSvgPaths() {
     <circle cx="-4" cy="-2" r="3.2" fill="currentColor"></circle>
     <circle cx="4.5" cy="-1.5" r="3.1" fill="currentColor"></circle>
     <path d="M-6 -1 L-15 -6 M6 -1 L15 -6 M-7 4 L-16 8 M7 4 L16 8" fill="none" stroke="rgba(43,26,16,0.92)" stroke-width="1.9" stroke-linecap="round"></path>
+  `;
+}
+
+function getInkLordIconSvgPaths() {
+  return `
+    <path fill="currentColor" d="M0 -18 L13 -7 L11 14 L-11 14 L-13 -7 Z"></path>
+    <path fill="rgba(255,255,255,0.14)" d="M0 -24 L5 -17 L0 -10 L-5 -17 Z"></path>
+    <path d="M11 -4 L19 -20" fill="none" stroke="rgba(236,226,255,0.92)" stroke-width="2.4" stroke-linecap="round"></path>
+    <path d="M-6 4 L6 4" fill="none" stroke="rgba(236,226,255,0.76)" stroke-width="2" stroke-linecap="round"></path>
   `;
 }
 
@@ -1203,6 +1263,7 @@ function resetBattle() {
   state.tournament = shouldUseTournament(state.factions) ? createTournament(state.factions) : null;
   state.battle = buildActiveBattle();
   clearKnockoutAnnouncement();
+  clearBossAnnouncement();
   resetCamera();
   els.battleState.textContent = state.tournament ? getCurrentMatchLabel(state.tournament) : "Ready";
   els.winnerLabel.textContent = "None yet";
@@ -1234,6 +1295,7 @@ function startBattle() {
   }
   closeWinnerModal();
   clearKnockoutAnnouncement();
+  clearBossAnnouncement();
   state.running = true;
   els.battleState.textContent = state.tournament ? `${getCurrentMatchLabel(state.tournament)} in progress` : "Battling";
   setTicker(state.tournament ? `${getCurrentMatchLabel(state.tournament)} begins in ${state.battle.arena.name}.` : "The war for the next read has begun.");
@@ -1289,6 +1351,7 @@ function buildBattle(factionPool = state.factions, arena = createArenaVariant(0,
     particles: [],
     spells: [],
     swipes: [],
+    bossBubbles: [],
     stuckArrows: [],
     bombs: [],
     arena,
@@ -1301,7 +1364,48 @@ function buildBattle(factionPool = state.factions, arena = createArenaVariant(0,
     notes: { dwindled: {}, slaughter: {}, killstreaks: {}, extinguished: {} },
     knockoutQueue: [],
     activeKnockout: null,
+    inklordEvent: {
+      scheduledAt: INKLORD_DEBUG_DELAY,
+      phase: "waiting",
+      bannerShown: false,
+      unitId: null,
+      impactAt: null,
+      landingX: field.centerX,
+      landingY: field.centerY,
+    },
   };
+}
+
+function createInkLordFaction() {
+  return {
+    id: INKLORD_FACTION_ID,
+    title: INKLORD_FACTION_TITLE,
+    coverUrl: "",
+    armySize: 0,
+    fledReserve: 0,
+    submissionType: "digital",
+    composition: {},
+    color: INKLORD_COLOR,
+    units: [],
+    bannerPos: { x: FIELD.width / 2, y: FIELD.height / 2 - BANNER_FLOAT_OFFSET },
+    homeBase: { x: FIELD.width / 2, y: FIELD.height / 2 },
+    alive: false,
+    neutral: true,
+    excludeFromResults: true,
+    image: null,
+  };
+}
+
+function getResultFactions(battle) {
+  return (battle?.factions || []).filter((faction) => !faction.excludeFromResults);
+}
+
+function getLivingResultFactions(battle) {
+  return getResultFactions(battle).filter((faction) => faction.units.some((unit) => !unit.dead && !unit.fled));
+}
+
+function hasLivingNeutralThreat(battle) {
+  return (battle?.factions || []).some((faction) => faction.excludeFromResults && faction.units.some((unit) => !unit.dead && !unit.fled));
 }
 
 function createGrave(unit, battle) {
@@ -1644,6 +1748,7 @@ function syncUnitMaxHealth(unit, preserveRatio = true) {
 }
 
 function getUnitRenderScale(unit) {
+  if (unit?.type === "inklord") return 4;
   return unit?.veteran ? VETERAN_BONUSES.spriteScale : 1;
 }
 
@@ -1753,6 +1858,7 @@ function clearNegativeStatuses(unit) {
 
 function makeUnit(factionId, type, x, y) {
   const stats = getUnitStats(type);
+  const unitDef = getUnitDefinition(type);
   return {
     id: `${factionId}-${type}-${Math.random().toString(36).slice(2, 8)}`,
     factionId,
@@ -1778,6 +1884,7 @@ function makeUnit(factionId, type, x, y) {
     activeSpellId: null,
     killStreak: 0,
     walkTilt: 0,
+    rotation: 0,
     gaitPhase: Math.random() * Math.PI * 2,
     stride: 0,
     bob: 0,
@@ -1804,6 +1911,9 @@ function makeUnit(factionId, type, x, y) {
     wanderTimer: 0,
     lifeTimer: typeof stats.lifetime === "number" ? stats.lifetime : null,
     expiredByTimer: false,
+    hostileToAll: Boolean(unitDef.hostileToAll),
+    spawnInvulnerable: false,
+    tauntCooldown: 0,
   };
 }
 
@@ -1949,6 +2059,7 @@ function loop(timestamp) {
 
 function stepBattle(battle, dt) {
   battle.time += dt;
+  updateInkLordEvent(battle, dt);
   updateBodyguardAuras(battle);
   updateStatuses(battle, dt);
   battle.factions.forEach((faction) => {
@@ -1960,13 +2071,30 @@ function stepBattle(battle, dt) {
   updateProjectiles(battle, dt);
   updateParticles(battle, dt);
   updateSpells(battle, dt);
+  updateBossBubbles(battle, dt);
   updateSwipes(battle, dt);
   updateStuckArrows(battle, dt);
   updateFactionExtinctions(battle);
   updateBattleHighlights(battle);
 
-  const contenders = battle.factions.filter((faction) => faction.units.some((unit) => !unit.dead && !unit.fled));
-  if (contenders.length <= 1 && !battle.completed) {
+  const contenders = getLivingResultFactions(battle);
+  const neutralThreatActive = hasLivingNeutralThreat(battle);
+  if (!battle.completed && contenders.length === 1) {
+    if (neutralThreatActive) dismissNeutralThreats(battle, contenders[0]);
+    const winner = contenders[0];
+    battle.pendingWinner = winner ? winner.id : null;
+    battle.completed = true;
+    state.running = false;
+    els.battleState.textContent = state.tournament ? `${getCurrentMatchLabel(state.tournament)} complete` : "Complete";
+    els.winnerLabel.textContent = winner.title;
+    setTicker(`${winner.title} survives the melee.`);
+    showWinnerCard(winner, battle);
+    renderBracketTracker();
+    updateAdvanceButtonLabel();
+    renderSpeedControls();
+    return;
+  }
+  if (!battle.completed && contenders.length === 0) {
     const winner = contenders[0];
     battle.pendingWinner = winner ? winner.id : null;
     battle.completed = true;
@@ -1987,16 +2115,114 @@ function stepBattle(battle, dt) {
   }
 }
 
+function updateBossBubbles(battle, dt) {
+  battle.bossBubbles = (battle.bossBubbles || []).filter((bubble) => {
+    bubble.age += dt;
+    bubble.rise = (bubble.rise || 0) + dt * 16;
+    const source = findUnitById(battle, bubble.sourceId);
+    return bubble.age < bubble.life && source && !source.dead && !source.fled;
+  });
+}
+
+function dismissNeutralThreats(battle, winner = null) {
+  battle.factions.forEach((faction) => {
+    if (!faction.excludeFromResults) return;
+    faction.units.forEach((unit) => {
+      if (unit.dead || unit.fled) return;
+      spawnBurst(battle, unit.x, unit.y - 10, "#8e7cff", 22);
+      battle.particles.push({ kind: "shockwave", x: unit.x, y: unit.y, vx: 0, vy: 0, life: 0.45, age: 0, color: "#6f60ff", size: 26, startSize: 26, maxSize: 110, lineWidth: 10 });
+      unit.dead = true;
+      unit.health = 0;
+      unit.fled = true;
+    });
+    faction.alive = false;
+  });
+  if (winner) {
+    setHighlight(`InkLord withdraws as ${winner.title} claims the field`);
+  }
+}
+
 function updateFactionExtinctions(battle) {
   battle.factions.forEach((faction) => {
     const active = faction.units.filter((unit) => !unit.dead && !unit.fled).length;
     faction.alive = active > 0;
+    if (faction.excludeFromResults) return;
     if (active === 0 && !battle.notes.extinguished[faction.id]) {
       battle.notes.extinguished[faction.id] = true;
       queueKnockoutAnnouncement(battle, faction);
       setHighlight(`${faction.title} has been wiped from the field`);
     }
   });
+}
+
+function updateInkLordEvent(battle, dt) {
+  const event = battle.inklordEvent;
+  if (!event || event.phase === "complete") return;
+  if (event.phase === "waiting" && battle.time >= event.scheduledAt) {
+    spawnInkLord(battle);
+    return;
+  }
+  if (event.phase !== "descending") return;
+  const unit = findUnitById(battle, event.unitId);
+  if (!unit || unit.dead) {
+    event.phase = "complete";
+    return;
+  }
+  unit.x = event.landingX;
+  unit.y = event.landingY;
+  unit.vx = 0;
+  unit.vy = 0;
+  unit.z = Math.max(0, unit.z - dt * 260);
+  if (Math.random() > 0.14) {
+    battle.particles.push({
+      x: unit.x + (Math.random() - 0.5) * 34,
+      y: unit.y - 26 + Math.random() * 18,
+      vx: (Math.random() - 0.5) * 18,
+      vy: -36 - Math.random() * 28,
+      life: 0.4 + Math.random() * 0.24,
+      age: 0,
+      color: Math.random() > 0.45 ? "#1a1a22" : "#5a4a78",
+      size: 5 + Math.random() * 8,
+    });
+  }
+  if (unit.z > 0) return;
+  event.phase = "complete";
+  event.impactAt = battle.time;
+  unit.z = 0;
+  unit.liftedBySpellId = null;
+  unit.spawnInvulnerable = false;
+  resolveInkLordArrivalImpact(unit, battle);
+}
+
+function spawnInkLord(battle) {
+  let faction = findFaction(battle, INKLORD_FACTION_ID);
+  if (!faction) {
+    faction = createInkLordFaction();
+    battle.factions.push(faction);
+  }
+  const unit = makeUnit(INKLORD_FACTION_ID, "inklord", battle.field.centerX, battle.field.centerY);
+  unit.z = 320;
+  unit.health = unit.maxHealth;
+  unit.bravery = 2;
+  unit.spawnInvulnerable = true;
+  unit.liftedBySpellId = "inklord-arrival";
+  unit.hostileToAll = true;
+  faction.units.push(unit);
+  battle.inklordEvent.unitId = unit.id;
+  battle.inklordEvent.phase = "descending";
+  faction.alive = true;
+  showBossAnnouncement("INKLORD COMETH");
+  setTicker("INKLORD COMETH");
+  setHighlight("The heavens split as InkLord descends");
+}
+
+function resolveInkLordArrivalImpact(unit, battle) {
+  const stats = getUnitStats(unit);
+  showBossAnnouncement("INKLORD COMETH");
+  explodeAt(battle, unit.x, unit.y, stats.skyfallRadius, stats.skyfallDamage, unit, "#6b5cff", 56);
+  launchUnitsAroundPoint(battle, unit, unit.x, unit.y, stats.skyfallRadius * 1.15, stats.crashDamage, stats.throwDistance * 0.9, 0.92);
+  spawnInkLordRupture(battle, unit.x, unit.y, stats.skyfallRadius);
+  setHighlight("InkLord lands like a falling citadel");
 }
 
 function updateFactionBanner(faction) {
@@ -2793,22 +3019,286 @@ function performSpiderSwarmAttack({ unit, target, battle, unitDef }) {
   spawnBurst(battle, target.x, target.y - 1, "#8bd266", 4);
 }
 
-function selectBomberTarget({ unit, enemies, allies }) {
-  let safest = enemies[0];
+function updateInkLordPresence({ unit, battle, enemies, dt }) {
+  if (unit.spawnInvulnerable) return;
+  unit.auraPulse = (unit.auraPulse || 0) + dt;
+  unit.tauntCooldown = Math.max(0, (unit.tauntCooldown || 0) - dt);
+  if (Math.random() > 0.22) {
+    battle.particles.push({
+      x: unit.x + (Math.random() - 0.5) * 26,
+      y: unit.y - 28 + Math.random() * 20,
+      vx: (Math.random() - 0.5) * 14,
+      vy: -10 - Math.random() * 10,
+      life: 0.32 + Math.random() * 0.18,
+      age: 0,
+      color: Math.random() > 0.4 ? "#13121a" : "#8e7cff",
+      size: 3 + Math.random() * 5,
+    });
+  }
+  if (enemies.length >= 5 && Math.random() > 0.975) {
+    setHighlight("InkLord is herding the survivors toward annihilation");
+  }
+}
+
+function selectInkLordTarget({ unit, enemies }) {
+  let best = enemies[0] || null;
   let bestScore = -Infinity;
   enemies.forEach((enemy) => {
     const distance = Math.hypot(enemy.x - unit.x, enemy.y - unit.y);
-    const nearestAlly = allies.length
-      ? Math.min(...allies.filter((ally) => ally.id !== unit.id).map((ally) => Math.hypot(enemy.x - ally.x, enemy.y - ally.y)))
-      : 0;
-    const safetyBias = Number.isFinite(nearestAlly) ? nearestAlly * 0.3 : 0;
-    const score = distance + safetyBias;
+    let clusterScore = 0;
+    enemies.forEach((other) => {
+      const neighborDistance = Math.hypot(other.x - enemy.x, other.y - enemy.y);
+      if (neighborDistance <= 92) clusterScore += 1 - neighborDistance / 92;
+    });
+    const score = clusterScore * 30 - distance * 0.22 - enemy.health * 0.04 + Math.random() * 2;
     if (score > bestScore) {
       bestScore = score;
-      safest = enemy;
+      best = enemy;
     }
   });
-  return safest;
+  unit.currentTargetKind = best ? "enemy" : null;
+  unit.currentGraveId = null;
+  return best;
+}
+
+function getInkLordAttackRange(unitDef, unit) {
+  const stats = getUnitStats(unit, unitDef);
+  return Math.max(stats.range, stats.sweepRange, stats.novaRange, stats.skyfallRange);
+}
+
+function performInkLordAttack({ unit, target, battle, unitDef }) {
+  const stats = getUnitStats(unit, unitDef);
+  if (!target || unit.spawnInvulnerable || unit.activeSpellId) return;
+  const distance = Math.hypot(target.x - unit.x, target.y - unit.y);
+  const nearby = getEnemiesWithinRadius(battle, unit, unit.x, unit.y, stats.sweepRange);
+  if (nearby.length >= 2 && Math.random() < 0.54) {
+    performInkLordSweep(unit, battle, nearby, stats);
+    return;
+  }
+  if (distance <= stats.range + 10 && Math.random() < 0.48) {
+    performInkLordThrow(unit, target, battle, stats);
+    return;
+  }
+  if (distance <= stats.novaRange && Math.random() < 0.34) {
+    performInkLordNova(unit, battle, stats);
+    return;
+  }
+  if (distance <= stats.skyfallRange) {
+    performInkLordSkyfall(unit, target, battle, stats);
+    return;
+  }
+  performInkLordSweep(unit, battle, nearby, stats);
+}
+
+function getEnemiesWithinRadius(battle, attacker, x, y, radius) {
+  return battle.factions.flatMap((faction) => faction.units.filter((unit) => (
+    !unit.dead
+    && !unit.fled
+    && unit.id !== attacker.id
+    && canUnitBeTargeted(unit, attacker)
+    && (unit.factionId !== attacker.factionId || unit.hostileToAll)
+    && Math.hypot(unit.x - x, unit.y - y) <= radius
+  )));
+}
+
+function performInkLordSweep(unit, battle, nearby, stats) {
+  const impacted = nearby.filter((enemy) => {
+    const angle = Math.atan2(enemy.y - unit.y, enemy.x - unit.x);
+    return Math.abs(normalizeAngle(angle - unit.facing)) <= stats.sweepArc * 0.5;
+  });
+  const victims = (impacted.length ? impacted : nearby)
+    .sort((a, b) => Math.hypot(a.x - unit.x, a.y - unit.y) - Math.hypot(b.x - unit.x, b.y - unit.y))
+    .slice(0, 2);
+  victims.forEach((enemy, index) => {
+    applyDamage(enemy, stats.sweepDamage * (0.88 + Math.random() * 0.3), battle, unit);
+    launchUnitByInkLord(unit, enemy, battle, {
+      distance: stats.throwDistance * (0.72 + Math.random() * 0.26),
+      duration: 1.05 + Math.random() * 0.24,
+      impactDamage: stats.landingDamage * (0.84 + Math.random() * 0.18),
+      landingRadius: stats.landingRadius,
+      arcHeight: 86 + Math.random() * 26,
+      angleOffset: ((index / Math.max(1, victims.length - 1)) - 0.5) * 0.7,
+    });
+  });
+  battle.swipes.push({ x: unit.x + Math.cos(unit.facing) * 28, y: unit.y - 12 + Math.sin(unit.facing) * 18, angle: unit.facing, life: 0.34, maxLife: 0.34, color: "rgba(234, 226, 255, 0.86)", width: 94 });
+  spawnInkLordRupture(battle, unit.x + Math.cos(unit.facing) * 44, unit.y + Math.sin(unit.facing) * 18, stats.sweepRange * 0.78);
+  maybeTriggerInkLordTaunt(unit, battle, 0.38);
+  setHighlight("InkLord sweeps his blade and bodies are hurled aside");
+}
+
+function performInkLordThrow(unit, target, battle, stats) {
+  applyDamage(target, stats.throwDamage * (0.92 + Math.random() * 0.24), battle, unit);
+  launchUnitByInkLord(unit, target, battle, {
+    distance: stats.throwDistance * (0.94 + Math.random() * 0.18),
+    duration: 1.28 + Math.random() * 0.22,
+    impactDamage: stats.landingDamage * 1.15,
+    landingRadius: stats.landingRadius * 1.08,
+    arcHeight: 108 + Math.random() * 28,
+  });
+  battle.swipes.push({ x: target.x, y: target.y - 10, angle: unit.facing, life: 0.24, maxLife: 0.24, color: "rgba(255, 248, 232, 0.85)", width: 62 });
+  spawnBurst(battle, target.x, target.y - 8, "#f4e8ff", 18);
+  maybeTriggerInkLordTaunt(unit, battle, 0.62);
+  setHighlight("InkLord catches a fighter and flings them through the melee");
+}
+
+function performInkLordNova(unit, battle, stats) {
+  getEnemiesWithinRadius(battle, unit, unit.x, unit.y, stats.novaRange)
+    .sort((a, b) => Math.hypot(a.x - unit.x, a.y - unit.y) - Math.hypot(b.x - unit.x, b.y - unit.y))
+    .slice(0, 4)
+    .forEach((enemy) => {
+    const distance = Math.hypot(enemy.x - unit.x, enemy.y - unit.y);
+    applyDamage(enemy, stats.novaDamage * clamp(1 - distance / stats.novaRange, 0.45, 1), battle, unit);
+    if (distance <= stats.novaRange * 0.8) {
+      launchUnitByInkLord(unit, enemy, battle, {
+        distance: stats.throwDistance * 0.52,
+        duration: 0.92 + Math.random() * 0.2,
+        impactDamage: stats.landingDamage * 0.42,
+        landingRadius: stats.landingRadius * 0.68,
+        arcHeight: 72 + Math.random() * 20,
+      });
+    }
+  });
+  spawnInkLordRupture(battle, unit.x, unit.y, stats.novaRange);
+  battle.particles.push({ kind: "shockwave", x: unit.x, y: unit.y, vx: 0, vy: 0, life: 0.62, age: 0, color: "#b09cff", size: 28, startSize: 28, maxSize: stats.novaRange, lineWidth: 16 });
+  maybeTriggerInkLordTaunt(unit, battle, 0.34);
+  setHighlight("InkLord unleashes a void pulse that scatters the field");
+}
+
+function performInkLordSkyfall(unit, target, battle, stats) {
+  const centerX = clamp(target.x + (Math.random() - 0.5) * 24, 40, battle.field.width - 40);
+  const centerY = clamp(target.y + (Math.random() - 0.5) * 24, 40, battle.field.height - 40);
+  getEnemiesWithinRadius(battle, unit, centerX, centerY, stats.skyfallRadius)
+    .sort((a, b) => Math.hypot(a.x - centerX, a.y - centerY) - Math.hypot(b.x - centerX, b.y - centerY))
+    .slice(0, 3)
+    .forEach((enemy) => {
+    const distance = Math.hypot(enemy.x - centerX, enemy.y - centerY);
+    applyDamage(enemy, stats.skyfallDamage * clamp(1 - distance / stats.skyfallRadius, 0.35, 1), battle, unit);
+    launchUnitByInkLord(unit, enemy, battle, {
+      distance: stats.throwDistance * (0.66 + Math.random() * 0.22),
+      duration: 1.12 + Math.random() * 0.22,
+      impactDamage: stats.crashDamage,
+      landingRadius: stats.landingRadius,
+      arcHeight: 92 + Math.random() * 24,
+    });
+  });
+  spawnInkLordRupture(battle, centerX, centerY, stats.skyfallRadius);
+  for (let i = 0; i < 3; i += 1) {
+    battle.particles.push({ kind: "shockwave", x: centerX, y: centerY, vx: 0, vy: 0, life: 0.44 + i * 0.08, age: 0, color: i === 0 ? "#f3ebff" : "#6c59ff", size: 24 + i * 12, startSize: 24 + i * 12, maxSize: stats.skyfallRadius * (0.65 + i * 0.18), lineWidth: 8 + i * 3 });
+  }
+  maybeTriggerInkLordTaunt(unit, battle, 0.44);
+  setHighlight("InkLord calls down a ruinous impact into the survivors");
+}
+
+function maybeTriggerInkLordTaunt(unit, battle, chance = 0.4) {
+  if (!unit || unit.type !== "inklord" || (unit.tauntCooldown || 0) > 0 || Math.random() > chance) return;
+  const choices = INKLORD_TAUNTS.filter((line) => line !== unit.lastTaunt);
+  const text = choices[Math.floor(Math.random() * choices.length)] || INKLORD_TAUNTS[0];
+  unit.lastTaunt = text;
+  unit.tauntCooldown = 3.8 + Math.random() * 2.4;
+  battle.bossBubbles.push({
+    sourceId: unit.id,
+    text,
+    age: 0,
+    life: 2.2 + Math.random() * 0.5,
+    rise: 0,
+  });
+}
+
+function launchUnitByInkLord(source, target, battle, options = {}) {
+  if (!target || target.dead || target.fled || target.displacedBySpellId || target.liftedBySpellId) return;
+  const baseAngle = Math.atan2(target.y - source.y, target.x - source.x) + (options.angleOffset || 0);
+  const distance = options.distance || 140;
+  const endX = clamp(target.x + Math.cos(baseAngle) * distance, 24, battle.field.width - 24);
+  const endY = clamp(target.y + Math.sin(baseAngle) * distance * 0.72, 24, battle.field.height - 24);
+  const spellId = `${source.id}-throw-${Math.random().toString(36).slice(2, 8)}`;
+  battle.spells.push({
+    id: spellId,
+    kind: "inklord-throw",
+    sourceId: source.id,
+    targetId: target.id,
+    time: 0,
+    duration: options.duration || 0.68,
+    startX: target.x,
+    startY: target.y,
+    endX,
+    endY,
+    impactDamage: options.impactDamage || 58,
+    landingRadius: options.landingRadius || 58,
+    arcHeight: options.arcHeight || 88,
+    color: "#e4d6ff",
+    spinRate: (Math.random() > 0.5 ? 1 : -1) * (10 + Math.random() * 8),
+  });
+  target.displacedBySpellId = spellId;
+  target.rotation = 0;
+}
+
+function launchUnitsAroundPoint(battle, source, x, y, radius, damage, throwDistance, falloff = 1) {
+  getEnemiesWithinRadius(battle, source, x, y, radius).forEach((enemy) => {
+    const distance = Math.hypot(enemy.x - x, enemy.y - y);
+    applyDamage(enemy, damage * clamp(1 - distance / radius, 0.45, 1) * falloff, battle, source);
+    launchUnitByInkLord(source, enemy, battle, {
+      distance: throwDistance * clamp(1 - distance / radius, 0.55, 1),
+      duration: 0.64 + Math.random() * 0.16,
+      impactDamage: damage * 0.45,
+      landingRadius: 54,
+      angleOffset: (Math.random() - 0.5) * 0.45,
+    });
+  });
+}
+
+function spawnInkLordRupture(battle, x, y, radius) {
+  spawnBurst(battle, x, y, "#1a1720", 22);
+  spawnBurst(battle, x, y, "#8b78ff", 18);
+  for (let i = 0; i < 18; i += 1) {
+    const angle = (Math.PI * 2 * i) / 18;
+    const drift = radius * (0.25 + Math.random() * 0.18);
+    battle.particles.push({
+      kind: "debris",
+      x: x + Math.cos(angle) * 10,
+      y: y + Math.sin(angle) * 8,
+      vx: Math.cos(angle) * drift,
+      vy: -25 - Math.random() * 60,
+      life: 0.58 + Math.random() * 0.3,
+      age: 0,
+      color: Math.random() > 0.5 ? "#2b2237" : "#6e5eff",
+      size: 4 + Math.random() * 7,
+      rotation: Math.random() * Math.PI,
+      spin: (Math.random() - 0.5) * 10,
+    });
+  }
+}
+
+function selectBomberTarget({ unit, enemies, allies, unitDef }) {
+  const stats = getUnitStats(unit, unitDef);
+  const nonSelfAllies = allies.filter((ally) => ally.id !== unit.id);
+  let best = enemies[0] || null;
+  let bestScore = -Infinity;
+  enemies.forEach((enemy) => {
+    const distance = Math.hypot(enemy.x - unit.x, enemy.y - unit.y);
+    const inRangeBias = distance <= stats.range ? 44 : Math.max(-36, (stats.range - distance) * 0.24);
+    let clusterScore = 0;
+    enemies.forEach((other) => {
+      const neighborDistance = Math.hypot(other.x - enemy.x, other.y - enemy.y);
+      if (neighborDistance <= stats.splash * 1.9) {
+        clusterScore += 1 - (neighborDistance / (stats.splash * 1.9));
+      }
+    });
+    const nearestAlly = nonSelfAllies.length
+      ? Math.min(...nonSelfAllies.map((ally) => Math.hypot(enemy.x - ally.x, enemy.y - ally.y)))
+      : Infinity;
+    const allyDangerPenalty = Number.isFinite(nearestAlly) && nearestAlly < stats.splash * 1.25
+      ? (stats.splash * 1.25 - nearestAlly) * 0.9
+      : 0;
+    const woundedBias = (1 - (enemy.health / enemy.maxHealth)) * 8;
+    const stickyBias = unit.focusTargetId === enemy.id ? 12 : 0;
+    const score = (clusterScore * 34) + inRangeBias + woundedBias + stickyBias - (distance * 0.08) - allyDangerPenalty;
+    if (score > bestScore) {
+      bestScore = score;
+      best = enemy;
+    }
+  });
+  unit.focusTargetId = best?.id || null;
+  return best;
 }
 
 function selectMountainTarget({ unit, enemies }) {
@@ -3241,6 +3731,16 @@ function spawnCatapultImpactDebris(battle, x, y) {
 }
 function updateSpells(battle, dt) {
   battle.spells = battle.spells.filter((spell) => {
+    if (spell.kind === "inklord-throw") {
+      spell.time += dt;
+      const source = findUnitById(battle, spell.sourceId);
+      const target = findUnitById(battle, spell.targetId);
+      if (!target || target.dead || target.fled) {
+        releaseSpellUnitState(spell, source, target);
+        return false;
+      }
+      return updateInkLordThrowSpell(spell, battle, source, target);
+    }
     if (spell.kind === "flame-breath") {
       spell.time += dt;
       const source = findUnitById(battle, spell.sourceId);
@@ -3273,6 +3773,34 @@ function updateSpells(battle, dt) {
     }
     return true;
   });
+}
+
+function updateInkLordThrowSpell(spell, battle, source, target) {
+  const progress = clamp(spell.time / spell.duration, 0, 1);
+  target.x = lerp(spell.startX, spell.endX, progress);
+  target.y = lerp(spell.startY, spell.endY, progress);
+  target.z = 18 + Math.sin(progress * Math.PI) * (spell.arcHeight || 88);
+  target.rotation = (target.rotation || 0) + (spell.spinRate || 0) * 0.023;
+  target.vx = 0;
+  target.vy = 0;
+  if (Math.random() > 0.58) {
+    battle.particles.push({
+      x: target.x + (Math.random() - 0.5) * 10,
+      y: target.y - 8,
+      vx: (Math.random() - 0.5) * 12,
+      vy: -8 - Math.random() * 10,
+      life: 0.24 + Math.random() * 0.14,
+      age: 0,
+      color: Math.random() > 0.5 ? "#eee4ff" : "#7e69ff",
+      size: 3 + Math.random() * 3,
+    });
+  }
+  if (progress < 1) return true;
+  target.z = 0;
+  target.rotation = 0;
+  explodeAt(battle, target.x, target.y, spell.landingRadius, spell.impactDamage, source, "#d8ceff", 14);
+  releaseSpellUnitState(spell, source, target);
+  return false;
 }
 
 function updateFireBreathSpell(spell, battle, source, target, dt) {
@@ -3381,6 +3909,7 @@ function releaseSpellUnitState(spell, source, target) {
   if (target?.displacedBySpellId === spell.id) target.displacedBySpellId = null;
   if (target) {
     target.z = 0;
+    target.rotation = 0;
     target.vx = 0;
     target.vy = 0;
   }
@@ -3452,7 +3981,7 @@ function explodeAt(battle, x, y, radius, damage, attacker, color, burstCount, sh
 }
 
 function applyDamage(unit, amount, battle, attacker = null, options = {}) {
-  if (!unit || unit.dead || amount <= 0) return 0;
+  if (!unit || unit.dead || unit.spawnInvulnerable || amount <= 0) return 0;
   const participants = !options.bypassSharedDamage ? getNecromancerParticipants(unit, battle) : [];
   if (participants.length > 1) {
     const share = amount / participants.length;
@@ -3521,7 +4050,7 @@ function showWinnerCard(winner, battle) {
   const alive = winner?.units.filter((unit) => !unit.dead && !unit.fled).length ?? 0;
   const routed = winner?.units.filter((unit) => unit.fled).length ?? 0;
   const tournamentMode = Boolean(state.tournament);
-  const others = battle.factions
+  const others = getResultFactions(battle)
     .filter((faction) => faction.id !== winner?.id)
     .map((faction) => {
       const growth = faction.submissionType === "paperback" ? 4 : 2;
@@ -3582,7 +4111,7 @@ function applyWinnerToQueue() {
 
 function finalizeSingleBattle() {
   const hadWinner = Boolean(state.battle.pendingWinner);
-  state.factions = state.battle.factions.flatMap((faction) => {
+  state.factions = getResultFactions(state.battle).flatMap((faction) => {
     if (faction.id === state.battle.pendingWinner) return [];
     const growth = faction.submissionType === "paperback" ? 4 : 2;
     const fled = faction.units.filter((unit) => unit.fled).length;
@@ -3604,7 +4133,7 @@ function advanceTournament() {
 
   match.winnerId = winnerId;
   match.status = "complete";
-  state.battle.factions.forEach((faction) => {
+  getResultFactions(state.battle).forEach((faction) => {
     if (faction.id === winnerId) return;
     const record = tournament.eliminated[faction.id];
     if (!record.eliminated) {
@@ -3725,6 +4254,33 @@ function clearKnockoutAnnouncement() {
   els.knockoutAnnouncement.innerHTML = "";
 }
 
+function showBossAnnouncement(text) {
+  if (!els.bossAnnouncement) return;
+  els.bossAnnouncement.textContent = text;
+  els.bossAnnouncement.classList.remove("exiting");
+  requestAnimationFrame(() => {
+    els.bossAnnouncement.classList.add("active");
+  });
+  window.clearTimeout(els.bossAnnouncement._exitTimer);
+  window.clearTimeout(els.bossAnnouncement._clearTimer);
+  els.bossAnnouncement._exitTimer = window.setTimeout(() => {
+    els.bossAnnouncement.classList.add("exiting");
+    els.bossAnnouncement.classList.remove("active");
+  }, 1800);
+  els.bossAnnouncement._clearTimer = window.setTimeout(() => {
+    els.bossAnnouncement.classList.remove("exiting");
+    els.bossAnnouncement.textContent = "";
+  }, 2320);
+}
+
+function clearBossAnnouncement() {
+  if (!els.bossAnnouncement) return;
+  window.clearTimeout(els.bossAnnouncement._exitTimer);
+  window.clearTimeout(els.bossAnnouncement._clearTimer);
+  els.bossAnnouncement.classList.remove("active", "exiting");
+  els.bossAnnouncement.textContent = "";
+}
+
 function buildKnockoutAnnouncementMarkup(entry) {
   const safeTitle = escapeHtml(entry.title);
   const cover = entry.coverUrl
@@ -3761,7 +4317,7 @@ function closeWinnerModal() {
 }
 
 function updateBattleHighlights(battle) {
-  const activeFactions = battle.factions.map((faction) => ({ faction, active: faction.units.filter((unit) => !unit.dead && !unit.fled).length }));
+  const activeFactions = getResultFactions(battle).map((faction) => ({ faction, active: faction.units.filter((unit) => !unit.dead && !unit.fled).length }));
   const sorted = activeFactions.filter((entry) => entry.active > 0).sort((a, b) => b.active - a.active);
   if (sorted.length > 1 && sorted[0].active >= Math.max(6, sorted[1].active * 2) && !battle.notes.slaughter[sorted[0].faction.id]) {
     battle.notes.slaughter[sorted[0].faction.id] = true;
@@ -3774,7 +4330,7 @@ function updateBattleHighlights(battle) {
       setHighlight(`${faction.title} is down to ${active} remaining`);
     }
   });
-  battle.factions.forEach((faction) => {
+  getResultFactions(battle).forEach((faction) => {
     faction.units.forEach((unit) => {
       if ((unit.killStreak || 0) >= 3 && !battle.notes.killstreaks[unit.id]) {
         battle.notes.killstreaks[unit.id] = true;
@@ -3900,6 +4456,7 @@ function render() {
   drawProjectiles(viewport, state.battle.projectiles);
   drawBodyguardAuras(viewport, state.battle.factions);
   drawUnits(viewport, state.battle.factions);
+  drawBossBubbles(viewport, state.battle);
   drawNecromancerLinks(viewport, state.battle);
   drawSwipes(viewport, state.battle.swipes);
   drawSpells(viewport, state.battle);
@@ -4320,7 +4877,7 @@ function drawPropSignpost(scale, tint) {
 
 function drawBanners(viewport, factions) {
   factions.forEach((faction) => {
-    if (!faction.alive) return;
+    if (!faction.alive || faction.excludeFromResults) return;
     const point = worldToScreen(faction.bannerPos.x, faction.bannerPos.y, viewport);
     const scale = point.scale;
     const poleHeight = 96 * scale / 2.1;
@@ -4577,10 +5134,13 @@ function drawUnits(viewport, factions) {
     ctx.beginPath();
     ctx.ellipse(point.x, point.y + 10 * scale / 2.1, (10 + Math.abs(unit.stride) * 1.6) * renderScale / 2.1, (5 - unit.bob * 0.9) * renderScale / 2.1, 0, 0, Math.PI * 2);
     ctx.fill();
+    if (unit.type === "inklord") {
+      drawInkLordGroundAura(point, scale, unit);
+    }
     ctx.save();
     ctx.globalAlpha = unitDef.getRenderAlpha ? unitDef.getRenderAlpha(unit, unitDef) : 1;
     ctx.translate(point.x + strideOffset * unit.displayFacingX * 0.35, bodyY);
-    ctx.rotate(unit.walkTilt);
+    ctx.rotate((unit.walkTilt || 0) + (unit.rotation || 0));
     ctx.scale(unit.displayFacingX, 1);
     if (!drawUnitSprite(unit, main, scale)) {
       unitDef.render?.(main, dark, light, renderScale, unit);
@@ -4589,11 +5149,136 @@ function drawUnits(viewport, factions) {
     ctx.restore();
     const hpWidth = unitDef.healthBarWidth || 20;
     drawUnitStatusBadges(unit, point.x + 16 * renderScale / 2.1, bodyY - 30 * renderScale / 2.1, scale);
+    const healthBarY = unit.type === "inklord"
+      ? bodyY - 156 * scale / 2.1
+      : bodyY - 24 * scale / 2.1;
     ctx.fillStyle = "rgba(37,24,16,0.5)";
-    ctx.fillRect(point.x - hpWidth * renderScale / 4.2, bodyY - 24 * scale / 2.1, hpWidth * renderScale / 2.1, 4 * scale / 2.1);
+    ctx.fillRect(point.x - hpWidth * renderScale / 4.2, healthBarY, hpWidth * renderScale / 2.1, 4 * scale / 2.1);
     ctx.fillStyle = unit.health / unit.maxHealth > 0.4 ? "#9ae085" : "#e7915d";
-    ctx.fillRect(point.x - hpWidth * renderScale / 4.2, bodyY - 24 * scale / 2.1, hpWidth * renderScale / 2.1 * (unit.health / unit.maxHealth), 4 * scale / 2.1);
+    ctx.fillRect(point.x - hpWidth * renderScale / 4.2, healthBarY, hpWidth * renderScale / 2.1 * (unit.health / unit.maxHealth), 4 * scale / 2.1);
   });
+}
+
+function drawInkLordGroundAura(point, scale, unit) {
+  const battleTime = state.battle?.time || 0;
+  const pulse = 0.22 + Math.max(0, Math.sin(battleTime * 3.6 + unit.statusVisualSeed * 0.5)) * 0.18;
+  const radiusX = 44 * scale / 2.1;
+  const radiusY = 14 * scale / 2.1;
+  const centerY = point.y + 13 * scale / 2.1;
+  ctx.save();
+  ctx.fillStyle = `rgba(104, 87, 255, ${0.08 + pulse * 0.08})`;
+  ctx.beginPath();
+  ctx.ellipse(point.x, centerY, radiusX, radiusY, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = `rgba(174, 158, 255, ${0.24 + pulse * 0.2})`;
+  ctx.lineWidth = 2.2 * scale / 2.1;
+  ctx.beginPath();
+  ctx.ellipse(point.x, centerY, radiusX, radiusY, 0, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawBossBubbles(viewport, battle) {
+  (battle.bossBubbles || []).forEach((bubble) => {
+    const source = findUnitById(battle, bubble.sourceId);
+    if (!source || source.dead || source.fled) return;
+    const pose = getUnitRenderPose(source, viewport);
+    const alpha = clamp(1 - (bubble.age / bubble.life), 0, 1);
+    const x = pose.point.x + 56 * pose.scale / 2.1;
+    const y = pose.bodyY - 124 * pose.scale / 2.1 - (bubble.rise || 0) * pose.scale / 2.1;
+    const maxWidth = 280 * pose.scale / 2.1;
+    const paddingX = 12 * pose.scale / 2.1;
+    const paddingY = 8 * pose.scale / 2.1;
+    const lineHeight = 16 * pose.scale / 2.1;
+    const fontSize = Math.max(10, 12 * pose.scale / 2.1);
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.font = `700 ${fontSize}px Manrope`;
+    ctx.textAlign = "left";
+    ctx.textBaseline = "top";
+    const lines = wrapCanvasText(bubble.text, maxWidth - paddingX * 2);
+    const widestLine = Math.max(...lines.map((line) => ctx.measureText(line).width), 0);
+    const bubbleWidth = Math.min(maxWidth, widestLine + paddingX * 2);
+    const bubbleHeight = Math.max(lineHeight + paddingY * 2, lines.length * lineHeight + paddingY * 2);
+    const left = clamp(x, 10 * pose.scale / 2.1, viewport.width - bubbleWidth - 10 * pose.scale / 2.1);
+    const top = y - bubbleHeight;
+    roundRect(ctx, left, top, bubbleWidth, bubbleHeight, 12 * pose.scale / 2.1);
+    ctx.fillStyle = "rgba(250, 245, 255, 0.94)";
+    ctx.fill();
+    ctx.strokeStyle = "rgba(80, 63, 126, 0.95)";
+    ctx.lineWidth = 2 * pose.scale / 2.1;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(left + 18 * pose.scale / 2.1, top + bubbleHeight);
+    ctx.lineTo(left + 28 * pose.scale / 2.1, top + bubbleHeight + 10 * pose.scale / 2.1);
+    ctx.lineTo(left + 34 * pose.scale / 2.1, top + bubbleHeight - 1 * pose.scale / 2.1);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "#2c223b";
+    lines.forEach((line, index) => {
+      ctx.fillText(line, left + paddingX, top + paddingY + index * lineHeight);
+    });
+    ctx.restore();
+  });
+}
+
+function wrapCanvasText(text, maxWidth) {
+  const words = String(text || "").split(/\s+/).filter(Boolean);
+  const lines = [];
+  let line = "";
+  words.forEach((word) => {
+    if (ctx.measureText(word).width > maxWidth) {
+      const broken = breakCanvasWord(word, maxWidth);
+      if (line) {
+        lines.push(line);
+        line = "";
+      }
+      lines.push(...broken.slice(0, -1));
+      line = broken[broken.length - 1] || "";
+      return;
+    }
+    const next = line ? `${line} ${word}` : word;
+    if (line && ctx.measureText(next).width > maxWidth) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = next;
+    }
+  });
+  if (line) lines.push(line);
+  return lines.length ? lines : [String(text || "")];
+}
+
+function breakCanvasWord(word, maxWidth) {
+  const chars = Array.from(String(word || ""));
+  const parts = [];
+  let current = "";
+  chars.forEach((char) => {
+    const next = `${current}${char}`;
+    if (current && ctx.measureText(next).width > maxWidth) {
+      parts.push(current);
+      current = char;
+    } else {
+      current = next;
+    }
+  });
+  if (current) parts.push(current);
+  return parts.length ? parts : [word];
+}
+
+function roundRect(context, x, y, width, height, radius) {
+  context.beginPath();
+  context.moveTo(x + radius, y);
+  context.lineTo(x + width - radius, y);
+  context.quadraticCurveTo(x + width, y, x + width, y + radius);
+  context.lineTo(x + width, y + height - radius);
+  context.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+  context.lineTo(x + radius, y + height);
+  context.quadraticCurveTo(x, y + height, x, y + height - radius);
+  context.lineTo(x, y + radius);
+  context.quadraticCurveTo(x, y, x + radius, y);
+  context.closePath();
 }
 
 function drawBodyguardAuras(viewport, factions) {
@@ -5523,6 +6208,70 @@ function drawSpiderSwarm(main, dark, light, scale, unit) {
     ctx.arc(0, 1 * bodyScale, 9 * bodyScale, 0, Math.PI * 2);
     ctx.fill();
   }
+}
+
+function drawInkLord(main, dark, light, scale, unit) {
+  const bodyScale = (scale * 2.15) / 2.1;
+  drawStepLegs("#0b0911", scale * 1.8, unit, 8.8, 15);
+  ctx.fillStyle = "#09090d";
+  ctx.beginPath();
+  ctx.moveTo(0, -25 * bodyScale);
+  ctx.lineTo(16 * bodyScale, -10 * bodyScale);
+  ctx.lineTo(14 * bodyScale, 16 * bodyScale);
+  ctx.lineTo(6 * bodyScale, 20 * bodyScale);
+  ctx.lineTo(0, 25 * bodyScale);
+  ctx.lineTo(-6 * bodyScale, 20 * bodyScale);
+  ctx.lineTo(-14 * bodyScale, 16 * bodyScale);
+  ctx.lineTo(-16 * bodyScale, -10 * bodyScale);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = main;
+  ctx.beginPath();
+  ctx.moveTo(0, -19 * bodyScale);
+  ctx.lineTo(11 * bodyScale, -8 * bodyScale);
+  ctx.lineTo(10 * bodyScale, 15 * bodyScale);
+  ctx.lineTo(4 * bodyScale, 18 * bodyScale);
+  ctx.lineTo(0, 22 * bodyScale);
+  ctx.lineTo(-4 * bodyScale, 18 * bodyScale);
+  ctx.lineTo(-10 * bodyScale, 15 * bodyScale);
+  ctx.lineTo(-11 * bodyScale, -8 * bodyScale);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = "rgba(242, 236, 255, 0.92)";
+  ctx.beginPath();
+  ctx.moveTo(0, -23 * bodyScale);
+  ctx.lineTo(6 * bodyScale, -16 * bodyScale);
+  ctx.lineTo(3 * bodyScale, -7 * bodyScale);
+  ctx.lineTo(-3 * bodyScale, -7 * bodyScale);
+  ctx.lineTo(-6 * bodyScale, -16 * bodyScale);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = "#a999ff";
+  ctx.beginPath();
+  ctx.arc(-2.4 * bodyScale, -13.5 * bodyScale, 1.2 * bodyScale, 0, Math.PI * 2);
+  ctx.arc(2.4 * bodyScale, -13.5 * bodyScale, 1.2 * bodyScale, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = "#efe8ff";
+  ctx.lineWidth = 3.1 * bodyScale;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(12 * bodyScale, -7 * bodyScale);
+  ctx.lineTo(27 * bodyScale, -32 * bodyScale);
+  ctx.stroke();
+
+  ctx.fillStyle = "#d8d1e8";
+  ctx.beginPath();
+  ctx.moveTo(26 * bodyScale, -34 * bodyScale);
+  ctx.lineTo(36 * bodyScale, -14 * bodyScale);
+  ctx.lineTo(31 * bodyScale, 10 * bodyScale);
+  ctx.lineTo(23 * bodyScale, 4 * bodyScale);
+  ctx.lineTo(22 * bodyScale, -10 * bodyScale);
+  ctx.closePath();
+  ctx.fill();
 }
 
 function drawCatapult(main, dark, light, scale) {
