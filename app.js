@@ -603,6 +603,7 @@ const state = {
     factionId: null,
     draft: null,
     search: "",
+    pendingTransfer: null,
   },
 };
 
@@ -641,6 +642,8 @@ const els = {
   compositionSearch: document.getElementById("compositionSearch"),
   compositionResults: document.getElementById("compositionResults"),
   compositionSelected: document.getElementById("compositionSelected"),
+  compositionResultsCount: document.getElementById("compositionResultsCount"),
+  compositionSelectedCount: document.getElementById("compositionSelectedCount"),
 };
 
 const ctx = els.canvas.getContext("2d");
@@ -1205,6 +1208,7 @@ function openCompositionModal(factionId) {
   state.compositionModal.factionId = factionId;
   state.compositionModal.draft = { ...faction.composition };
   state.compositionModal.search = "";
+  state.compositionModal.pendingTransfer = null;
   els.compositionSearch.value = "";
   renderCompositionModal();
   els.compositionModal.classList.remove("hidden");
@@ -1214,12 +1218,14 @@ function closeCompositionModal() {
   els.compositionModal.classList.add("hidden");
   state.compositionModal.factionId = null;
   state.compositionModal.draft = null;
+  state.compositionModal.pendingTransfer = null;
 }
 
 function renderCompositionModal() {
   const draft = state.compositionModal.draft;
   if (!draft) return;
   const term = state.compositionModal.search.trim().toLowerCase();
+  const activeUnits = UNIT_LIBRARY.filter((unit) => draft[unit.id] > 0);
   const available = UNIT_LIBRARY.filter((unit) => {
     if (draft[unit.id] > 0) return false;
     if (!term) return true;
@@ -1228,47 +1234,20 @@ function renderCompositionModal() {
       || unit.description.toLowerCase().includes(term);
   });
 
-  els.compositionResults.innerHTML = available.map((unit) => `
-    <div class="unit-result">
-      <div class="unit-panel-main">
-        <div class="unit-icon unit-icon-${unit.id}">${getUnitIconMarkup(unit.id)}</div>
-        <div class="unit-copy">
-          <div class="unit-header">
-            <strong>${unit.name}</strong>
-            <p class="unit-keywords">${unit.keywords.join(", ")}</p>
-          </div>
-          <p class="unit-description">${unit.description}</p>
-          <p class="unit-veteran-copy">Veteran: ${getVeteranGoalLabel(unit.id)}</p>
-        </div>
-      </div>
-      <div class="unit-actions">
-        <button class="ghost small" data-add-unit="${unit.id}">Select</button>
-      </div>
-    </div>
-  `).join("") || '<p class="hint">No matching units.</p>';
+  els.compositionResultsCount.textContent = `${available.length} available`;
+  els.compositionSelectedCount.textContent = `${activeUnits.length} selected`;
 
-  els.compositionSelected.innerHTML = UNIT_LIBRARY.filter((unit) => draft[unit.id] > 0).map((unit) => `
-    <div class="selected-unit">
-      <div class="unit-panel-main">
-        <div class="unit-icon unit-icon-${unit.id}">${getUnitIconMarkup(unit.id)}</div>
-        <div class="unit-copy">
-          <div class="unit-header">
-            <strong>${unit.name}</strong>
-            <p class="unit-keywords">${unit.keywords.join(", ")}</p>
-          </div>
-          <p class="unit-description">${unit.description}</p>
-        </div>
-      </div>
-      <div class="button-row unit-actions">
-        <input type="number" min="1" max="999" value="${draft[unit.id]}" data-unit-weight="${unit.id}">
-        <button class="ghost small" data-remove-unit="${unit.id}">Remove</button>
-      </div>
-    </div>
-  `).join("") || '<p class="hint">Select one or more units to define the faction mix.</p>';
+  els.compositionResults.innerHTML = available.map((unit) => buildCompositionUnitCard(unit, "available", null, state.compositionModal.pendingTransfer)).join("")
+    || '<p class="hint">No matching units.</p>';
+
+  els.compositionSelected.innerHTML = activeUnits.map((unit) => buildCompositionUnitCard(unit, "active", draft[unit.id], state.compositionModal.pendingTransfer)).join("")
+    || '<p class="hint">Select one or more units to define the faction mix.</p>';
 
   els.compositionResults.querySelectorAll("[data-add-unit]").forEach((button) => {
     button.addEventListener("click", () => {
+      const sourceCard = button.closest("[data-unit-card]");
       draft[button.dataset.addUnit] = draft[button.dataset.addUnit] || 1;
+      animateCompositionTransfer(button.dataset.addUnit, sourceCard);
       renderCompositionModal();
     });
   });
@@ -1283,6 +1262,85 @@ function renderCompositionModal() {
       draft[button.dataset.removeUnit] = 0;
       renderCompositionModal();
     });
+  });
+
+  if (state.compositionModal.pendingTransfer?.direction === "add") {
+    const targetCard = els.compositionSelected.querySelector(`[data-unit-card="${state.compositionModal.pendingTransfer.unitId}"]`);
+    if (targetCard) {
+      targetCard.classList.add("unit-card-settled");
+      window.setTimeout(() => targetCard.classList.remove("unit-card-settled"), 420);
+    }
+    state.compositionModal.pendingTransfer = null;
+  }
+}
+
+function buildCompositionUnitCard(unit, mode, weight = null, pendingTransfer = null) {
+  const isActive = mode === "active";
+  const isPendingTarget = pendingTransfer?.direction === "add" && pendingTransfer.unitId === unit.id && isActive;
+  const cardClass = isActive ? "selected-unit unit-card" : "unit-result unit-card";
+  const actionMarkup = isActive
+    ? `
+      <div class="button-row unit-actions">
+        <input type="number" min="1" max="999" value="${weight}" data-unit-weight="${unit.id}">
+        <button class="ghost small" data-remove-unit="${unit.id}">Remove</button>
+      </div>
+    `
+    : `
+      <div class="unit-actions">
+        <button class="ghost small" data-add-unit="${unit.id}">Add Unit</button>
+      </div>
+    `;
+  const veteranMarkup = isActive ? "" : `<p class="unit-veteran-copy">Veteran: ${getVeteranGoalLabel(unit.id)}</p>`;
+  return `
+    <div class="${cardClass}${isPendingTarget ? " unit-card-entering" : ""}" data-unit-card="${unit.id}">
+      <div class="unit-panel-main">
+        <div class="unit-icon unit-icon-${unit.id}">${getUnitIconMarkup(unit.id)}</div>
+        <div class="unit-copy">
+          <div class="unit-header">
+            <strong>${unit.name}</strong>
+            <p class="unit-keywords">${unit.keywords.join(", ")}</p>
+          </div>
+          <p class="unit-description">${unit.description}</p>
+          ${veteranMarkup}
+        </div>
+      </div>
+      ${actionMarkup}
+    </div>
+  `;
+}
+
+function animateCompositionTransfer(unitId, sourceCard) {
+  if (!sourceCard) {
+    state.compositionModal.pendingTransfer = { unitId, direction: "add" };
+    return;
+  }
+  const sourceRect = sourceCard.getBoundingClientRect();
+  const clone = sourceCard.cloneNode(true);
+  clone.classList.add("composition-transfer-clone");
+  clone.style.width = `${sourceRect.width}px`;
+  clone.style.height = `${sourceRect.height}px`;
+  clone.style.left = `${sourceRect.left}px`;
+  clone.style.top = `${sourceRect.top}px`;
+  clone.querySelectorAll("button, input").forEach((element) => element.remove());
+  document.body.appendChild(clone);
+  state.compositionModal.pendingTransfer = { unitId, direction: "add" };
+
+  requestAnimationFrame(() => {
+    const targetCard = els.compositionSelected.querySelector(`[data-unit-card="${unitId}"]`);
+    if (!targetCard) {
+      clone.remove();
+      return;
+    }
+    const targetRect = targetCard.getBoundingClientRect();
+    const translateX = targetRect.left - sourceRect.left;
+    const translateY = targetRect.top - sourceRect.top;
+    const scaleX = targetRect.width / Math.max(sourceRect.width, 1);
+    const scaleY = targetRect.height / Math.max(sourceRect.height, 1);
+    requestAnimationFrame(() => {
+      clone.style.transform = `translate(${translateX}px, ${translateY}px) scale(${scaleX}, ${scaleY})`;
+      clone.style.opacity = "0.24";
+    });
+    window.setTimeout(() => clone.remove(), 340);
   });
 }
 

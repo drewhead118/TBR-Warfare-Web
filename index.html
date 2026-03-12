@@ -11,103 +11,108 @@
 </head>
 <body>
   <div class="app-shell">
-    <aside class="control-panel">
-      <div class="panel-section hero-panel">
-        <p class="eyebrow">Book Queue Battle Simulator</p>
-        <h1>TBR Warfare</h1>
-        <p class="lede">Let the unread books settle the queue order</p>
-        <div class="button-row">
-          <button id="runBattleBtn" class="primary">Run Battle</button>
-          <button id="resetBattleBtn" class="secondary">Reset Battle</button>
+    <div class="top-shell">
+      <aside class="control-panel">
+        <div class="panel-section hero-panel">
+          <p class="eyebrow">Book Queue Battle Simulator</p>
+          <h1>TBR Warfare</h1>
+          <p class="lede">Let the unread books settle the queue order</p>
+          <div class="button-row">
+            <button id="runBattleBtn" class="primary">Run Battle</button>
+            <button id="resetBattleBtn" class="secondary">Reset Battle</button>
+          </div>
+          <div class="button-row">
+            <button id="advanceQueueBtn" class="accent">Apply Winner To Queue</button>
+            <button id="randomizeArenaBtn" class="secondary">Randomize Arena + Weather</button>
+            <button id="seedSampleBtn" class="ghost">Load Sample Armies</button>
+          </div>
         </div>
-        <div class="button-row">
-          <button id="advanceQueueBtn" class="accent">Apply Winner To Queue</button>
-          <button id="randomizeArenaBtn" class="secondary">Randomize Arena + Weather</button>
-          <button id="seedSampleBtn" class="ghost">Load Sample Armies</button>
-        </div>
-      </div>
 
-      <div class="panel-section status-panel">
-        <div class="status-block">
-          <span class="status-label">Battle State</span>
-          <strong id="battleState">Idle</strong>
+        <div class="panel-section status-panel">
+          <div class="status-block">
+            <span class="status-label">Battle State</span>
+            <strong id="battleState">Idle</strong>
+          </div>
+          <div class="status-block">
+            <span class="status-label">Winner</span>
+            <strong id="winnerLabel">None yet</strong>
+          </div>
+          <div class="status-block">
+            <span class="status-label">Rounds Applied</span>
+            <strong id="roundCounter">0</strong>
+          </div>
         </div>
-        <div class="status-block">
-          <span class="status-label">Winner</span>
-          <strong id="winnerLabel">None yet</strong>
-        </div>
-        <div class="status-block">
-          <span class="status-label">Rounds Applied</span>
-          <strong id="roundCounter">0</strong>
-        </div>
-      </div>
 
-      <div class="panel-section bracket-panel">
-        <div class="section-heading">
-          <h2>War Bracket</h2>
-          <span id="arenaLabel">Single arena</span>
+        <div class="panel-section bracket-panel">
+          <div class="section-heading">
+            <h2>War Bracket</h2>
+            <span id="arenaLabel">Single arena</span>
+          </div>
+          <p id="bracketSummary" class="hint">One battle decides the next read.</p>
+          <div id="bracketTracker" class="bracket-tracker"></div>
         </div>
-        <p id="bracketSummary" class="hint">One battle decides the next read.</p>
-        <div id="bracketTracker" class="bracket-tracker"></div>
-      </div>
 
-      <div class="panel-section import-panel">
-        <div class="section-heading">
-          <h2>Queue Data</h2>
-          <span>CSV in, CSV out</span>
+        <div class="panel-section import-panel">
+          <div class="section-heading">
+            <h2>Queue Data</h2>
+            <span>CSV in, CSV out</span>
+          </div>
+          <p class="hint">CSV columns: <code>title,coverUrl,armySize,submissionType,composition,fledReserve</code>. Leave <code>composition</code> blank for the default <code>archer:1, mage:1, knight:1</code>.</p>
+          <input id="csvFileInput" type="file" accept=".csv,text/csv">
+          <textarea id="csvInput" rows="7" spellcheck="false"></textarea>
+          <div class="button-row">
+            <button id="importCsvBtn" class="secondary">Import CSV</button>
+            <button id="downloadCsvBtn" class="ghost">Download CSV</button>
+          </div>
         </div>
-        <p class="hint">CSV columns: <code>title,coverUrl,armySize,submissionType,composition,fledReserve</code>. Leave <code>composition</code> blank for the default <code>archer:1, mage:1, knight:1</code>.</p>
-        <input id="csvFileInput" type="file" accept=".csv,text/csv">
-        <textarea id="csvInput" rows="7" spellcheck="false"></textarea>
-        <div class="button-row">
-          <button id="importCsvBtn" class="secondary">Import CSV</button>
-          <button id="downloadCsvBtn" class="ghost">Download CSV</button>
-        </div>
-      </div>
+        <p class="audio-attribution">MedievalCombatLoop.mp3 by Yap_Audio_Production -- <a href="https://freesound.org/s/218522/" target="_blank" rel="noreferrer">https://freesound.org/s/218522/</a> -- License: Attribution 4.0</p>
+      </aside>
 
-      <div class="panel-section roster-panel">
+      <main class="battle-panel">
+        <div class="battle-header">
+          <div>
+            <p class="eyebrow">Arena View</p>
+            <h2>Last Book Standing Wins</h2>
+            <p class="camera-hint">Drag to pan. Mousewheel to zoom. The camera recenters after a few seconds of inactivity.</p>
+          </div>
+          <div class="battle-header-controls">
+            <div class="speed-panel">
+              <span class="speed-label">Combat Speed</span>
+              <div id="speedControls" class="speed-controls"></div>
+            </div>
+          </div>
+        </div>
+        <div class="battle-stage">
+          <canvas id="battleCanvas" width="1400" height="900"></canvas>
+          <div class="battle-overlay">
+            <div id="battleHealthChart" class="battle-health-chart" aria-label="Faction health share over time">
+              <canvas id="battleHealthChartCanvas" width="220" height="118"></canvas>
+            </div>
+            <div id="battleTicker" class="ticker">Awaiting armies.</div>
+            <div id="bossAnnouncement" class="boss-announcement" aria-live="assertive"></div>
+            <div id="knockoutAnnouncement" class="knockout-announcement" aria-live="polite"></div>
+          </div>
+          <div id="winnerModal" class="winner-modal hidden">
+            <div class="winner-modal-backdrop" data-close-winner="true"></div>
+            <div class="winner-modal-card">
+              <button id="closeWinnerModalBtn" class="ghost small winner-modal-close">Close</button>
+              <div id="winnerCard" class="winner-card"></div>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <section class="panel-section roster-panel">
+      <div class="roster-panel-header">
         <div class="section-heading">
           <h2>Army Workshop</h2>
           <span>Moderator controls</span>
         </div>
-        <div id="armyList" class="army-list"></div>
       </div>
-      <p class="audio-attribution">MedievalCombatLoop.mp3 by Yap_Audio_Production -- <a href="https://freesound.org/s/218522/" target="_blank" rel="noreferrer">https://freesound.org/s/218522/</a> -- License: Attribution 4.0</p>
-    </aside>
-
-    <main class="battle-panel">
-      <div class="battle-header">
-        <div>
-          <p class="eyebrow">Arena View</p>
-          <h2>Last Book Standing Wins</h2>
-          <p class="camera-hint">Drag to pan. Mousewheel to zoom. The camera recenters after a few seconds of inactivity.</p>
-        </div>
-        <div class="battle-header-controls">
-          <div class="speed-panel">
-            <span class="speed-label">Combat Speed</span>
-            <div id="speedControls" class="speed-controls"></div>
-          </div>
-        </div>
-      </div>
-      <div class="battle-stage">
-        <canvas id="battleCanvas" width="1400" height="900"></canvas>
-        <div class="battle-overlay">
-          <div id="battleHealthChart" class="battle-health-chart" aria-label="Faction health share over time">
-            <canvas id="battleHealthChartCanvas" width="220" height="118"></canvas>
-          </div>
-          <div id="battleTicker" class="ticker">Awaiting armies.</div>
-          <div id="bossAnnouncement" class="boss-announcement" aria-live="assertive"></div>
-          <div id="knockoutAnnouncement" class="knockout-announcement" aria-live="polite"></div>
-        </div>
-        <div id="winnerModal" class="winner-modal hidden">
-          <div class="winner-modal-backdrop" data-close-winner="true"></div>
-          <div class="winner-modal-card">
-            <button id="closeWinnerModalBtn" class="ghost small winner-modal-close">Close</button>
-            <div id="winnerCard" class="winner-card"></div>
-          </div>
-        </div>
-      </div>
-    </main>
+      <p class="hint">Configure your armies for battle!</p>
+      <div id="armyList" class="army-list"></div>
+    </section>
   </div>
 
   <div id="compositionModal" class="modal hidden">
@@ -117,9 +122,29 @@
         <h2>Edit Army Composition</h2>
         <button id="closeCompositionModalBtn" class="ghost small">Close</button>
       </div>
-      <input id="compositionSearch" type="text" placeholder="Search units...">
-      <div id="compositionResults" class="composition-results"></div>
-      <div id="compositionSelected" class="composition-selected"></div>
+      <div class="composition-layout">
+        <section class="composition-column composition-column-active">
+          <div class="composition-column-header">
+            <div>
+              <p class="composition-column-kicker">Active Units</p>
+              <h3 id="compositionSelectedHeading">Current roster</h3>
+            </div>
+            <span id="compositionSelectedCount" class="composition-column-count">0 selected</span>
+          </div>
+          <div id="compositionSelected" class="composition-selected"></div>
+        </section>
+        <section class="composition-column composition-column-available">
+          <div class="composition-column-header">
+            <div>
+              <p class="composition-column-kicker">Available Units</p>
+              <h3>Recruit reinforcements</h3>
+            </div>
+            <span id="compositionResultsCount" class="composition-column-count">0 available</span>
+          </div>
+          <input id="compositionSearch" type="text" placeholder="Search units...">
+          <div id="compositionResults" class="composition-results"></div>
+        </section>
+      </div>
       <div class="button-row">
         <button id="saveCompositionBtn" class="primary">Save Composition</button>
         <button id="cancelCompositionBtn" class="ghost">Cancel</button>
@@ -177,6 +202,5 @@
   <script src="app.js"></script>
 </body>
 </html>
-
 
 
