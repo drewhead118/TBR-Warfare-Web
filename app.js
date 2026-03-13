@@ -4,6 +4,7 @@ const FIELD = { width: 1180, height: 760 };
 const SPEED_OPTIONS = [0.35, 0.65, 1, 1.4, 1.85];
 const AUDIO_DEFAULT_FADE_SECONDS = 1.8;
 const AUDIO_END_FADE_SECONDS = 0.4;
+const AUDIO_PAUSE_DUCK_FACTOR = 0.24;
 const AUDIO_TRACKS = {
   main: {
     src: "assets/music/main_battle_music_loop.mp3",
@@ -599,6 +600,15 @@ const state = {
     lastPointerX: 0,
     lastPointerY: 0,
   },
+  hover: {
+    focusedUnitId: null,
+    canvasX: 0,
+    canvasY: 0,
+    cssX: 0,
+    cssY: 0,
+    insideCanvas: false,
+    shiftHeld: false,
+  },
   compositionModal: {
     factionId: null,
     draft: null,
@@ -638,12 +648,12 @@ const els = {
   compositionModal: document.getElementById("compositionModal"),
   closeCompositionModalBtn: document.getElementById("closeCompositionModalBtn"),
   cancelCompositionBtn: document.getElementById("cancelCompositionBtn"),
-  saveCompositionBtn: document.getElementById("saveCompositionBtn"),
   compositionSearch: document.getElementById("compositionSearch"),
   compositionResults: document.getElementById("compositionResults"),
   compositionSelected: document.getElementById("compositionSelected"),
   compositionResultsCount: document.getElementById("compositionResultsCount"),
   compositionSelectedCount: document.getElementById("compositionSelectedCount"),
+  battleUnitTooltip: document.getElementById("battleUnitTooltip"),
 };
 
 const ctx = els.canvas.getContext("2d");
@@ -686,7 +696,6 @@ function bindUi() {
   els.closeWinnerModalBtn.addEventListener("click", closeWinnerModal);
   els.closeCompositionModalBtn.addEventListener("click", closeCompositionModal);
   els.cancelCompositionBtn.addEventListener("click", closeCompositionModal);
-  els.saveCompositionBtn.addEventListener("click", saveCompositionModal);
   els.compositionSearch.addEventListener("input", () => {
     state.compositionModal.search = els.compositionSearch.value;
     renderCompositionModal();
@@ -699,8 +708,12 @@ function bindUi() {
   });
   window.addEventListener("resize", sizeCanvas);
   els.canvas.addEventListener("pointerdown", onCanvasPointerDown);
+  els.canvas.addEventListener("pointerleave", clearBattleHover);
   window.addEventListener("pointermove", onCanvasPointerMove);
   window.addEventListener("pointerup", onCanvasPointerUp);
+  window.addEventListener("keydown", onWindowKeyDown);
+  window.addEventListener("keyup", onWindowKeyUp);
+  window.addEventListener("blur", onWindowBlur);
   els.canvas.addEventListener("wheel", onCanvasWheel, { passive: false });
   sizeCanvas();
 }
@@ -1221,6 +1234,18 @@ function closeCompositionModal() {
   state.compositionModal.pendingTransfer = null;
 }
 
+function persistCompositionDraft() {
+  const faction = state.factions.find((entry) => entry.id === state.compositionModal.factionId);
+  if (!faction || !state.compositionModal.draft) return;
+  const composition = normalizeComposition(state.compositionModal.draft);
+  faction.composition = composition;
+  state.compositionModal.draft = { ...composition };
+  saveState();
+  syncCsvInput();
+  renderArmyEditors();
+  resetBattle();
+}
+
 function renderCompositionModal() {
   const draft = state.compositionModal.draft;
   if (!draft) return;
@@ -1247,6 +1272,7 @@ function renderCompositionModal() {
     button.addEventListener("click", () => {
       const sourceCard = button.closest("[data-unit-card]");
       draft[button.dataset.addUnit] = draft[button.dataset.addUnit] || 1;
+      persistCompositionDraft();
       animateCompositionTransfer(button.dataset.addUnit, sourceCard);
       renderCompositionModal();
     });
@@ -1254,12 +1280,14 @@ function renderCompositionModal() {
   els.compositionSelected.querySelectorAll("[data-unit-weight]").forEach((input) => {
     input.addEventListener("change", () => {
       draft[input.dataset.unitWeight] = clampInt(input.value, 1, 999);
+      persistCompositionDraft();
       renderCompositionModal();
     });
   });
   els.compositionSelected.querySelectorAll("[data-remove-unit]").forEach((button) => {
     button.addEventListener("click", () => {
       draft[button.dataset.removeUnit] = 0;
+      persistCompositionDraft();
       renderCompositionModal();
     });
   });
@@ -1280,8 +1308,11 @@ function buildCompositionUnitCard(unit, mode, weight = null, pendingTransfer = n
   const cardClass = isActive ? "selected-unit unit-card" : "unit-result unit-card";
   const actionMarkup = isActive
     ? `
-      <div class="button-row unit-actions">
-        <input type="number" min="1" max="999" value="${weight}" data-unit-weight="${unit.id}">
+      <div class="unit-actions unit-actions-active">
+        <label class="unit-quantity-field">
+          <span>Qty</span>
+          <input type="number" min="1" max="999" value="${weight}" data-unit-weight="${unit.id}">
+        </label>
         <button class="ghost small" data-remove-unit="${unit.id}">Remove</button>
       </div>
     `
@@ -1344,16 +1375,6 @@ function animateCompositionTransfer(unitId, sourceCard) {
   });
 }
 
-function saveCompositionModal() {
-  const faction = state.factions.find((entry) => entry.id === state.compositionModal.factionId);
-  if (!faction || !state.compositionModal.draft) return;
-  faction.composition = normalizeComposition(state.compositionModal.draft);
-  saveState();
-  syncCsvInput();
-  renderArmyEditors();
-  resetBattle();
-  closeCompositionModal();
-}
 function sizeCanvas() {
   const rect = els.canvas.getBoundingClientRect();
   const dpr = window.devicePixelRatio || 1;
@@ -1369,6 +1390,7 @@ function sizeCanvas() {
 function resetBattle() {
   state.running = false;
   endBattleAudio();
+  clearBattleHover();
   state.tournament = shouldUseTournament(state.factions) ? createTournament(state.factions) : null;
   state.battle = buildActiveBattle();
   clearKnockoutAnnouncement();
@@ -2513,15 +2535,21 @@ function startBattleAudio() {
 }
 
 function pauseBattleAudio() {
-  Object.values(state.audio.tracks).forEach((track) => {
-    track.element.pause();
-  });
+  const activeMusic = state.audio.activeMusicKey;
+  if (activeMusic) {
+    fadeTrackTo(activeMusic, state.audio.tracks[activeMusic].baseVolume * AUDIO_PAUSE_DUCK_FACTOR, 0.28);
+  }
+  fadeTrackTo("ambience", 0, 0.22);
+  fadeTrackTo("deathBell", 0, 0);
+  const inactiveMusicKeys = ["main", "inklord"].filter((key) => key !== activeMusic);
+  inactiveMusicKeys.forEach((key) => fadeTrackTo(key, 0, 0.22));
 }
 
 function resumeBattleAudio() {
-  if (state.audio.activeMusicKey) ensureTrackPlayback(state.audio.activeMusicKey);
-  const ambience = state.audio.tracks.ambience;
-  if (ambience?.targetVolume > 0) ensureTrackPlayback("ambience");
+  if (state.audio.activeMusicKey) {
+    fadeTrackTo(state.audio.activeMusicKey, state.audio.tracks[state.audio.activeMusicKey].baseVolume, 0.45);
+  }
+  fadeTrackTo("ambience", state.audio.tracks.ambience.baseVolume, 0.45);
 }
 
 function endBattleAudio() {
@@ -3764,6 +3792,9 @@ function castMountainImpulse(unit, target, battle, unitDef) {
 function castMountainHold(unit, target, battle, unitDef) {
   const stats = getUnitStats(unit, unitDef);
   const spellId = `${unit.id}-hold-${Math.random().toString(36).slice(2, 7)}`;
+  const holdX = clamp(unit.x + (unit.displayFacingX || 1) * 30, 24, battle.field.width - 24);
+  const holdY = clamp(unit.y - 6, 24, battle.field.height - 24);
+  const pullDistance = Math.hypot(holdX - target.x, holdY - target.y);
   battle.spells.push({
     id: spellId,
     kind: "mountain-hold",
@@ -3771,6 +3802,9 @@ function castMountainHold(unit, target, battle, unitDef) {
     targetId: target.id,
     time: 0,
     duration: stats.holdDuration,
+    pullDuration: clamp(0.14 + pullDistance / 520, 0.14, 0.3),
+    startX: target.x,
+    startY: target.y,
     damageTickTimer: 0,
     damagePerTick: stats.holdDamage,
     tickInterval: stats.holdTick,
@@ -4153,19 +4187,24 @@ function updateMountainImpulseSpell(spell, source, target) {
 }
 
 function updateMountainHoldSpell(spell, battle, source, target, dt) {
-  target.x = clamp(source.x + spell.holdOffsetX, 24, battle.field.width - 24);
-  target.y = clamp(source.y - spell.holdOffsetY, 24, battle.field.height - 24);
-  target.z = 24 + Math.sin(spell.time * 7) * 4;
+  const holdX = clamp(source.x + spell.holdOffsetX, 24, battle.field.width - 24);
+  const holdY = clamp(source.y - spell.holdOffsetY, 24, battle.field.height - 24);
+  const pullProgress = clamp(spell.time / Math.max(spell.pullDuration || 0.001, 0.001), 0, 1);
+  target.x = lerp(spell.startX ?? holdX, holdX, pullProgress);
+  target.y = lerp(spell.startY ?? holdY, holdY, pullProgress);
+  target.z = lerp(6, 24, pullProgress) + Math.sin(spell.time * 7) * 4;
   target.vx = 0;
   target.vy = 0;
-  spell.damageTickTimer += dt;
-  while (spell.damageTickTimer >= spell.tickInterval) {
-    spell.damageTickTimer -= spell.tickInterval;
-    applyDamage(target, spell.damagePerTick * (0.94 + Math.random() * 0.16), battle, source);
-    spawnBurst(battle, target.x, target.y - 12, "#c7ffc3", 4);
-    if (target.dead) {
-      releaseSpellUnitState(spell, source, target);
-      return false;
+  if (pullProgress >= 1) {
+    spell.damageTickTimer += dt;
+    while (spell.damageTickTimer >= spell.tickInterval) {
+      spell.damageTickTimer -= spell.tickInterval;
+      applyDamage(target, spell.damagePerTick * (0.94 + Math.random() * 0.16), battle, source);
+      spawnBurst(battle, target.x, target.y - 12, "#c7ffc3", 4);
+      if (target.dead) {
+        releaseSpellUnitState(spell, source, target);
+        return false;
+      }
     }
   }
   if (spell.time >= spell.duration) {
@@ -4614,6 +4653,192 @@ function updateBattleHighlights(battle) {
   });
 }
 
+function clearBattleHover() {
+  state.hover.insideCanvas = false;
+  if (!state.hover.shiftHeld) state.hover.focusedUnitId = null;
+  if (els.battleUnitTooltip) {
+    els.battleUnitTooltip.classList.add("hidden");
+    els.battleUnitTooltip.innerHTML = "";
+  }
+}
+
+function updateBattleHoverPointer(event) {
+  const rect = els.canvas.getBoundingClientRect();
+  const isCanvasTarget = document.elementFromPoint(event.clientX, event.clientY) === els.canvas;
+  const inside = isCanvasTarget
+    && event.clientX >= rect.left
+    && event.clientX <= rect.right
+    && event.clientY >= rect.top
+    && event.clientY <= rect.bottom;
+  state.hover.insideCanvas = inside;
+  if (!inside) {
+    return;
+  }
+  const dpr = window.devicePixelRatio || 1;
+  state.hover.canvasX = (event.clientX - rect.left) * dpr;
+  state.hover.canvasY = (event.clientY - rect.top) * dpr;
+  state.hover.cssX = event.clientX - rect.left;
+  state.hover.cssY = event.clientY - rect.top;
+}
+
+function getUnitHoverMetrics(unit, viewport) {
+  const pose = getUnitRenderPose(unit, viewport);
+  const unitDef = getUnitDefinition(unit);
+  const renderScale = pose.scale * getUnitRenderScale(unit);
+  const radiusX = Math.max(14, (unit.type === "inklord" ? 34 : 16) * renderScale / 2.1);
+  const radiusY = Math.max(18, (unit.type === "inklord" ? 54 : 24) * renderScale / 2.1);
+  const centerY = pose.bodyY - (unit.type === "inklord" ? 42 : 10) * renderScale / 2.1;
+  const healthBarY = unit.type === "inklord"
+    ? pose.bodyY - 156 * pose.scale / 2.1
+    : pose.bodyY - 24 * pose.scale / 2.1;
+  const hpWidth = (unitDef.healthBarWidth || 20) * renderScale / 2.1;
+  return {
+    pose,
+    renderScale,
+    hoverCenterX: pose.point.x,
+    hoverCenterY: centerY,
+    hoverRadiusX: radiusX,
+    hoverRadiusY: radiusY,
+    healthBarY,
+    hpWidth,
+  };
+}
+
+function findHoveredBattleUnit(battle, viewport, canvasX, canvasY) {
+  if (!battle) return null;
+  const units = battle.factions.flatMap((faction) => faction.units.filter((unit) => !unit.dead && !unit.fled));
+  units.sort((a, b) => a.y - b.y);
+  for (let index = units.length - 1; index >= 0; index -= 1) {
+    const unit = units[index];
+    const metrics = getUnitHoverMetrics(unit, viewport);
+    const dx = (canvasX - metrics.hoverCenterX) / Math.max(metrics.hoverRadiusX, 1);
+    const dy = (canvasY - metrics.hoverCenterY) / Math.max(metrics.hoverRadiusY, 1);
+    if ((dx * dx) + (dy * dy) <= 1.18) return unit;
+    const withinBar = canvasX >= metrics.pose.point.x - metrics.hpWidth / 2
+      && canvasX <= metrics.pose.point.x + metrics.hpWidth / 2
+      && canvasY >= metrics.healthBarY - 12
+      && canvasY <= metrics.healthBarY + 14;
+    if (withinBar) return unit;
+  }
+  return null;
+}
+
+function refreshBattleHover(viewport) {
+  if (!state.battle || !state.hover.shiftHeld) {
+    state.hover.focusedUnitId = null;
+    return null;
+  }
+  if (state.hover.insideCanvas && !state.camera.isDragging) {
+    const hovered = findHoveredBattleUnit(state.battle, viewport, state.hover.canvasX, state.hover.canvasY);
+    if (hovered) state.hover.focusedUnitId = hovered.id;
+  }
+  if (!state.hover.focusedUnitId) return null;
+  const focused = findUnitById(state.battle, state.hover.focusedUnitId);
+  if (!focused || focused.dead || focused.fled) {
+    state.hover.focusedUnitId = null;
+    return null;
+  }
+  return focused;
+}
+
+function formatHoverStatNumber(value) {
+  if (!Number.isFinite(value)) return `${value}`;
+  return Math.abs(value - Math.round(value)) < 0.05 ? `${Math.round(value)}` : value.toFixed(1);
+}
+
+function formatHoverDuration(duration) {
+  if (!Number.isFinite(duration)) return "permanent";
+  if (duration >= 10) return `${Math.round(duration)}s`;
+  return `${duration.toFixed(1)}s`;
+}
+
+function getStatusTooltipCopy(unit, status, battle) {
+  const definition = getStatusDefinition(status.kind);
+  if (!definition) return "";
+  if (status.kind === "poison") {
+    const totalDps = (status.dps ?? definition.dps) * Math.max(1, status.stacks || 1);
+    return `Deals ${formatHoverStatNumber(totalDps)} damage per second for ${formatHoverDuration(status.duration)}. ${Math.max(1, Math.round(status.stacks || 1))} stack${Math.round(status.stacks || 1) === 1 ? "" : "s"}.`;
+  }
+  if (status.kind === "ignite") {
+    const totalDps = (status.dps ?? definition.dps) * Math.max(1, status.stacks || 1);
+    return `Burns for ${formatHoverStatNumber(totalDps)} damage per second for ${formatHoverDuration(status.duration)} and can spread to nearby units.`;
+  }
+  if (status.kind === "zombie") {
+    return "Reanimated thrall. Permanent until destroyed, with reduced max health, damage, speed, and duration-based stats.";
+  }
+  if (status.kind === "shielded") {
+    const source = status.sourceId ? findUnitById(battle, status.sourceId) : null;
+    const reduction = (getUnitStats(source || "bodyguard").shieldReduction ?? 0.25) * 100;
+    return `Protected${source ? ` by ${getUnitDefinition(source).name}` : ""}. Reduces incoming direct damage by ${formatHoverStatNumber(reduction)}% for ${formatHoverDuration(status.duration)}.`;
+  }
+  return definition.name;
+}
+
+function renderBattleUnitTooltip(unit, battle, viewport) {
+  if (!els.battleUnitTooltip || !unit || !state.hover.shiftHeld) {
+    if (els.battleUnitTooltip) {
+      els.battleUnitTooltip.classList.add("hidden");
+      els.battleUnitTooltip.innerHTML = "";
+    }
+    return;
+  }
+  const faction = findFaction(battle, unit.factionId);
+  const statuses = (unit.statuses || [])
+    .map((status) => {
+      const definition = getStatusDefinition(status.kind);
+      if (!definition) return "";
+      return `
+        <li>
+          <span class="battle-unit-tooltip-status">${escapeHtml(definition.name)}</span>
+          <span class="battle-unit-tooltip-copy">${escapeHtml(getStatusTooltipCopy(unit, status, battle))}</span>
+        </li>
+      `;
+    })
+    .filter(Boolean)
+    .join("");
+  els.battleUnitTooltip.innerHTML = `
+    <div class="battle-unit-tooltip-header">
+      <span class="battle-unit-tooltip-faction">${escapeHtml(faction?.title || "Neutral")}</span>
+      <h3>${escapeHtml(`${getUnitDefinition(unit).name}${unit.veteran ? " Veteran" : ""}`)}</h3>
+      <p class="battle-unit-tooltip-health">Health ${formatHoverStatNumber(unit.health)} / ${formatHoverStatNumber(unit.maxHealth)}</p>
+    </div>
+    ${statuses ? `<ul>${statuses}</ul>` : '<p class="battle-unit-tooltip-empty">No active status effects.</p>'}
+  `;
+  const pose = getUnitRenderPose(unit, viewport);
+  const tooltipWidth = Math.min(320, Math.max(220, els.battleUnitTooltip.offsetWidth || 220));
+  const left = Math.max(12, Math.min(els.canvas.clientWidth - tooltipWidth - 12, (pose.point.x / (window.devicePixelRatio || 1)) + 22));
+  const top = Math.max(18, Math.min(els.canvas.clientHeight - 18, (pose.bodyY / (window.devicePixelRatio || 1)) - 32));
+  els.battleUnitTooltip.style.left = `${left}px`;
+  els.battleUnitTooltip.style.top = `${top}px`;
+  els.battleUnitTooltip.classList.remove("hidden");
+}
+
+function refreshFocusedBattleUnitFromPointer() {
+  if (!state.hover.shiftHeld || !state.battle || !state.hover.insideCanvas) return;
+  const viewport = getViewport();
+  const hovered = findHoveredBattleUnit(state.battle, viewport, state.hover.canvasX, state.hover.canvasY);
+  if (hovered) state.hover.focusedUnitId = hovered.id;
+}
+
+function onWindowKeyDown(event) {
+  if (event.key !== "Shift") return;
+  state.hover.shiftHeld = true;
+  refreshFocusedBattleUnitFromPointer();
+}
+
+function onWindowKeyUp(event) {
+  if (event.key !== "Shift") return;
+  state.hover.shiftHeld = false;
+  state.hover.focusedUnitId = null;
+  clearBattleHover();
+}
+
+function onWindowBlur() {
+  state.hover.shiftHeld = false;
+  state.hover.focusedUnitId = null;
+  clearBattleHover();
+}
+
 function onCanvasPointerDown(event) {
   markCameraManual();
   state.camera.isDragging = true;
@@ -4623,6 +4848,9 @@ function onCanvasPointerDown(event) {
 }
 
 function onCanvasPointerMove(event) {
+  updateBattleHoverPointer(event);
+  if (state.hover.insideCanvas) markCameraManual();
+  refreshFocusedBattleUnitFromPointer();
   if (!state.camera.isDragging || !state.battle) return;
   const viewport = getViewport();
   const scale = getBaseScale(viewport) * state.camera.zoom;
@@ -4720,6 +4948,7 @@ function worldToScreen(x, y, viewport) {
 function render() {
   if (!state.battle) return;
   const viewport = getViewport();
+  const hoveredUnit = refreshBattleHover(viewport);
   ctx.clearRect(0, 0, viewport.width, viewport.height);
   drawField(viewport, state.battle);
   drawGroundDecor(viewport, state.battle);
@@ -4737,6 +4966,7 @@ function render() {
   drawParticles(viewport, state.battle.particles);
   drawWeather(viewport, state.battle);
   drawBattleHealthChart(state.battle);
+  renderBattleUnitTooltip(hoveredUnit, state.battle, viewport);
 }
 
 function initializeBattleHealthTimeline(battle) {
@@ -5534,13 +5764,13 @@ function drawUnits(viewport, factions) {
   const units = factions.flatMap((faction) => faction.units.filter((unit) => !unit.dead && !unit.fled).map((unit) => ({ ...unit, factionColor: faction.color }))).sort((a, b) => a.y - b.y);
   units.forEach((unit) => {
     const unitDef = getUnitDefinition(unit);
-    const pose = getUnitRenderPose(unit, viewport);
+    const { pose, renderScale, healthBarY, hpWidth } = getUnitHoverMetrics(unit, viewport);
     const { point, scale, bodyY } = pose;
-    const renderScale = scale * getUnitRenderScale(unit);
     const strideOffset = unit.stride * 2.8 * scale / 2.1;
     const main = unit.factionColor;
     const dark = shadeColor(main, -0.28);
     const light = shadeColor(main, 0.26);
+    const isHovered = state.hover.focusedUnitId === unit.id && state.hover.shiftHeld;
     ctx.fillStyle = "rgba(0,0,0,0.22)";
     ctx.beginPath();
     ctx.ellipse(point.x, point.y + 10 * scale / 2.1, (10 + Math.abs(unit.stride) * 1.6) * renderScale / 2.1, (5 - unit.bob * 0.9) * renderScale / 2.1, 0, 0, Math.PI * 2);
@@ -5548,6 +5778,7 @@ function drawUnits(viewport, factions) {
     if (unit.type === "inklord") {
       drawInkLordGroundAura(point, scale, unit);
     }
+    if (isHovered) drawHoveredUnitGlow(unit, pose, renderScale, light);
     ctx.save();
     ctx.globalAlpha = unitDef.getRenderAlpha ? unitDef.getRenderAlpha(unit, unitDef) : 1;
     ctx.translate(point.x + strideOffset * unit.displayFacingX * 0.35, bodyY);
@@ -5558,16 +5789,59 @@ function drawUnits(viewport, factions) {
     }
     drawUnitStatusOverlay(unit, renderScale);
     ctx.restore();
-    const hpWidth = unitDef.healthBarWidth || 20;
     drawUnitStatusBadges(unit, point.x + 16 * renderScale / 2.1, bodyY - 30 * renderScale / 2.1, scale);
-    const healthBarY = unit.type === "inklord"
-      ? bodyY - 156 * scale / 2.1
-      : bodyY - 24 * scale / 2.1;
     ctx.fillStyle = "rgba(37,24,16,0.5)";
-    ctx.fillRect(point.x - hpWidth * renderScale / 4.2, healthBarY, hpWidth * renderScale / 2.1, 4 * scale / 2.1);
+    ctx.fillRect(point.x - hpWidth / 2, healthBarY, hpWidth, 4 * scale / 2.1);
     ctx.fillStyle = unit.health / unit.maxHealth > 0.4 ? "#9ae085" : "#e7915d";
-    ctx.fillRect(point.x - hpWidth * renderScale / 4.2, healthBarY, hpWidth * renderScale / 2.1 * (unit.health / unit.maxHealth), 4 * scale / 2.1);
+    ctx.fillRect(point.x - hpWidth / 2, healthBarY, hpWidth * (unit.health / unit.maxHealth), 4 * scale / 2.1);
+    if (isHovered) drawHoveredUnitLabels(unit, pose, renderScale, healthBarY, hpWidth);
   });
+}
+
+function drawHoveredUnitGlow(unit, pose, renderScale, glowColor) {
+  const pulse = 0.55 + Math.max(0, Math.sin((state.battle?.time || 0) * 5.4 + unit.statusVisualSeed)) * 0.35;
+  const radiusX = (unit.type === "inklord" ? 34 : 17) * renderScale / 2.1;
+  const radiusY = (unit.type === "inklord" ? 54 : 25) * renderScale / 2.1;
+  ctx.save();
+  ctx.shadowColor = hexToRgba(glowColor, 0.9);
+  ctx.shadowBlur = 20 * renderScale / 2.1;
+  ctx.strokeStyle = hexToRgba(glowColor, 0.45 + pulse * 0.28);
+  ctx.lineWidth = Math.max(2, 3 * renderScale / 2.1);
+  ctx.beginPath();
+  ctx.ellipse(pose.point.x, pose.bodyY - 10 * renderScale / 2.1, radiusX, radiusY, 0, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.fillStyle = hexToRgba(glowColor, 0.08 + pulse * 0.08);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawHoveredUnitLabels(unit, pose, renderScale, healthBarY, hpWidth) {
+  const name = `${getUnitDefinition(unit).name}${unit.veteran ? " Veteran" : ""}`;
+  const healthText = `${formatHoverStatNumber(unit.health)} / ${formatHoverStatNumber(unit.maxHealth)}`;
+  const paddingX = 8 * pose.scale / 2.1;
+  const pillHeight = 16 * pose.scale / 2.1;
+  ctx.save();
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.font = `700 ${Math.max(10, 12 * pose.scale / 2.1)}px Manrope`;
+  const nameWidth = ctx.measureText(name).width + paddingX * 2;
+  roundRect(ctx, pose.point.x - nameWidth / 2, healthBarY - 28 * pose.scale / 2.1, nameWidth, pillHeight, 999);
+  ctx.fillStyle = "rgba(28, 22, 16, 0.86)";
+  ctx.fill();
+  ctx.strokeStyle = "rgba(255, 236, 196, 0.22)";
+  ctx.lineWidth = 1.2 * pose.scale / 2.1;
+  ctx.stroke();
+  ctx.fillStyle = "#fff6e6";
+  ctx.fillText(name, pose.point.x, healthBarY - 20 * pose.scale / 2.1);
+  roundRect(ctx, pose.point.x - hpWidth / 2, healthBarY - 13 * pose.scale / 2.1, hpWidth, pillHeight, 999);
+  ctx.fillStyle = "rgba(22, 18, 14, 0.9)";
+  ctx.fill();
+  ctx.strokeStyle = "rgba(255, 236, 196, 0.16)";
+  ctx.stroke();
+  ctx.fillStyle = "#fff0dc";
+  ctx.font = `700 ${Math.max(9, 10 * pose.scale / 2.1)}px Manrope`;
+  ctx.fillText(healthText, pose.point.x, healthBarY - 5 * pose.scale / 2.1);
+  ctx.restore();
 }
 
 function drawInkLordGroundAura(point, scale, unit) {
@@ -5692,16 +5966,17 @@ function breakCanvasWord(word, maxWidth) {
 }
 
 function roundRect(context, x, y, width, height, radius) {
+  const safeRadius = Math.max(0, Math.min(radius, width / 2, height / 2));
   context.beginPath();
-  context.moveTo(x + radius, y);
-  context.lineTo(x + width - radius, y);
-  context.quadraticCurveTo(x + width, y, x + width, y + radius);
-  context.lineTo(x + width, y + height - radius);
-  context.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
-  context.lineTo(x + radius, y + height);
-  context.quadraticCurveTo(x, y + height, x, y + height - radius);
-  context.lineTo(x, y + radius);
-  context.quadraticCurveTo(x, y, x + radius, y);
+  context.moveTo(x + safeRadius, y);
+  context.lineTo(x + width - safeRadius, y);
+  context.quadraticCurveTo(x + width, y, x + width, y + safeRadius);
+  context.lineTo(x + width, y + height - safeRadius);
+  context.quadraticCurveTo(x + width, y + height, x + width - safeRadius, y + height);
+  context.lineTo(x + safeRadius, y + height);
+  context.quadraticCurveTo(x, y + height, x, y + height - safeRadius);
+  context.lineTo(x, y + safeRadius);
+  context.quadraticCurveTo(x, y, x + safeRadius, y);
   context.closePath();
 }
 

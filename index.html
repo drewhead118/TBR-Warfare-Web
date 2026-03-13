@@ -88,6 +88,7 @@
             <div id="battleHealthChart" class="battle-health-chart" aria-label="Faction health share over time">
               <canvas id="battleHealthChartCanvas" width="220" height="118"></canvas>
             </div>
+            <div id="battleUnitTooltip" class="battle-unit-tooltip hidden" aria-live="polite"></div>
             <div id="battleTicker" class="ticker">Awaiting armies.</div>
             <div id="bossAnnouncement" class="boss-announcement" aria-live="assertive"></div>
             <div id="knockoutAnnouncement" class="knockout-announcement" aria-live="polite"></div>
@@ -146,8 +147,7 @@
         </section>
       </div>
       <div class="button-row">
-        <button id="saveCompositionBtn" class="primary">Save Composition</button>
-        <button id="cancelCompositionBtn" class="ghost">Cancel</button>
+        <button id="cancelCompositionBtn" class="ghost">Close</button>
       </div>
     </div>
   </div>

@@ -445,6 +445,71 @@ canvas.is-dragging { cursor: grabbing; }
   padding-top: 16px;
   z-index: 2;
 }
+.battle-unit-tooltip {
+  position: absolute;
+  min-width: 220px;
+  max-width: min(320px, calc(100% - 28px));
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(24, 20, 16, 0.94);
+  border: 1px solid rgba(255, 236, 196, 0.16);
+  box-shadow: 0 18px 34px rgba(0, 0, 0, 0.34);
+  backdrop-filter: blur(6px);
+  color: var(--text-main);
+  transform: translate(14px, -50%);
+  opacity: 1;
+  transition: opacity 140ms ease;
+}
+.battle-unit-tooltip.hidden {
+  opacity: 0;
+}
+.battle-unit-tooltip-header {
+  display: grid;
+  gap: 2px;
+  margin-bottom: 8px;
+}
+.battle-unit-tooltip h3,
+.battle-unit-tooltip p,
+.battle-unit-tooltip ul {
+  margin: 0;
+}
+.battle-unit-tooltip h3 {
+  font-size: 0.95rem;
+}
+.battle-unit-tooltip-faction {
+  color: var(--accent-soft);
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.battle-unit-tooltip-health {
+  color: var(--text-muted);
+  font-size: 0.84rem;
+}
+.battle-unit-tooltip ul {
+  display: grid;
+  gap: 8px;
+  padding: 0;
+  list-style: none;
+}
+.battle-unit-tooltip li {
+  display: grid;
+  gap: 2px;
+}
+.battle-unit-tooltip-status {
+  color: var(--text-main);
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+.battle-unit-tooltip-copy {
+  color: var(--text-muted);
+  font-size: 0.79rem;
+  line-height: 1.4;
+}
+.battle-unit-tooltip-empty {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
 .battle-health-chart {
   position: absolute;
   bottom: 14px;
@@ -819,6 +884,8 @@ canvas.is-dragging { cursor: grabbing; }
   background: rgba(255, 241, 217, 0.05);
 }
 .selected-unit {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
   background:
     linear-gradient(180deg, rgba(197, 240, 175, 0.08), rgba(255, 241, 217, 0.05)),
     rgba(255, 241, 217, 0.05);
@@ -910,13 +977,36 @@ canvas.is-dragging { cursor: grabbing; }
 .unit-icon-arachnomist { color: #8cc15c; }
 .unit-icon-spiderswarm { color: #8cc15c; }
 .selected-unit input {
-  width: 84px;
+  width: 100%;
+  min-width: 0;
 }
 .unit-actions {
   align-self: center;
 }
-.selected-unit .button-row {
+.unit-actions-active {
+  display: grid;
+  grid-template-columns: minmax(92px, 124px) minmax(120px, 152px);
+  gap: 10px;
   align-self: stretch;
+  justify-content: start;
+}
+.unit-quantity-field {
+  display: grid;
+  gap: 6px;
+}
+.unit-quantity-field span {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.unit-quantity-field input,
+.unit-actions-active button {
+  min-height: 42px;
+}
+.unit-actions-active button {
+  align-self: end;
+  margin-top: auto;
 }
 @keyframes composition-card-enter {
   0% {
@@ -952,6 +1042,10 @@ canvas.is-dragging { cursor: grabbing; }
   }
   .unit-actions {
     justify-self: start;
+  }
+  .unit-actions-active {
+    grid-template-columns: minmax(92px, 124px) minmax(112px, 1fr);
+    width: 100%;
   }
 }
 .winner-card {
