@@ -18,7 +18,8 @@ Then open [http://127.0.0.1:4173/index.html](http://127.0.0.1:4173/index.html).
 
 - `submissionType`: `digital` or `paperback`
 - `composition`: optional free-form unit mix such as `mage:2, archer:3, knight:5`
-- If `composition` is omitted or blank, the importer defaults to `archer:1, mage:1, knight:1`
+- Use `default` for the standard `archer:1, mage:1, knight:1` mix, or leave it blank for the same result
+- Use `random` to generate an 8-draw random mix during import
 - Unknown unit names inside the composition string are ignored so the row still imports
 - `fledReserve`: routed units that rejoin on the next run
 

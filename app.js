@@ -745,6 +745,29 @@ function cloneData(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
+function createEmptyComposition() {
+  return Object.fromEntries(UNIT_LIBRARY.map((unit) => [unit.id, 0]));
+}
+
+function createRandomComposition(draws = 8) {
+  const composition = createEmptyComposition();
+  if (!UNIT_LIBRARY.length || draws <= 0) return composition;
+  for (let index = 0; index < draws; index += 1) {
+    const selectedUnits = UNIT_LIBRARY.filter((unit) => composition[unit.id] > 0);
+    const unselectedUnits = UNIT_LIBRARY.filter((unit) => composition[unit.id] <= 0);
+    const rollSlots = selectedUnits.length + (unselectedUnits.length ? 1 : 0);
+    if (!rollSlots) break;
+    const roll = Math.floor(Math.random() * rollSlots);
+    if (roll < selectedUnits.length) {
+      composition[selectedUnits[roll].id] += 1;
+      continue;
+    }
+    const nextUnit = unselectedUnits[Math.floor(Math.random() * unselectedUnits.length)];
+    if (nextUnit) composition[nextUnit.id] += 1;
+  }
+  return composition;
+}
+
 function withFactionDefaults(faction, index = 0) {
   return {
     id: faction.id || `faction-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 7)}`,
@@ -1031,6 +1054,9 @@ function parseRowComposition(row) {
 
 function parseCompositionString(text) {
   if (!text?.trim()) return { ...DEFAULT_COMPOSITION };
+  const normalizedText = text.trim().toLowerCase();
+  if (normalizedText === "default") return { ...DEFAULT_COMPOSITION };
+  if (normalizedText === "random") return createRandomComposition();
   const parsed = {};
   const tokens = text
     .split(/[,\n;]+/)
@@ -1267,6 +1293,19 @@ function renderCompositionModal() {
 
   els.compositionSelected.innerHTML = activeUnits.map((unit) => buildCompositionUnitCard(unit, "active", draft[unit.id], state.compositionModal.pendingTransfer)).join("")
     || '<p class="hint">Select one or more units to define the faction mix.</p>';
+
+  const randomizeButton = document.getElementById("compositionRandomizeBtn");
+  if (randomizeButton) {
+    randomizeButton.onclick = () => {
+      const randomComposition = createRandomComposition();
+      Object.keys(draft).forEach((unitId) => {
+        draft[unitId] = 0;
+      });
+      Object.assign(draft, randomComposition);
+      persistCompositionDraft();
+      renderCompositionModal();
+    };
+  }
 
   els.compositionResults.querySelectorAll("[data-add-unit]").forEach((button) => {
     button.addEventListener("click", () => {

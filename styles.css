@@ -865,6 +865,13 @@ canvas.is-dragging { cursor: grabbing; }
   gap: 10px;
   align-content: start;
 }
+.composition-quick-actions {
+  display: grid;
+  gap: 8px;
+}
+.composition-quick-actions .hint {
+  margin: 0;
+}
 .unit-card {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

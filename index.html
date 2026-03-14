@@ -57,7 +57,7 @@
             <h2>Queue Data</h2>
             <span>CSV in, CSV out</span>
           </div>
-          <p class="hint">CSV columns: <code>title,coverUrl,armySize,submissionType,composition,fledReserve</code>. Leave <code>composition</code> blank for the default <code>archer:1, mage:1, knight:1</code>.</p>
+          <p class="hint">CSV columns: <code>title,coverUrl,armySize,submissionType,composition,fledReserve</code>. Leave <code>composition</code> blank or use <code>default</code> for <code>archer:1, mage:1, knight:1</code>, or use <code>random</code> for an 8-draw random mix.</p>
           <input id="csvFileInput" type="file" accept=".csv,text/csv">
           <textarea id="csvInput" rows="7" spellcheck="false"></textarea>
           <div class="button-row">
@@ -131,6 +131,9 @@
               <h3 id="compositionSelectedHeading">Current roster</h3>
             </div>
             <span id="compositionSelectedCount" class="composition-column-count">0 selected</span>
+          </div>
+          <div class="composition-quick-actions">
+            <button id="compositionRandomizeBtn" class="secondary small" type="button">Randomize</button>
           </div>
           <div id="compositionSelected" class="composition-selected"></div>
         </section>
