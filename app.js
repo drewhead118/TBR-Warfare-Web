@@ -50,7 +50,7 @@ const INKLORD_TAUNTS = [
   "You are but a footnote in my shadow!",
   "You're on my T.B.R.: To Be Removed!",
 ];
-const DEFAULT_COMPOSITION = { archer: 1, mage: 1, knight: 1, bodyguard: 0, medic: 0, bomber: 0, assassin: 0, mountainman: 0, catapult: 0, poisoner: 0, firebreather: 0, necromancer: 0, graverobber: 0, arachnomist: 0, krieger: 0 };
+const DEFAULT_COMPOSITION = { archer: 1, mage: 1, knight: 1, bodyguard: 0, medic: 0, bomber: 0, assassin: 0, mountainman: 0, catapult: 0, poisoner: 0, firebreather: 0, necromancer: 0, graverobber: 0, arachnomist: 0, krieger: 0, huntsman: 0 };
 const UNIT_SPRITE_CANDIDATE_PATHS = [
   (unitId) => `assets/unit-sprites/${unitId}.png`,
   (unitId) => `assets/units/${unitId}.png`,
@@ -87,6 +87,7 @@ const UNIT_SPRITE_LAYOUTS = {
   graverobber: { height: 40, anchorX: 0.5, anchorY: 0.88 },
   arachnomist: { height: 41, anchorX: 0.5, anchorY: 0.88 },
   krieger: { height: 60, anchorX: 0.5, anchorY: 0.92 },
+  huntsman: { height: 42, anchorX: 0.5, anchorY: 0.88 },
   spiderswarm: { height: 26, anchorX: 0.5, anchorY: 0.92 },
 };
 const UNIT_SPRITE_TINT_ALPHA = 0.56;
@@ -176,6 +177,28 @@ const STATUS_DEFINITIONS = {
     dps: 0,
     badgeColor: "#d76767",
     accentColor: "#ffe0db",
+  },
+  immobilized: {
+    kind: "immobilized",
+    name: "Immobilized",
+    negative: true,
+    stackable: false,
+    defaultDuration: 6,
+    tickInterval: 1,
+    dps: 0,
+    badgeColor: "#85bed7",
+    accentColor: "#e4f8ff",
+  },
+  bleed: {
+    kind: "bleed",
+    name: "Bleeding",
+    negative: true,
+    stackable: true,
+    defaultDuration: Infinity,
+    tickInterval: 1,
+    dps: 1,
+    badgeColor: "#b95a63",
+    accentColor: "#ffd7dc",
   },
 };
 const DEFAULT_PROP_WEIGHTS = {
@@ -448,6 +471,23 @@ const UNIT_DEFINITIONS = {
     render: drawKrieger,
     veteran: { metric: "kills", threshold: 3, label: "Score 3 kills" },
   },
+  huntsman: {
+    id: "huntsman",
+    name: "Huntsman",
+    keywords: ["net", "crossbow", "knife", "bleed", "hunter", "snare"],
+    description: "Huntsmen are patient controllers. They pin targets down with a thrown net, then try to finish the setup with a thrown hunting knife that is hard to land on moving prey but reliable against enemies already trapped in place. Each knife hit is light, yet it leaves a lasting bleed until a support unit cleanses it.",
+    stats: { maxHealth: 68, speed: 36, range: 220, netRange: 220, netDuration: 6, damage: 5, cooldown: 3.2 },
+    healthBarWidth: 22,
+    iconPaths: getHuntsmanIconSvgPaths,
+    beforeStep: updateHuntsmanState,
+    managesOwnCooldown: true,
+    getAttackRange: getHuntsmanAttackRange,
+    selectTarget: selectHuntsmanTarget,
+    getDesiredDestination: getRetreatingDestination(112, 0.96),
+    performAttack: performHuntsmanAttack,
+    render: drawHuntsman,
+    veteran: { metric: "damage", threshold: 150, label: "Deal 150 damage" },
+  },
   spiderswarm: {
     id: "spiderswarm",
     name: "Spider Swarm",
@@ -535,6 +575,18 @@ const PROJECTILE_DEFINITIONS = {
     update: updateStandardProjectile,
     resolve: resolvePoisonBottleProjectile,
     render: drawPoisonBottleProjectile,
+  },
+  net: {
+    arcHeight: 38,
+    update: updateStandardProjectile,
+    resolve: resolveNetProjectile,
+    render: drawNetProjectile,
+  },
+  huntingKnife: {
+    arcHeight: 18,
+    update: updateStandardProjectile,
+    resolve: resolveHuntingKnifeProjectile,
+    render: drawHuntingKnifeProjectile,
   },
   catapultStone: {
     arcHeight: 120,
@@ -1012,6 +1064,17 @@ function getKriegerIconSvgPaths() {
   `;
 }
 
+function getHuntsmanIconSvgPaths() {
+  return `
+    <path fill="rgba(46, 37, 26, 0.96)" d="M0 -16 L10 -6 L8 12 L-8 12 L-10 -6 Z"></path>
+    <path fill="currentColor" d="M0 -13 L7 -5 L6 11 L-6 11 L-7 -5 Z"></path>
+    <circle cx="0" cy="-14" r="4.8" fill="rgba(255,248,235,0.7)"></circle>
+    <path d="M8 -3 L17 -7 L17 1 L8 5" fill="none" stroke="rgba(78,40,18,0.92)" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"></path>
+    <path d="M-8 -1 L-14 -7 L-12 8" fill="none" stroke="rgba(181, 214, 224, 0.9)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path>
+    <path d="M-4 -18 L-8 -22 M4 -18 L8 -22" fill="none" stroke="rgba(78,40,18,0.86)" stroke-width="1.8" stroke-linecap="round"></path>
+  `;
+}
+
 function getSpiderSwarmIconSvgPaths() {
   return `
     <ellipse cx="0" cy="2" rx="7.5" ry="5.5" fill="currentColor"></ellipse>
@@ -1118,6 +1181,7 @@ function parseRowComposition(row) {
     firebreather: row.firebreather ?? row.firebreathers,
     arachnomist: row.arachnomist ?? row.arachnomists,
     krieger: row.krieger ?? row.kriegers,
+    huntsman: row.huntsman ?? row.huntsmen,
   };
 }
 
@@ -2345,10 +2409,10 @@ function scaleVeteranStat(stat, value) {
   if (typeof value !== "number") return value;
   if (stat === "maxHealth") return value * VETERAN_BONUSES.maxHealth;
   if (["damage", "heal", "backstabDamage", "slashDamage", "impulseDamage", "holdDamage", "poisonDamage", "igniteDamage", "biteDamage", "biteHeal", "regenPerSecond"].includes(stat)) return value * VETERAN_BONUSES.power;
-  if (["range", "abductRange", "splash", "deathSplash", "impulseRange", "impulseDistance", "holdRange", "resetRadius", "contagionRadius", "raiseRange", "graveRange", "graveDeadZone", "auraRadius", "aggroRadius"].includes(stat)) return value * VETERAN_BONUSES.radius;
+  if (["range", "abductRange", "splash", "deathSplash", "impulseRange", "impulseDistance", "holdRange", "resetRadius", "contagionRadius", "raiseRange", "graveRange", "graveDeadZone", "auraRadius", "aggroRadius", "netRange", "pierceWidth"].includes(stat)) return value * VETERAN_BONUSES.radius;
   if (stat === "speed") return value * VETERAN_BONUSES.speed;
   if (stat === "cooldown") return value * VETERAN_BONUSES.cooldown;
-  if (["holdDuration", "poisonDuration", "igniteDuration", "breathDuration"].includes(stat)) return value * VETERAN_BONUSES.duration;
+  if (["holdDuration", "poisonDuration", "igniteDuration", "breathDuration", "netDuration"].includes(stat)) return value * VETERAN_BONUSES.duration;
   return value;
 }
 
@@ -2356,10 +2420,10 @@ function scaleZombieStat(stat, value) {
   if (typeof value !== "number") return value;
   if (stat === "maxHealth") return value * ZOMBIE_PENALTIES.maxHealth;
   if (["damage", "heal", "backstabDamage", "slashDamage", "impulseDamage", "holdDamage", "poisonDamage", "igniteDamage", "biteDamage", "biteHeal", "regenPerSecond"].includes(stat)) return value * ZOMBIE_PENALTIES.power;
-  if (["range", "abductRange", "splash", "deathSplash", "impulseRange", "impulseDistance", "holdRange", "resetRadius", "contagionRadius", "raiseRange", "graveRange", "graveDeadZone", "auraRadius", "aggroRadius"].includes(stat)) return value * ZOMBIE_PENALTIES.radius;
+  if (["range", "abductRange", "splash", "deathSplash", "impulseRange", "impulseDistance", "holdRange", "resetRadius", "contagionRadius", "raiseRange", "graveRange", "graveDeadZone", "auraRadius", "aggroRadius", "netRange", "pierceWidth"].includes(stat)) return value * ZOMBIE_PENALTIES.radius;
   if (stat === "speed") return value * ZOMBIE_PENALTIES.speed;
   if (stat === "cooldown") return value * ZOMBIE_PENALTIES.cooldown;
-  if (["holdDuration", "poisonDuration", "igniteDuration", "breathDuration"].includes(stat)) return value * ZOMBIE_PENALTIES.duration;
+  if (["holdDuration", "poisonDuration", "igniteDuration", "breathDuration", "netDuration"].includes(stat)) return value * ZOMBIE_PENALTIES.duration;
   return value;
 }
 
@@ -2555,6 +2619,8 @@ function makeUnit(factionId, type, x, y) {
     hostileToAll: Boolean(unitDef.hostileToAll),
     spawnInvulnerable: false,
     tauntCooldown: 0,
+    huntsmanKnifeCooldown: 0,
+    huntsmanNetCooldown: 0,
   };
 }
 
@@ -3160,10 +3226,14 @@ function updateUnit(unit, faction, battle, dt) {
       unit.vx *= 0.84;
       unit.vy *= 0.84;
     }
-    unit.cooldown -= dt;
-    if (unit.cooldown <= 0) {
+    if (!unitDef.managesOwnCooldown) {
+      unit.cooldown -= dt;
+    }
+    if (unitDef.managesOwnCooldown || unit.cooldown <= 0) {
       unitDef.performAttack?.({ unit, target, battle, unitDef });
-      unit.cooldown = stats.cooldown * (0.8 + Math.random() * 0.5);
+      if (!unitDef.managesOwnCooldown) {
+        unit.cooldown = stats.cooldown * (0.8 + Math.random() * 0.5);
+      }
     }
   }
 
@@ -3209,6 +3279,7 @@ function getAttackRange(unit, unitDef = getUnitDefinition(unit)) {
 
 function getUnitMoveSpeed(unit, unitDef = getUnitDefinition(unit)) {
   const stats = getUnitStats(unit, unitDef);
+  if (getUnitStatus(unit, "immobilized")) return 0;
   if (unitDef.getMoveSpeed) return unitDef.getMoveSpeed(unit, unitDef);
   return stats.speed * (0.42 + 0.58 * (unit.health / unit.maxHealth));
 }
@@ -3553,6 +3624,39 @@ function selectKriegerTarget({ unit, enemies, battle }) {
     }
   });
   return best;
+}
+
+function getHuntsmanAttackRange(unitDef, unit) {
+  const stats = getUnitStats(unit, unitDef);
+  return Math.max(stats.range, stats.netRange);
+}
+
+function selectHuntsmanTarget({ unit, enemies, unitDef }) {
+  const stats = getUnitStats(unit, unitDef);
+  const unpinned = enemies.filter((enemy) => !getUnitStatus(enemy, "immobilized"));
+  const netCandidates = unpinned.filter((enemy) => Math.hypot(enemy.x - unit.x, enemy.y - unit.y) <= stats.netRange);
+  const pool = netCandidates.length ? netCandidates : enemies;
+  let best = pool[0] || null;
+  let bestScore = Infinity;
+  pool.forEach((enemy) => {
+    const distance = Math.hypot(enemy.x - unit.x, enemy.y - unit.y);
+    const healthBias = enemy.health / Math.max(1, enemy.maxHealth);
+    const pinBias = getUnitStatus(enemy, "immobilized") ? 36 : 0;
+    const score = distance + healthBias * 18 + pinBias;
+    if (score < bestScore) {
+      best = enemy;
+      bestScore = score;
+    }
+  });
+  unit.focusTargetId = best?.id || null;
+  unit.currentTargetKind = best ? "enemy" : null;
+  unit.currentGraveId = null;
+  return best;
+}
+
+function updateHuntsmanState({ unit, dt }) {
+  unit.huntsmanKnifeCooldown = Math.max(0, (unit.huntsmanKnifeCooldown || 0) - dt);
+  unit.huntsmanNetCooldown = Math.max(0, (unit.huntsmanNetCooldown || 0) - dt);
 }
 
 function updateNecromancerState({ unit, battle }) {
@@ -4235,6 +4339,54 @@ function performPoisonerAttack({ unit, target, battle, unitDef }) {
   });
 }
 
+function performHuntsmanAttack({ unit, target, battle, unitDef }) {
+  const stats = getUnitStats(unit, unitDef);
+  if (!target) return;
+  const distance = Math.hypot(target.x - unit.x, target.y - unit.y);
+  const targetImmobilized = getUnitStatus(target, "immobilized");
+  const canThrowNet = (unit.huntsmanNetCooldown || 0) <= 0;
+  const canThrowKnife = (unit.huntsmanKnifeCooldown || 0) <= 0;
+
+  if (!targetImmobilized && canThrowNet && distance <= stats.netRange && Math.random() < 0.58) {
+    battle.projectiles.push({
+      kind: "net",
+      sourceId: unit.id,
+      progress: 0,
+      duration: clamp(0.42 + distance / 260 + Math.random() * 0.08, 0.45, 1.05),
+      startX: unit.x,
+      startY: unit.y - 18,
+      endX: target.x,
+      endY: target.y - 4,
+      targetId: target.id,
+      netDuration: stats.netDuration,
+    });
+    unit.huntsmanNetCooldown = 4;
+    return;
+  }
+
+  if (!canThrowKnife) return;
+
+  const aimX = target.x;
+  const aimY = target.y;
+  const lineAngle = Math.atan2(aimY - unit.y, aimX - unit.x);
+  battle.projectiles.push({
+    kind: "huntingKnife",
+    sourceId: unit.id,
+    progress: 0,
+    duration: clamp(0.48 + distance / 185 + Math.random() * 0.12, 0.52, 1.45),
+    startX: unit.x + (unit.displayFacingX || 1) * 10,
+    startY: unit.y - 18,
+    endX: aimX,
+    endY: aimY,
+    targetId: target.id,
+    damage: stats.damage,
+    impactAngle: lineAngle,
+    targetStartX: target.x,
+    targetStartY: target.y,
+  });
+  unit.huntsmanKnifeCooldown = 1;
+}
+
 function performMageAttack({ unit, target, battle, unitDef }) {
   const stats = getUnitStats(unit, unitDef);
   const spellExists = battle.spells.some((spell) => spell.sourceId === unit.id || spell.targetId === target.id);
@@ -4549,6 +4701,38 @@ function resolvePoisonBottleProjectile(projectile, battle) {
   spawnBurst(battle, projectile.endX, projectile.endY, "#7be07e", 18);
   battle.particles.push({ kind: "ring", x: projectile.endX, y: projectile.endY, vx: 0, vy: 0, life: 0.42, age: 0, color: "#8af08d", size: projectile.radius * 0.95, lineWidth: 4 });
   setHighlight(`${findFaction(battle, source?.factionId || "")?.title || "A poisoner"} bursts a toxic vial`);
+}
+
+function resolveNetProjectile(projectile, battle) {
+  const source = findUnitById(battle, projectile.sourceId);
+  const target = findUnitById(battle, projectile.targetId);
+  if (target && !target.dead && !target.fled) {
+    applyStatus(target, "immobilized", 1, projectile.netDuration, source, battle);
+    spawnBurst(battle, target.x, target.y - 4, "#d8f2ff", 12);
+    battle.particles.push({ kind: "ring", x: target.x, y: target.y, vx: 0, vy: 0, life: 0.34, age: 0, color: "#a6daef", size: 28, lineWidth: 3 });
+    setHighlight(`${findFaction(battle, source?.factionId || "")?.title || "A huntsman"} snares a target in a net`);
+    return;
+  }
+  spawnBurst(battle, projectile.endX, projectile.endY, "#c8d8df", 6);
+}
+
+function resolveHuntingKnifeProjectile(projectile, battle) {
+  const source = findUnitById(battle, projectile.sourceId);
+  const target = findUnitById(battle, projectile.targetId);
+  if (target && !target.dead && !target.fled && canUnitBeTargeted(target, source)) {
+    const hitRadius = getUnitStatus(target, "immobilized") ? 22 : 7;
+    const targetShift = Math.hypot(target.x - projectile.endX, target.y - projectile.endY);
+    if (targetShift <= hitRadius) {
+      applyDamage(target, projectile.damage, battle, source);
+      applyStatus(target, "bleed", 1, Infinity, source, battle);
+      spawnBurst(battle, target.x, target.y - 6, "#d89a8f", 6);
+      battle.stuckArrows.push({ x: target.x, y: target.y - 1, angle: projectile.impactAngle, life: 0.95, maxLife: 0.95 });
+      setHighlight(`${findFaction(battle, source?.factionId || "")?.title || "A huntsman"} lands a bleeding knife throw`);
+      return;
+    }
+  }
+  spawnBurst(battle, projectile.endX, projectile.endY, "#8c774f", 4);
+  battle.stuckArrows.push({ x: projectile.endX, y: projectile.endY, angle: projectile.impactAngle, life: 1.35, maxLife: 1.35 });
 }
 
 function resolveCatapultProjectile(projectile, battle) {
@@ -5451,14 +5635,21 @@ function getStatusTooltipCopy(unit, status, battle) {
   if (status.kind === "zombie") {
     return "Reanimated thrall. Permanent until destroyed, with reduced max health, damage, speed, and duration-based stats.";
   }
-    if (status.kind === "shielded") {
-      const source = status.sourceId ? findUnitById(battle, status.sourceId) : null;
-      const reduction = (getUnitStats(source || "bodyguard").shieldReduction ?? 0.25) * 100;
-      return `Protected${source ? ` by ${getUnitDefinition(source).name}` : ""}. Reduces incoming direct damage by ${formatHoverStatNumber(reduction)}% for ${formatHoverDuration(status.duration)}.`;
-    }
-    if (status.kind === "bloodfrenzy") {
-      return `Berserk for ${formatHoverDuration(status.duration)}. Attacks the closest unit in reach, including allies.`;
-    }
+  if (status.kind === "shielded") {
+    const source = status.sourceId ? findUnitById(battle, status.sourceId) : null;
+    const reduction = (getUnitStats(source || "bodyguard").shieldReduction ?? 0.25) * 100;
+    return `Protected${source ? ` by ${getUnitDefinition(source).name}` : ""}. Reduces incoming direct damage by ${formatHoverStatNumber(reduction)}% for ${formatHoverDuration(status.duration)}.`;
+  }
+  if (status.kind === "bloodfrenzy") {
+    return `Berserk for ${formatHoverDuration(status.duration)}. Attacks the closest unit in reach, including allies.`;
+  }
+  if (status.kind === "immobilized") {
+    return `Rooted in place for ${formatHoverDuration(status.duration)}. Movement speed is reduced to 0, but attacks can still be made if a target is already in range.`;
+  }
+  if (status.kind === "bleed") {
+    const totalDps = (status.dps ?? definition.dps) * Math.max(1, status.stacks || 1);
+    return `Loses ${formatHoverStatNumber(totalDps)} health per second until cleansed by support. ${Math.max(1, Math.round(status.stacks || 1))} stack${Math.round(status.stacks || 1) === 1 ? "" : "s"}.`;
+  }
   return definition.name;
 }
 
@@ -6409,6 +6600,56 @@ function drawPoisonBottleProjectile({ projectile, point }) {
   ctx.restore();
 }
 
+function drawNetProjectile({ projectile, point }) {
+  ctx.save();
+  ctx.translate(point.x, point.y);
+  ctx.rotate(projectile.progress * 7);
+  ctx.strokeStyle = "rgba(198, 224, 233, 0.95)";
+  ctx.lineWidth = Math.max(1.2, 1.8 * point.scale / 2.1);
+  const size = 9 * point.scale / 2.1;
+  ctx.beginPath();
+  ctx.moveTo(-size, -size);
+  ctx.lineTo(size, size);
+  ctx.moveTo(-size, size);
+  ctx.lineTo(size, -size);
+  ctx.moveTo(-size, 0);
+  ctx.lineTo(size, 0);
+  ctx.moveTo(0, -size);
+  ctx.lineTo(0, size);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawHuntingKnifeProjectile({ projectile, point, viewport }) {
+  const next = getProjectilePoint(projectile, Math.min(1, projectile.progress + 0.03));
+  const nextPoint = worldToScreen(next.x, next.y, viewport);
+  const angle = Math.atan2(nextPoint.y - point.y, nextPoint.x - point.x);
+  ctx.save();
+  ctx.translate(point.x, point.y);
+  ctx.rotate(angle);
+  ctx.strokeStyle = "#4c331b";
+  ctx.lineWidth = Math.max(1.6, 2.2 * point.scale / 2.1);
+  ctx.beginPath();
+  ctx.moveTo(-8 * point.scale / 2.1, 0);
+  ctx.lineTo(7 * point.scale / 2.1, 0);
+  ctx.stroke();
+  ctx.fillStyle = "#d8d3c4";
+  ctx.beginPath();
+  ctx.moveTo(8 * point.scale / 2.1, 0);
+  ctx.lineTo(1.5 * point.scale / 2.1, -3.6 * point.scale / 2.1);
+  ctx.lineTo(1.5 * point.scale / 2.1, 3.6 * point.scale / 2.1);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = "rgba(214, 184, 166, 0.56)";
+  ctx.lineWidth = Math.max(1, 1.2 * point.scale / 2.1);
+  ctx.beginPath();
+  ctx.moveTo(-6 * point.scale / 2.1, -2.8 * point.scale / 2.1);
+  ctx.lineTo(-1.5 * point.scale / 2.1, 0);
+  ctx.lineTo(-6 * point.scale / 2.1, 2.8 * point.scale / 2.1);
+  ctx.stroke();
+  ctx.restore();
+}
+
 function drawCatapultProjectile({ projectile, point, viewport }) {
   const ground = getProjectileGroundPoint(projectile, projectile.progress);
   const groundPoint = worldToScreen(ground.x, ground.y, viewport);
@@ -6491,6 +6732,9 @@ function drawUnits(viewport, factions) {
     const dark = shadeColor(main, -0.28);
     const light = shadeColor(main, 0.26);
     const isHovered = state.hover.focusedUnitId === unit.id && state.hover.shiftHeld;
+    if (getUnitStatus(unit, "immobilized")) {
+      drawImmobilizedGroundNet(point, scale, unit);
+    }
     ctx.fillStyle = "rgba(0,0,0,0.22)";
     ctx.beginPath();
     ctx.ellipse(point.x, point.y + 10 * scale / 2.1, (10 + Math.abs(unit.stride) * 1.6) * renderScale / 2.1, (5 - unit.bob * 0.9) * renderScale / 2.1, 0, 0, Math.PI * 2);
@@ -6516,6 +6760,34 @@ function drawUnits(viewport, factions) {
     ctx.fillRect(point.x - hpWidth / 2, healthBarY, hpWidth * (unit.health / unit.maxHealth), 4 * scale / 2.1);
     if (isHovered) drawHoveredUnitLabels(unit, pose, renderScale, healthBarY, hpWidth);
   });
+}
+
+function drawImmobilizedGroundNet(point, scale, unit) {
+  const pulse = 0.5 + Math.max(0, Math.sin((state.battle?.time || 0) * 5.1 + unit.statusVisualSeed)) * 0.3;
+  const radiusX = 17 * scale / 2.1;
+  const radiusY = 8 * scale / 2.1;
+  const centerY = point.y + 10 * scale / 2.1;
+  ctx.save();
+  ctx.strokeStyle = `rgba(179, 225, 240, ${0.54 + pulse * 0.14})`;
+  ctx.lineWidth = Math.max(1.1, 1.7 * scale / 2.1);
+  ctx.beginPath();
+  ctx.ellipse(point.x, centerY, radiusX, radiusY, 0, 0, Math.PI * 2);
+  ctx.stroke();
+  for (let index = -2; index <= 2; index += 1) {
+    const offset = index * 5.5 * scale / 2.1;
+    ctx.beginPath();
+    ctx.moveTo(point.x - radiusX * 0.82, centerY + offset * 0.32);
+    ctx.lineTo(point.x + radiusX * 0.82, centerY - offset * 0.32);
+    ctx.stroke();
+  }
+  for (let index = -1; index <= 1; index += 1) {
+    const offset = index * 7 * scale / 2.1;
+    ctx.beginPath();
+    ctx.moveTo(point.x + offset, centerY - radiusY * 0.9);
+    ctx.lineTo(point.x - offset, centerY + radiusY * 0.9);
+    ctx.stroke();
+  }
+  ctx.restore();
 }
 
 function drawHoveredUnitGlow(unit, pose, renderScale, glowColor) {
@@ -6901,6 +7173,9 @@ function drawStatusBadge(badge, x, y, scale) {
     if (badge.kind === "ignite") drawIgniteBadgeIcon(scale, badge.accentColor);
     if (badge.kind === "zombie") drawZombieBadgeIcon(scale, badge.accentColor);
     if (badge.kind === "shielded") drawShieldedBadgeIcon(scale, badge.accentColor);
+    if (badge.kind === "bloodfrenzy") drawBloodFrenzyBadgeIcon(scale, badge.accentColor);
+    if (badge.kind === "immobilized") drawImmobilizedBadgeIcon(scale, badge.accentColor);
+    if (badge.kind === "bleed") drawBleedBadgeIcon(scale, badge.accentColor);
   }
   if (badge.stacks > 1) {
     const pipRadius = 4.4 * scale / 2.1;
@@ -7097,6 +7372,63 @@ function drawShieldedBadgeIcon(scale, color) {
   ctx.moveTo(-2.3 * scale / 2.1, 0.4 * scale / 2.1);
   ctx.lineTo(2.3 * scale / 2.1, 0.4 * scale / 2.1);
   ctx.stroke();
+}
+
+function drawBloodFrenzyBadgeIcon(scale, color) {
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(0, -7 * scale / 2.1);
+  ctx.lineTo(4.5 * scale / 2.1, -1.5 * scale / 2.1);
+  ctx.lineTo(1.6 * scale / 2.1, -1.5 * scale / 2.1);
+  ctx.lineTo(5.5 * scale / 2.1, 7 * scale / 2.1);
+  ctx.lineTo(-4.4 * scale / 2.1, 0.8 * scale / 2.1);
+  ctx.lineTo(-1.2 * scale / 2.1, 0.8 * scale / 2.1);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = "rgba(94, 33, 28, 0.94)";
+  ctx.lineWidth = 0.9 * scale / 2.1;
+  ctx.beginPath();
+  ctx.moveTo(-2.8 * scale / 2.1, -4.2 * scale / 2.1);
+  ctx.lineTo(1.2 * scale / 2.1, -0.8 * scale / 2.1);
+  ctx.moveTo(-2.4 * scale / 2.1, 2.4 * scale / 2.1);
+  ctx.lineTo(2.8 * scale / 2.1, 5.2 * scale / 2.1);
+  ctx.stroke();
+}
+
+function drawImmobilizedBadgeIcon(scale, color) {
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1 * scale / 2.1;
+  const size = 6 * scale / 2.1;
+  ctx.beginPath();
+  ctx.moveTo(-size, -size);
+  ctx.lineTo(size, size);
+  ctx.moveTo(-size, size);
+  ctx.lineTo(size, -size);
+  ctx.moveTo(-size, 0);
+  ctx.lineTo(size, 0);
+  ctx.moveTo(0, -size);
+  ctx.lineTo(0, size);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(0, 0, 8 * scale / 2.1, 0, Math.PI * 2);
+  ctx.stroke();
+}
+
+function drawBleedBadgeIcon(scale, color) {
+  const scaled = scale / 2.1;
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(0, -7.2 * scaled);
+  ctx.bezierCurveTo(3.9 * scaled, -4.9 * scaled, 5.9 * scaled, -1.1 * scaled, 5.3 * scaled, 2.2 * scaled);
+  ctx.bezierCurveTo(4.6 * scaled, 5.5 * scaled, 2.2 * scaled, 7.2 * scaled, 0, 7.2 * scaled);
+  ctx.bezierCurveTo(-2.2 * scaled, 7.2 * scaled, -4.6 * scaled, 5.5 * scaled, -5.3 * scaled, 2.2 * scaled);
+  ctx.bezierCurveTo(-5.9 * scaled, -1.1 * scaled, -3.9 * scaled, -4.9 * scaled, 0, -7.2 * scaled);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = "rgba(255, 242, 243, 0.26)";
+  ctx.beginPath();
+  ctx.ellipse(-1.6 * scaled, -1.8 * scaled, 1.5 * scaled, 2.4 * scaled, -0.4, 0, Math.PI * 2);
+  ctx.fill();
 }
 
 function drawMedic(main, dark, light, scale, unit) {
@@ -7304,6 +7636,74 @@ function drawKrieger(main, dark, light, scale, unit) {
     ctx.lineWidth = 2.2 * scale / 2.1;
     ctx.beginPath();
     ctx.arc(0, -2 * scale / 2.1, 17 * scale / 2.1, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+}
+
+function drawHuntsman(main, dark, light, scale, unit) {
+  drawStepLegs(dark, scale, unit, 6.3, 10.4);
+  ctx.fillStyle = shadeColor(main, -0.24);
+  ctx.beginPath();
+  ctx.moveTo(0, -17 * scale / 2.1);
+  ctx.lineTo(10 * scale / 2.1, -6 * scale / 2.1);
+  ctx.lineTo(8 * scale / 2.1, 12 * scale / 2.1);
+  ctx.lineTo(-8 * scale / 2.1, 12 * scale / 2.1);
+  ctx.lineTo(-10 * scale / 2.1, -6 * scale / 2.1);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = shadeColor(main, -0.06);
+  ctx.beginPath();
+  ctx.moveTo(0, -13 * scale / 2.1);
+  ctx.lineTo(7 * scale / 2.1, -5 * scale / 2.1);
+  ctx.lineTo(6 * scale / 2.1, 11 * scale / 2.1);
+  ctx.lineTo(-6 * scale / 2.1, 11 * scale / 2.1);
+  ctx.lineTo(-7 * scale / 2.1, -5 * scale / 2.1);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = light;
+  ctx.beginPath();
+  ctx.arc(0, -14.5 * scale / 2.1, 4.9 * scale / 2.1, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "rgba(37, 29, 20, 0.86)";
+  ctx.beginPath();
+  ctx.moveTo(-5 * scale / 2.1, -16 * scale / 2.1);
+  ctx.lineTo(0, -20.5 * scale / 2.1);
+  ctx.lineTo(5 * scale / 2.1, -16 * scale / 2.1);
+  ctx.lineTo(3 * scale / 2.1, -12.5 * scale / 2.1);
+  ctx.lineTo(-3 * scale / 2.1, -12.5 * scale / 2.1);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = dark;
+  ctx.lineWidth = 2 * scale / 2.1;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.beginPath();
+  ctx.moveTo(6.5 * scale / 2.1, -1 * scale / 2.1);
+  ctx.lineTo(16 * scale / 2.1, -6 * scale / 2.1);
+  ctx.lineTo(16 * scale / 2.1, 1.5 * scale / 2.1);
+  ctx.lineTo(7 * scale / 2.1, 5 * scale / 2.1);
+  ctx.moveTo(-8 * scale / 2.1, -1 * scale / 2.1);
+  ctx.lineTo(-14.5 * scale / 2.1, -7 * scale / 2.1);
+  ctx.lineTo(-12.5 * scale / 2.1, 6.5 * scale / 2.1);
+  ctx.stroke();
+  ctx.fillStyle = "#3d2d1d";
+  ctx.fillRect(8.8 * scale / 2.1, -7.5 * scale / 2.1, 7.2 * scale / 2.1, 8.2 * scale / 2.1);
+  ctx.strokeStyle = "rgba(191, 224, 232, 0.9)";
+  ctx.lineWidth = 1.5 * scale / 2.1;
+  ctx.beginPath();
+  ctx.moveTo(-14.5 * scale / 2.1, -4 * scale / 2.1);
+  ctx.lineTo(-8.8 * scale / 2.1, 1 * scale / 2.1);
+  ctx.lineTo(-12 * scale / 2.1, 8 * scale / 2.1);
+  ctx.moveTo(-12.8 * scale / 2.1, -2.2 * scale / 2.1);
+  ctx.lineTo(-9.6 * scale / 2.1, 3.1 * scale / 2.1);
+  ctx.moveTo(-10.6 * scale / 2.1, -5.2 * scale / 2.1);
+  ctx.lineTo(-14 * scale / 2.1, 0.4 * scale / 2.1);
+  ctx.stroke();
+  if (getUnitStatus(unit, "immobilized")) {
+    ctx.strokeStyle = "rgba(174, 221, 239, 0.72)";
+    ctx.lineWidth = 1.6 * scale / 2.1;
+    ctx.beginPath();
+    ctx.arc(0, 0, 14 * scale / 2.1, 0, Math.PI * 2);
     ctx.stroke();
   }
 }
