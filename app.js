@@ -51,7 +51,8 @@ const INKLORD_TAUNTS = [
   "You are but a footnote in my shadow!",
   "You're on my T.B.R.: To Be Removed!",
 ];
-const DEFAULT_COMPOSITION = { archer: 1, mage: 1, knight: 1, paladin: 0, bodyguard: 0, medic: 0, bard: 0, bomber: 0, assassin: 0, mountainman: 0, catapult: 0, poisoner: 0, firebreather: 0, necromancer: 0, graverobber: 0, arachnomist: 0, krieger: 0, huntsman: 0 };
+const DEFAULT_COMPOSITION = { archer: 1, mage: 1, knight: 1, paladin: 0, bodyguard: 0, medic: 0, bard: 0, bomber: 0, assassin: 0, mountainman: 0, catapult: 0, poisoner: 0, firebreather: 0, necromancer: 0, graverobber: 0, arachnomist: 0, krieger: 0, huntsman: 0, phantom: 0 };
+const MAX_COMPOSITION_UNIT_TYPES = 5;
 const UNIT_SPRITE_CANDIDATE_PATHS = [
   (unitId) => `assets/unit-sprites/${unitId}.png`,
   (unitId) => `assets/units/${unitId}.png`,
@@ -91,6 +92,7 @@ const UNIT_SPRITE_LAYOUTS = {
   arachnomist: { height: 41, anchorX: 0.5, anchorY: 0.88 },
   krieger: { height: 60, anchorX: 0.5, anchorY: 0.92 },
   huntsman: { height: 42, anchorX: 0.5, anchorY: 0.88 },
+  phantom: { height: 44, anchorX: 0.5, anchorY: 0.88 },
   spiderswarm: { height: 26, anchorX: 0.5, anchorY: 0.92 },
 };
 const UNIT_SPRITE_TINT_ALPHA = 0.56;
@@ -235,6 +237,18 @@ const STATUS_DEFINITIONS = {
     dps: 1,
     badgeColor: "#b95a63",
     accentColor: "#ffd7dc",
+  },
+  possessed: {
+    kind: "possessed",
+    name: "Possessed",
+    negative: true,
+    cleansable: false,
+    stackable: false,
+    defaultDuration: Infinity,
+    tickInterval: 1,
+    dps: 0,
+    badgeColor: "#9f87ff",
+    accentColor: "#efe8ff",
   },
 };
 const DEFAULT_PROP_WEIGHTS = {
@@ -402,7 +416,7 @@ const UNIT_DEFINITIONS = {
     getAttackRange: getAssassinAttackRange,
     performAttack: performAssassinAttack,
     afterMove: handleAssassinAfterMove,
-    isTargetable: ({ unit, attacker }) => !(unit.invisible && attacker && attacker.factionId !== unit.factionId),
+    isTargetable: ({ unit, attacker }) => !(unit.invisible && attacker && areUnitsHostile(attacker, unit, state.battle)),
     getRenderAlpha: (unit) => (unit.invisible ? 0.42 : 0.92),
     render: drawAssassin,
     veteran: { metric: "kills", threshold: 3, label: "Score 3 kills" },
@@ -514,7 +528,7 @@ const UNIT_DEFINITIONS = {
     getDesiredDestination: getArachnomistDestination,
     performAttack: performArachnomistAttack,
     render: drawArachnomist,
-    veteran: null,
+    veteran: { metric: "damage", threshold: 150, label: "Deal 150 damage" },
   },
   krieger: {
     id: "krieger",
@@ -566,6 +580,33 @@ const UNIT_DEFINITIONS = {
     getDesiredDestination: getArtificerDestination,
     performAttack: performArtificerAttack,
     render: drawArtificer,
+    veteran: { metric: "damage", threshold: 140, label: "Deal 140 damage" },
+  },
+  phantom: {
+    id: "phantom",
+    name: "Phantom",
+    keywords: ["ghost", "possession", "haunt", "grave", "spirit"],
+    description: "Phantoms drift through the field in a cold arc, hijack enemy bodies, and turn them on their own line. When struck loose they become impotent wraiths, forced to tear through graves before they can possess again.",
+    stats: { maxHealth: 38, speed: 78, range: 18, hauntRange: 260, graveRange: 24, cooldown: 1.2, diveSpeedMultiplier: 1.9 },
+    healthBarWidth: 18,
+    iconPaths: getPhantomIconSvgPaths,
+    leavesGrave: false,
+    canActWithoutEnemies: true,
+    isTargetable: ({ unit }) => !unit.possessedUnitId && !unit.spawnInvulnerable,
+    getRenderAlpha: (unit) => (unit.possessedUnitId ? 0 : 0.88),
+    beforeStep: updatePhantomState,
+    selectTarget: selectPhantomTarget,
+    getAttackRange: getPhantomAttackRange,
+    getMoveSpeed: (unit, unitDef) => {
+      const stats = getUnitStats(unit, unitDef);
+      if (unit.currentTargetKind === "enemy" && !unit.possessedUnitId && (unit.gravesToConsume || 0) <= 0) {
+        return stats.speed * (stats.diveSpeedMultiplier || 1);
+      }
+      return stats.speed;
+    },
+    getDesiredDestination: getPhantomDestination,
+    performAttack: performPhantomAttack,
+    render: drawPhantom,
     veteran: null,
   },
   turret: {
@@ -990,7 +1031,10 @@ function createRandomComposition(draws = 8) {
   if (!UNIT_LIBRARY.length || draws <= 0) return composition;
   for (let index = 0; index < draws; index += 1) {
     const selectedUnits = UNIT_LIBRARY.filter((unit) => composition[unit.id] > 0);
-    const unselectedUnits = UNIT_LIBRARY.filter((unit) => composition[unit.id] <= 0);
+    const canAddNewUnitType = selectedUnits.length < MAX_COMPOSITION_UNIT_TYPES;
+    const unselectedUnits = canAddNewUnitType
+      ? UNIT_LIBRARY.filter((unit) => composition[unit.id] <= 0)
+      : [];
     const rollSlots = selectedUnits.length + (unselectedUnits.length ? 1 : 0);
     if (!rollSlots) break;
     const roll = Math.floor(Math.random() * rollSlots);
@@ -1017,11 +1061,21 @@ function withFactionDefaults(faction, index = 0) {
 }
 
 function normalizeComposition(mix) {
-  const result = {};
-  UNIT_LIBRARY.forEach((unit) => {
-    const raw = mix[unit.id] ?? mix[`${unit.id}s`] ?? 0;
-    result[unit.id] = clampInt(raw, 0, 999);
+  const result = createEmptyComposition();
+  const selectedUnitIds = [];
+
+  Object.entries(mix || {}).forEach(([rawKey, rawValue]) => {
+    const unitId = resolveUnitId(rawKey);
+    if (!unitId) return;
+    const value = clampInt(rawValue, 0, 999);
+    if (value <= 0) return;
+    if (!selectedUnitIds.includes(unitId)) {
+      if (selectedUnitIds.length >= MAX_COMPOSITION_UNIT_TYPES) return;
+      selectedUnitIds.push(unitId);
+    }
+    result[unitId] = value;
   });
+
   if (Object.values(result).every((value) => value <= 0)) {
     return { ...DEFAULT_COMPOSITION };
   }
@@ -1238,6 +1292,16 @@ function getArtificerIconSvgPaths() {
   `;
 }
 
+function getPhantomIconSvgPaths() {
+  return `
+    <path fill="currentColor" d="M0 -17 Q10 -16 11 -5 L11 8 Q8 5 5 8 Q2 11 0 8 Q-2 11 -5 8 Q-8 5 -11 8 L-11 -5 Q-10 -16 0 -17 Z"></path>
+    <path fill="rgba(255,255,255,0.32)" d="M0 -21 Q7 -19 8 -11 Q3 -13 0 -13 Q-3 -13 -8 -11 Q-7 -19 0 -21 Z"></path>
+    <circle cx="-4.5" cy="-6.5" r="1.6" fill="#eff8ff"></circle>
+    <circle cx="4.5" cy="-6.5" r="1.6" fill="#eff8ff"></circle>
+    <path d="M-4 -1 Q0 2 4 -1" fill="none" stroke="rgba(239, 248, 255, 0.92)" stroke-width="1.6" stroke-linecap="round"></path>
+  `;
+}
+
 function getTurretIconSvgPaths() {
   return `
     <rect x="-9" y="-1" width="18" height="10" rx="3" fill="currentColor"></rect>
@@ -1356,6 +1420,7 @@ function parseRowComposition(row) {
     arachnomist: row.arachnomist ?? row.arachnomists,
     krieger: row.krieger ?? row.kriegers,
     huntsman: row.huntsman ?? row.huntsmen,
+    phantom: row.phantom ?? row.phantoms,
   };
 }
 
@@ -1584,6 +1649,7 @@ function renderCompositionModal() {
   if (!draft) return;
   const term = state.compositionModal.search.trim().toLowerCase();
   const activeUnits = UNIT_LIBRARY.filter((unit) => draft[unit.id] > 0);
+  const canAddMoreUnits = activeUnits.length < MAX_COMPOSITION_UNIT_TYPES;
   const available = UNIT_LIBRARY.filter((unit) => {
     if (draft[unit.id] > 0) return false;
     if (!term) return true;
@@ -1593,10 +1659,10 @@ function renderCompositionModal() {
   });
 
   els.compositionResultsCount.textContent = `${available.length} available`;
-  els.compositionSelectedCount.textContent = `${activeUnits.length} selected`;
+  els.compositionSelectedCount.textContent = `${activeUnits.length} of ${MAX_COMPOSITION_UNIT_TYPES} selected`;
 
-  els.compositionResults.innerHTML = available.map((unit) => buildCompositionUnitCard(unit, "available", null, state.compositionModal.pendingTransfer)).join("")
-    || '<p class="hint">No matching units.</p>';
+  els.compositionResults.innerHTML = available.map((unit) => buildCompositionUnitCard(unit, "available", null, state.compositionModal.pendingTransfer, canAddMoreUnits)).join("")
+    || `<p class="hint">${canAddMoreUnits ? "No matching units." : `Unit type limit reached. Remove a unit type to add a different one.`}</p>`;
 
   els.compositionSelected.innerHTML = activeUnits.map((unit) => buildCompositionUnitCard(unit, "active", draft[unit.id], state.compositionModal.pendingTransfer)).join("")
     || '<p class="hint">Select one or more units to define the faction mix.</p>';
@@ -1616,6 +1682,7 @@ function renderCompositionModal() {
 
   els.compositionResults.querySelectorAll("[data-add-unit]").forEach((button) => {
     button.addEventListener("click", () => {
+      if (button.disabled) return;
       const sourceCard = button.closest("[data-unit-card]");
       draft[button.dataset.addUnit] = draft[button.dataset.addUnit] || 1;
       persistCompositionDraft();
@@ -1648,7 +1715,7 @@ function renderCompositionModal() {
   }
 }
 
-function buildCompositionUnitCard(unit, mode, weight = null, pendingTransfer = null) {
+function buildCompositionUnitCard(unit, mode, weight = null, pendingTransfer = null, canAddUnit = true) {
   const isActive = mode === "active";
   const isPendingTarget = pendingTransfer?.direction === "add" && pendingTransfer.unitId === unit.id && isActive;
   const cardClass = isActive ? "selected-unit unit-card" : "unit-result unit-card";
@@ -1664,7 +1731,7 @@ function buildCompositionUnitCard(unit, mode, weight = null, pendingTransfer = n
     `
     : `
       <div class="unit-actions">
-        <button class="ghost small" data-add-unit="${unit.id}">Add Unit</button>
+        <button class="ghost small" data-add-unit="${unit.id}"${canAddUnit ? "" : ' disabled aria-disabled="true" title="You can only select up to 5 unit types."'}>${canAddUnit ? "Add Unit" : "Too Many Unit Types"}</button>
       </div>
     `;
   const veteranMarkup = isActive ? "" : `<p class="unit-veteran-copy">Veteran: ${getVeteranGoalLabel(unit.id)}</p>`;
@@ -2697,6 +2764,119 @@ function recordUnitContribution(unit, metric, amount, battle) {
   tryPromoteUnit(unit, battle);
 }
 
+function removeStatusKind(unit, kind) {
+  if (!unit?.statuses?.length) return false;
+  const before = unit.statuses.length;
+  unit.statuses = unit.statuses.filter((status) => status.kind !== kind);
+  if (kind === "zombie" && before !== unit.statuses.length) syncUnitMaxHealth(unit, false);
+  return unit.statuses.length !== before;
+}
+
+function getContributionCreditOwner(unit, battle) {
+  if (!unit?.summonOwnerId || !battle) return null;
+  const owner = findUnitById(battle, unit.summonOwnerId);
+  if (!owner || owner.dead || owner.fled) return null;
+  return owner;
+}
+
+function getPossessionStatus(unit, battle = null) {
+  const status = getUnitStatus(unit, "possessed");
+  if (!status) return null;
+  if (!battle) return status;
+  const source = status.sourceId ? findUnitById(battle, status.sourceId) : null;
+  if (!source || source.dead || source.fled || source.type !== "phantom") return null;
+  return status;
+}
+
+function getPossessingPhantom(unit, battle) {
+  const possession = getPossessionStatus(unit, battle);
+  return possession?.sourceId ? findUnitById(battle, possession.sourceId) : null;
+}
+
+function getUnitControlFactionId(unit, battle = null) {
+  if (!unit) return null;
+  if (battle && unit.thrallOwnerId) {
+    const owner = findUnitById(battle, unit.thrallOwnerId);
+    if (owner && !owner.dead && !owner.fled) {
+      return getUnitControlFactionId(owner, battle);
+    }
+  }
+  const phantom = battle ? getPossessingPhantom(unit, battle) : null;
+  return phantom?.factionId || unit.factionId;
+}
+
+function areUnitsAllied(unit, other, battle) {
+  if (!unit || !other) return false;
+  if (unit.id === other.id) return true;
+  if (unit.hostileToAll || other.hostileToAll) return false;
+  return getUnitControlFactionId(unit, battle) === getUnitControlFactionId(other, battle);
+}
+
+function areUnitsHostile(unit, other, battle) {
+  if (!unit || !other || unit.id === other.id) return false;
+  if (unit.hostileToAll || other.hostileToAll) return true;
+  return getUnitControlFactionId(unit, battle) !== getUnitControlFactionId(other, battle);
+}
+
+function getUnitDisplayFactionColor(unit, battle) {
+  if (!unit || !battle) return null;
+  if (unit.thrallOwnerId) {
+    const controlFactionId = getUnitControlFactionId(unit, battle);
+    return findFaction(battle, controlFactionId)?.color || findFaction(battle, unit.factionId)?.color || null;
+  }
+  return findFaction(battle, unit.factionId)?.color || null;
+}
+
+function isFinalLivingUnitForFaction(unit, battle) {
+  const faction = findFaction(battle, unit?.factionId);
+  if (!faction) return false;
+  return faction.units.filter((entry) => !entry.dead && !entry.fled).length <= 1;
+}
+
+function ejectPhantomFromHost(phantom, host, battle, options = {}) {
+  if (!phantom || phantom.type !== "phantom") return false;
+  const activeHost = host || (phantom.possessedUnitId ? findUnitById(battle, phantom.possessedUnitId) : null);
+  if (activeHost) {
+    removeStatusKind(activeHost, "possessed");
+    activeHost.fleeing = false;
+    if (options.leaveHostAtOneHp && !activeHost.dead) {
+      activeHost.health = Math.max(1, activeHost.health);
+    }
+  }
+  phantom.possessedUnitId = null;
+  phantom.gravesToConsume = Math.max(phantom.gravesToConsume || 0, options.gravesToConsume ?? 3);
+  phantom.focusTargetId = null;
+  phantom.currentTargetKind = null;
+  phantom.cooldown = Math.max(phantom.cooldown || 0, 0.75);
+  phantom.spawnInvulnerable = true;
+  phantom.invulnerableUntil = Math.max(phantom.invulnerableUntil || 0, (battle?.time || 0) + 1.1);
+  if (activeHost) {
+    phantom.x = clamp(activeHost.x + (Math.random() - 0.5) * 22, 18, battle.field.width - 18);
+    phantom.y = clamp(activeHost.y - 18 + (Math.random() - 0.5) * 12, 18, battle.field.height - 18);
+    phantom.vx = 0;
+    phantom.vy = 0;
+    phantom.z = 14;
+    spawnBurst(battle, activeHost.x, activeHost.y - 12, "#b9adff", 18);
+    battle.particles.push({ kind: "ring", x: activeHost.x, y: activeHost.y - 3, vx: 0, vy: 0, life: 0.42, age: 0, color: "rgba(188, 168, 255, 0.92)", size: 18, lineWidth: 3 });
+  }
+  return true;
+}
+
+function possessUnit(phantom, target, battle) {
+  if (!phantom || phantom.type !== "phantom" || !target || target.dead || target.fled) return false;
+  if (target.type === "inklord" || getPossessionStatus(target, battle)) return false;
+  phantom.possessedUnitId = target.id;
+  phantom.focusTargetId = target.id;
+  phantom.currentTargetKind = "enemy";
+  phantom.cooldown = 0.95;
+  applyStatus(target, "possessed", 1, Infinity, phantom, battle);
+  target.fleeing = false;
+  spawnBurst(battle, target.x, target.y - 10, "#c7bbff", 16);
+  battle.particles.push({ kind: "shockwave", x: target.x, y: target.y - 4, vx: 0, vy: 0, life: 0.34, age: 0, color: "rgba(154, 128, 255, 0.78)", size: 14, startSize: 14, maxSize: 42, lineWidth: 5 });
+  setHighlight(`${findFaction(battle, phantom.factionId)?.title || "A faction"}'s phantom possesses a ${getUnitDefinition(target).name.toLowerCase()}`);
+  return true;
+}
+
 function getVeteranGoalLabel(unitOrType) {
   return getVeteranGoal(unitOrType)?.label || "No veteran promotion";
 }
@@ -2843,6 +3023,11 @@ function makeUnit(factionId, type, x, y) {
     huntsmanNetCooldown: 0,
     constructedTurretId: null,
     builderId: null,
+    summonOwnerId: null,
+    possessedUnitId: null,
+    gravesToConsume: 0,
+    retargetTimer: 0,
+    invulnerableUntil: 0,
     turretAimAngle: 0,
     activeSongKind: null,
     songTimer: 0,
@@ -3187,10 +3372,13 @@ function updateBodyguardAuras(battle) {
     if (!bodyguards.length) return;
     bodyguards.forEach((bodyguard) => {
       const stats = getUnitStats(bodyguard);
-      living.forEach((ally) => {
-        if (Math.hypot(ally.x - bodyguard.x, ally.y - bodyguard.y) <= stats.auraRadius) {
-          applyStatus(ally, "shielded", 1, 0.3, bodyguard, battle);
-        }
+      battle.factions.forEach((entry) => {
+        entry.units.forEach((ally) => {
+          if (ally.dead || ally.fled || !areUnitsAllied(bodyguard, ally, battle)) return;
+          if (Math.hypot(ally.x - bodyguard.x, ally.y - bodyguard.y) <= stats.auraRadius) {
+            applyStatus(ally, "shielded", 1, 0.3, bodyguard, battle);
+          }
+        });
       });
     });
   });
@@ -3204,10 +3392,13 @@ function updateBardAuras(battle) {
     bards.forEach((bard) => {
       const stats = getUnitStats(bard);
       const songKind = bard.activeSongKind || "bardichaste";
-      living.forEach((ally) => {
-        if (Math.hypot(ally.x - bard.x, ally.y - bard.y) <= stats.auraRadius) {
-          applyStatus(ally, songKind, 1, 0.35, bard, battle);
-        }
+      battle.factions.forEach((entry) => {
+        entry.units.forEach((ally) => {
+          if (ally.dead || ally.fled || !areUnitsAllied(bard, ally, battle)) return;
+          if (Math.hypot(ally.x - bard.x, ally.y - bard.y) <= stats.auraRadius) {
+            applyStatus(ally, songKind, 1, 0.35, bard, battle);
+          }
+        });
       });
     });
   });
@@ -3427,19 +3618,21 @@ function updateUnit(unit, faction, battle, dt) {
   }
 
   unit.z += (0 - unit.z) * 0.18;
-  const allies = findFaction(battle, faction.id).units.filter((ally) => (
-    !ally.dead
-    && !ally.fled
-    && (unit.hostileToAll || !ally.hostileToAll || ally.id === unit.id)
-  ));
+  const allies = battle.factions
+    .flatMap((entry) => entry.units)
+    .filter((ally) => !ally.dead && !ally.fled && areUnitsAllied(unit, ally, battle));
   const enemies = getTargetableEnemies(battle, faction.id, unit);
+  const possessed = Boolean(getPossessionStatus(unit, battle));
+  const forcedPossessedFlee = possessed && isFinalLivingUnitForFaction(unit, battle);
   unitDef.beforeStep?.({ unit, faction, battle, allies, enemies, graves, unitDef, dt });
   if (unit.dead || unit.fled) return;
-  if (!enemies.length && !graves.length && !unitDef.canActWithoutEnemies) return;
+  if (!enemies.length && !graves.length && !unitDef.canActWithoutEnemies && !forcedPossessedFlee) return;
   const target = selectUnitTarget(unit, unitDef, enemies, allies, graves, battle);
   const distance = target ? Math.hypot(target.x - unit.x, target.y - unit.y) : 9999;
   const panicThreshold = unit.maxHealth * (0.28 + (1 - unit.bravery) * 0.3);
-  unit.fleeing = unit.health < panicThreshold && Math.random() > unit.bravery * 0.86;
+  unit.fleeing = unit.type === "phantom"
+    ? false
+    : (forcedPossessedFlee || (!possessed && unit.health < panicThreshold && Math.random() > unit.bravery * 0.86));
 
   let destination = getDesiredDestination(unit, unitDef, target, distance, battle, allies, enemies, graves);
   if (unit.fleeing) {
@@ -3504,7 +3697,7 @@ function getTargetableEnemies(battle, factionId, attacker) {
       && !enemy.fled
       && enemy.id !== attacker?.id
       && canUnitBeTargeted(enemy, attacker)
-      && (enemy.factionId !== factionId || enemy.hostileToAll)
+      && areUnitsHostile(attacker, enemy, battle)
     )));
 }
 
@@ -3610,7 +3803,7 @@ function chooseBardSong(unit, allies, enemies, unitDef = getUnitDefinition(unit)
 function selectBardTarget({ unit, enemies, allies, battle }) {
   const nonBardAllies = allies.filter((ally) => ally.id !== unit.id && ally.type !== "bard");
   const escort = unit.focusTargetId ? findUnitById(battle, unit.focusTargetId) : null;
-  if (escort && !escort.dead && !escort.fled && escort.factionId === unit.factionId && escort.type !== "bard") {
+  if (escort && !escort.dead && !escort.fled && areUnitsAllied(unit, escort, battle) && escort.type !== "bard") {
     return escort;
   }
   if (!nonBardAllies.length) {
@@ -3638,7 +3831,7 @@ function getBardDestination({ unit, target, battle, allies, enemies }) {
     };
   }
 
-  const escort = target && target.factionId === unit.factionId && target.type !== "bard" ? target : null;
+  const escort = target && areUnitsAllied(unit, target, battle) && target.type !== "bard" ? target : null;
   if (!escort) {
     const anchor = findFaction(battle, unit.factionId)?.bannerPos || { x: unit.x, y: unit.y };
     return { x: anchor.x, y: anchor.y };
@@ -4087,6 +4280,7 @@ function createArtificerTurret(builder, target, battle) {
     clamp(builder.y + Math.sin(angle) * radius * 0.72, 22, battle.field.height - 22),
   );
   turret.builderId = builder.id;
+  turret.summonOwnerId = builder.id;
   turret.turretAimAngle = angle;
   turret.facing = angle;
   turret.displayFacingX = 1;
@@ -4169,7 +4363,7 @@ function performTurretAttack({ unit, target, battle, unitDef }) {
   battle.factions.forEach((faction) => {
     faction.units.forEach((enemy) => {
       if (enemy.dead || enemy.fled || enemy.id === unit.id) return;
-      if (enemy.factionId === unit.factionId && !enemy.hostileToAll) return;
+      if (!areUnitsHostile(unit, enemy, battle)) return;
       const distance = Math.hypot(enemy.x - target.x, enemy.y - target.y);
       if (distance > stats.splash) return;
       applyDamage(enemy, stats.damage * Math.max(0.45, 1 - distance / stats.splash), battle, unit);
@@ -4400,6 +4594,7 @@ function createSpiderSwarm(arachnomist, grave, battle) {
     spider.veteran = false;
     spider.bravery = 2;
     spider.health = spider.maxHealth;
+    spider.summonOwnerId = arachnomist.id;
     spiders.push(spider);
   }
   faction.units.push(...spiders);
@@ -4480,6 +4675,163 @@ function performSpiderSwarmAttack({ unit, target, battle, unitDef }) {
   applyStatus(target, "poison", stats.poisonStacks, stats.poisonDuration, unit, battle);
   battle.swipes.push({ x: target.x, y: target.y - 4, angle: unit.facing, life: 0.14, maxLife: 0.14, color: "rgba(120, 173, 82, 0.9)" });
   spawnBurst(battle, target.x, target.y - 1, "#8bd266", 4);
+}
+
+function updatePhantomState({ unit, battle, dt }) {
+  if (unit.spawnInvulnerable && (battle.time || 0) >= (unit.invulnerableUntil || 0)) {
+    unit.spawnInvulnerable = false;
+    unit.invulnerableUntil = 0;
+  }
+  unit.retargetTimer = Math.max(0, (unit.retargetTimer || 0) - dt);
+  const host = unit.possessedUnitId ? findUnitById(battle, unit.possessedUnitId) : null;
+  if (host && !host.dead && !host.fled && getPossessingPhantom(host, battle)?.id === unit.id) {
+    unit.x = host.x;
+    unit.y = host.y - 16;
+    unit.vx = 0;
+    unit.vy = 0;
+    unit.z = 18 + Math.sin((battle.time || 0) * 5 + unit.statusVisualSeed) * 5;
+    return;
+  }
+  if (unit.possessedUnitId) {
+    ejectPhantomFromHost(unit, host, battle, { gravesToConsume: 3 });
+  }
+  unit.z = 12 + Math.sin((battle.time || 0) * 4.8 + unit.statusVisualSeed) * 6;
+  unit.rotation = Math.sin((battle.time || 0) * 2.2 + unit.statusVisualSeed * 0.8) * 0.08;
+  const canPossess = (unit.gravesToConsume || 0) <= 0 && !unit.spawnInvulnerable;
+  if (canPossess && Math.random() > 0.42) {
+    battle.particles.push({
+      x: unit.x + (Math.random() - 0.5) * 10,
+      y: unit.y - 8 + Math.random() * 10,
+      vx: (Math.random() - 0.5) * 10,
+      vy: -14 - Math.random() * 10,
+      life: 0.34 + Math.random() * 0.18,
+      age: 0,
+      color: Math.random() > 0.45 ? "#d7d0ff" : "#98f3ff",
+      size: 2 + Math.random() * 3,
+    });
+  }
+}
+
+function selectPhantomTarget({ unit, enemies, graves, battle, unitDef }) {
+  if (unit.possessedUnitId) {
+    unit.currentTargetKind = null;
+    return null;
+  }
+  if ((unit.gravesToConsume || 0) > 0) {
+    const grave = findNearestGrave(unit, graves);
+    unit.currentTargetKind = grave ? "grave" : null;
+    unit.currentGraveId = grave?.id || null;
+    return grave;
+  }
+  const stats = getUnitStats(unit, unitDef);
+  const validTargets = enemies.filter((enemy) => (
+    enemy.type !== "inklord"
+    && !getPossessionStatus(enemy, battle)
+    && !enemy.spawnInvulnerable
+    && Math.hypot(enemy.x - unit.x, enemy.y - unit.y) <= stats.hauntRange
+  ));
+  const pool = validTargets.length
+    ? validTargets
+    : enemies.filter((enemy) => enemy.type !== "inklord" && !getPossessionStatus(enemy, battle) && !enemy.spawnInvulnerable);
+  if (!pool.length) {
+    unit.currentTargetKind = null;
+    return null;
+  }
+  const locked = pool.find((enemy) => enemy.id === unit.focusTargetId);
+  if (locked && unit.retargetTimer > 0) {
+    unit.currentTargetKind = "enemy";
+    return locked;
+  }
+  let target = null;
+  let bestScore = -Infinity;
+  pool.forEach((enemy) => {
+    const distance = Math.hypot(enemy.x - unit.x, enemy.y - unit.y);
+    let nearbyAllies = 0;
+    pool.forEach((other) => {
+      if (other.id === enemy.id) return;
+      if (Math.hypot(other.x - enemy.x, other.y - enemy.y) <= 70) nearbyAllies += 1;
+    });
+    const woundedBias = 1 - (enemy.health / Math.max(1, enemy.maxHealth));
+    const score = nearbyAllies * 18 + woundedBias * 12 - distance * 0.08;
+    if (score > bestScore) {
+      bestScore = score;
+      target = enemy;
+    }
+  });
+  unit.focusTargetId = target?.id || null;
+  unit.retargetTimer = 2.8;
+  unit.currentTargetKind = target ? "enemy" : null;
+  return target;
+}
+
+function getPhantomAttackRange(unitDef, unit) {
+  const stats = getUnitStats(unit, unitDef);
+  return (unit.gravesToConsume || 0) > 0 ? stats.graveRange : stats.range;
+}
+
+function getPhantomDestination({ unit, target, distance, battle, destination, unitDef }) {
+  if (unit.possessedUnitId) return { x: unit.x, y: unit.y };
+  if (!target) {
+    return {
+      x: unit.x + Math.cos((battle.time || 0) * 0.8 + unit.statusVisualSeed) * 18,
+      y: unit.y + Math.sin((battle.time || 0) * 1.1 + unit.statusVisualSeed * 0.7) * 14,
+    };
+  }
+  const stats = getUnitStats(unit, unitDef);
+  if (unit.currentTargetKind === "enemy") {
+    const dx = destination.x - unit.x;
+    const dy = destination.y - unit.y;
+    const length = Math.max(0.001, Math.hypot(dx, dy));
+    const normalX = dx / length;
+    const normalY = dy / length;
+    const desiredStop = Math.max(0, stats.range - 0.1);
+    const leadTime = Math.min(0.22, length / 520);
+    const leadX = destination.x + (target.vx || 0) * leadTime;
+    const leadY = destination.y + (target.vy || 0) * leadTime;
+    const finalApproach = length <= 90;
+    const lateral = finalApproach ? 0 : Math.sin((battle.time || 0) * 2.4 + unit.statusVisualSeed) * Math.min(14, 4 + length * 0.04);
+    return {
+      x: leadX - normalX * desiredStop - normalY * lateral,
+      y: leadY - normalY * desiredStop + normalX * lateral * 0.45,
+    };
+  }
+  const dx = destination.x - unit.x;
+  const dy = destination.y - unit.y;
+  const length = Math.max(0.001, Math.hypot(dx, dy));
+  const normalX = dx / length;
+  const normalY = dy / length;
+  const arcX = -normalY;
+  const arcY = normalX;
+  const desiredStop = unit.currentTargetKind === "grave"
+    ? Math.max(0, stats.graveRange - 4)
+    : Math.max(0, stats.range - 2);
+  const travel = Math.max(0, length - desiredStop);
+  return {
+    x: unit.x + normalX * travel + arcX * Math.sin((battle.time || 0) * 2.6 + unit.statusVisualSeed * 1.4) * Math.min(34, 8 + length * 0.18),
+    y: unit.y + normalY * travel + arcY * Math.sin((battle.time || 0) * 2.6 + unit.statusVisualSeed * 1.4) * Math.min(34, 8 + length * 0.18) * 0.72,
+  };
+}
+
+function performPhantomAttack({ unit, target, battle, unitDef }) {
+  const stats = getUnitStats(unit, unitDef);
+  if ((unit.gravesToConsume || 0) > 0) {
+    if (!target || unit.currentTargetKind !== "grave") return;
+    const grave = findGraveById(battle, target.id || unit.currentGraveId);
+    if (!grave || Math.hypot(grave.x - unit.x, grave.y - unit.y) > stats.graveRange + 4) return;
+    removeGrave(battle, grave.id);
+    unit.gravesToConsume = Math.max(0, (unit.gravesToConsume || 0) - 1);
+    spawnBurst(battle, grave.x, grave.y - 6, "#d2c8ff", 14);
+    battle.particles.push({ kind: "ring", x: grave.x, y: grave.y, vx: 0, vy: 0, life: 0.3, age: 0, color: "rgba(210, 200, 255, 0.92)", size: 16, lineWidth: 3 });
+    if (unit.gravesToConsume <= 0) {
+      spawnBurst(battle, unit.x, unit.y - 10, "#d7d0ff", 18);
+      battle.particles.push({ kind: "shockwave", x: unit.x, y: unit.y - 4, vx: 0, vy: 0, life: 0.34, age: 0, color: "rgba(182, 165, 255, 0.82)", size: 14, startSize: 14, maxSize: 44, lineWidth: 4 });
+      setHighlight(`${findFaction(battle, unit.factionId)?.title || "A faction"}'s phantom regains its strength`);
+    }
+    return;
+  }
+  if (!target || target.type === "inklord" || getPossessionStatus(target, battle)) return;
+  if (Math.hypot(target.x - unit.x, target.y - unit.y) > stats.range + 12) return;
+  possessUnit(unit, target, battle);
 }
 
 function updateInkLordPresence({ unit, battle, enemies, dt }) {
@@ -4588,7 +4940,7 @@ function getEnemiesWithinRadius(battle, attacker, x, y, radius) {
     && !unit.fled
     && unit.id !== attacker.id
     && canUnitBeTargeted(unit, attacker)
-    && (unit.factionId !== attacker.factionId || unit.hostileToAll)
+    && areUnitsHostile(attacker, unit, battle)
     && Math.hypot(unit.x - x, unit.y - y) <= radius
   )));
 }
@@ -5188,24 +5540,24 @@ function maybeTriggerKriegerBloodFrenzy(attacker, battle) {
 function maybeTriggerPaladinConsecration(attacker, battle) {
   if (!attacker || attacker.dead || attacker.fled || attacker.type !== "paladin") return;
   const stats = getUnitStats(attacker);
-  const faction = findFaction(battle, attacker.factionId);
-  if (!faction) return;
   let affectedAllies = 0;
   let cleansedAllies = 0;
-  faction.units.forEach((ally) => {
-    if (ally.dead || ally.fled) return;
-    if (Math.hypot(ally.x - attacker.x, ally.y - attacker.y) > stats.consecrationRadius) return;
-    const healed = applyHealing(ally, stats.consecrationHeal, battle, attacker, { ignoreZombieInversion: true });
-    const cleansed = clearPoisonStatuses(ally);
-    if (healed > 0 || cleansed) affectedAllies += 1;
-    if (cleansed) cleansedAllies += 1;
-    if (healed > 0) {
-      battle.particles.push({ x: ally.x, y: ally.y - 12, vx: 0, vy: -18, life: 0.46, age: 0, color: "#9dffb1", size: 6.5 });
-      recordUnitContribution(attacker, "healing", healed, battle);
-    }
-    if (cleansed) {
-      spawnBurst(battle, ally.x, ally.y - 8, "#c8ffd4", 8);
-    }
+  battle.factions.forEach((faction) => {
+    faction.units.forEach((ally) => {
+      if (ally.dead || ally.fled || !areUnitsAllied(attacker, ally, battle)) return;
+      if (Math.hypot(ally.x - attacker.x, ally.y - attacker.y) > stats.consecrationRadius) return;
+      const healed = applyHealing(ally, stats.consecrationHeal, battle, attacker, { ignoreZombieInversion: true });
+      const cleansed = clearPoisonStatuses(ally);
+      if (healed > 0 || cleansed) affectedAllies += 1;
+      if (cleansed) cleansedAllies += 1;
+      if (healed > 0) {
+        battle.particles.push({ x: ally.x, y: ally.y - 12, vx: 0, vy: -18, life: 0.46, age: 0, color: "#9dffb1", size: 6.5 });
+        recordUnitContribution(attacker, "healing", healed, battle);
+      }
+      if (cleansed) {
+        spawnBurst(battle, ally.x, ally.y - 8, "#c8ffd4", 8);
+      }
+    });
   });
   spawnBurst(battle, attacker.x, attacker.y - 8, "#8effa7", 22);
   battle.particles.push({ kind: "shockwave", x: attacker.x, y: attacker.y, vx: 0, vy: 0, life: 0.4, age: 0, color: "rgba(137, 255, 170, 0.72)", size: 18, startSize: 18, maxSize: stats.consecrationRadius, lineWidth: 6 });
@@ -5653,6 +6005,19 @@ function applyRawDamage(unit, amount, battle, attacker = null, options = {}) {
   const unitDef = getUnitDefinition(unit);
   const damageKind = options.damageKind || "direct";
   if (damageKind === "status" && unitDef.immuneToStatusDamage) return 0;
+  if (unit.type === "phantom" && damageKind === "direct" && Math.random() < 0.5) {
+    battle?.particles?.push({
+      x: unit.x + (Math.random() - 0.5) * 8,
+      y: unit.y - 10 + Math.random() * 8,
+      vx: (Math.random() - 0.5) * 10,
+      vy: -12 - Math.random() * 8,
+      life: 0.22 + Math.random() * 0.12,
+      age: 0,
+      color: Math.random() > 0.5 ? "#d6d0ff" : "#a3f0ff",
+      size: 2 + Math.random() * 2,
+    });
+    return 0;
+  }
   let resolvedAmount = amount;
   const shieldStatus = getUnitStatus(unit, "shielded");
   if (damageKind !== "healing" && damageKind !== "status" && shieldStatus) {
@@ -5669,10 +6034,36 @@ function applyRawDamage(unit, amount, battle, attacker = null, options = {}) {
   const previousHealth = unit.health;
   unit.health -= resolvedAmount;
   const actualDamage = Math.max(0, Math.min(previousHealth, resolvedAmount));
+  const possessingPhantom = getPossessingPhantom(unit, battle);
   if (!options.noAttackerCredit && attacker && attacker.factionId !== unit.factionId && actualDamage > 0) {
     recordUnitContribution(attacker, "damage", actualDamage, battle);
+    const owner = getContributionCreditOwner(attacker, battle);
+    if (owner && owner.id !== attacker.id) {
+      recordUnitContribution(owner, "damage", actualDamage, battle);
+    }
+  }
+  if (!options.noAttackerCredit && damageKind === "direct" && actualDamage > 0 && possessingPhantom) {
+    const fatalBlow = unit.health <= 0;
+    const formerAllyHit = Boolean(attacker && attacker.id !== unit.id && attacker.factionId === unit.factionId && !attacker.hostileToAll);
+    if (fatalBlow && formerAllyHit) {
+      unit.health = 1;
+      unit.dead = false;
+      ejectPhantomFromHost(possessingPhantom, unit, battle, { leaveHostAtOneHp: true, gravesToConsume: 3 });
+      setHighlight(`${findFaction(battle, possessingPhantom.factionId)?.title || "A faction"}'s phantom is blasted out of its host`);
+      return actualDamage;
+    }
+    if (!fatalBlow) {
+      const remainingHealthRatio = clamp(unit.health / Math.max(1, unit.maxHealth), 0, 1);
+      const ejectChance = clamp(0.05 + ((1 - remainingHealthRatio) ** 2) * 0.7, 0.05, 0.75);
+      if (Math.random() < ejectChance) {
+        ejectPhantomFromHost(possessingPhantom, unit, battle, { gravesToConsume: 3 });
+      }
+    }
   }
   if (unit.health <= 0) {
+    if (possessingPhantom) {
+      ejectPhantomFromHost(possessingPhantom, unit, battle, { gravesToConsume: 3 });
+    }
     unit.dead = true;
     unit.health = 0;
     unit.liftedBySpellId = null;
@@ -6176,7 +6567,7 @@ function getUnitHoverMetrics(unit, viewport) {
 
 function findHoveredBattleUnit(battle, viewport, canvasX, canvasY) {
   if (!battle) return null;
-  const units = battle.factions.flatMap((faction) => faction.units.filter((unit) => !unit.dead && !unit.fled));
+  const units = battle.factions.flatMap((faction) => faction.units.filter((unit) => !unit.dead && !unit.fled && !(unit.type === "phantom" && unit.possessedUnitId)));
   units.sort((a, b) => a.y - b.y);
   for (let index = units.length - 1; index >= 0; index -= 1) {
     const unit = units[index];
@@ -6261,6 +6652,10 @@ function getStatusTooltipCopy(unit, status, battle) {
   if (status.kind === "bleed") {
     const totalDps = (status.dps ?? definition.dps) * Math.max(1, status.stacks || 1);
     return `Loses ${formatHoverStatNumber(totalDps)} health per second until cleansed by support. ${Math.max(1, Math.round(status.stacks || 1))} stack${Math.round(status.stacks || 1) === 1 ? "" : "s"}.`;
+  }
+  if (status.kind === "possessed") {
+    const source = status.sourceId ? findUnitById(battle, status.sourceId) : null;
+    return `Body seized${source ? ` by ${getUnitDefinition(source).name}` : ""}. The host fights for the possessor's side until the spirit is knocked loose.`;
   }
   return definition.name;
 }
@@ -6604,7 +6999,7 @@ function buildCinematicCameraPois(battle, activeUnits, fit) {
   }
 
   activeUnits.forEach((unit, index) => {
-    const nearbyEnemies = activeUnits.filter((other) => other.factionId !== unit.factionId && Math.hypot(other.x - unit.x, other.y - unit.y) <= 112);
+    const nearbyEnemies = activeUnits.filter((other) => areUnitsHostile(unit, other, battle) && Math.hypot(other.x - unit.x, other.y - unit.y) <= 112);
     const score = 10
       + nearbyEnemies.length * 14
       + (unit.killStreak || 0) * 10
@@ -6628,7 +7023,7 @@ function buildCinematicCameraPois(battle, activeUnits, fit) {
     const a = activeUnits[i];
     for (let j = i + 1; j < activeUnits.length; j += 1) {
       const b = activeUnits[j];
-      if (a.factionId === b.factionId) continue;
+      if (!areUnitsHostile(a, b, battle)) continue;
       const distance = Math.hypot(a.x - b.x, a.y - b.y);
       if (distance > 136) continue;
       pois.push({
@@ -7574,8 +7969,12 @@ function drawStuckArrows(viewport, arrows) {
 }
 
 function drawUnits(viewport, factions) {
-  const units = factions.flatMap((faction) => faction.units.filter((unit) => !unit.dead && !unit.fled).map((unit) => ({ ...unit, factionColor: faction.color }))).sort((a, b) => a.y - b.y);
+  const units = factions.flatMap((faction) => faction.units
+    .filter((unit) => !unit.dead && !unit.fled)
+    .map((unit) => ({ ...unit, factionColor: getUnitDisplayFactionColor(unit, state.battle) || faction.color })))
+    .sort((a, b) => a.y - b.y);
   units.forEach((unit) => {
+    if (unit.type === "phantom" && unit.possessedUnitId) return;
     const unitDef = getUnitDefinition(unit);
     const { pose, renderScale, healthBarY, hpWidth } = getUnitHoverMetrics(unit, viewport);
     const { point, scale, bodyY } = pose;
@@ -7861,19 +8260,59 @@ function drawMusicNote(x, y, scale, color, angle = 0) {
   ctx.save();
   ctx.translate(x, y);
   ctx.rotate(angle);
-  ctx.strokeStyle = color;
   ctx.fillStyle = color;
-  ctx.lineWidth = 1.3 * scale / 2.1;
-  ctx.lineCap = "round";
+  ctx.strokeStyle = color;
+
+  // Normalize the scale to match the footprint of the original script
+  const s = scale / 2.1;
+
+  // 1. Define dimensions and coordinates
+  const radiusX = 1.6 * s;
+  const radiusY = 1.1 * s;
+  const tilt = -0.4; // Tilt noteheads by approx -23 degrees
+
+  const head1X = -2.8 * s;
+  const head1Y = 3.0 * s;
+  const head2X = 2.8 * s;
+  const head2Y = 1.5 * s;
+
+  const stemWidth = 0.5 * s;
+  const beamHeight = 1.5 * s;
+
+  // Stems attach to the right side of the noteheads
+  const stem1X = head1X + 1.3 * s;
+  const stem2X = head2X + 1.3 * s;
+
+  // Tops of the stems (right stem is higher to angle the beam)
+  const stem1TopY = -4.5 * s;
+  const stem2TopY = -6.0 * s;
+
+  // 2. Draw Stems
+  ctx.lineWidth = stemWidth;
+  ctx.lineCap = "butt"; // Flat caps so they merge into the beam seamlessly
   ctx.beginPath();
-  ctx.moveTo(-1.4 * scale / 2.1, -5.5 * scale / 2.1);
-  ctx.lineTo(-1.4 * scale / 2.1, 2.2 * scale / 2.1);
-  ctx.lineTo(3.5 * scale / 2.1, 1.1 * scale / 2.1);
+  ctx.moveTo(stem1X, head1Y);
+  ctx.lineTo(stem1X, stem1TopY);
+  ctx.moveTo(stem2X, head2Y);
+  ctx.lineTo(stem2X, stem2TopY);
   ctx.stroke();
+
+  // 3. Draw the Beam (Thick filled polygon)
   ctx.beginPath();
-  ctx.arc(-3.4 * scale / 2.1, 2.9 * scale / 2.1, 2 * scale / 2.1, 0, Math.PI * 2);
-  ctx.arc(2.2 * scale / 2.1, 4.1 * scale / 2.1, 2 * scale / 2.1, 0, Math.PI * 2);
+  ctx.moveTo(stem1X - stemWidth / 2, stem1TopY);              // Top-left
+  ctx.lineTo(stem2X + stemWidth / 2, stem2TopY);              // Top-right
+  ctx.lineTo(stem2X + stemWidth / 2, stem2TopY + beamHeight); // Bottom-right
+  ctx.lineTo(stem1X - stemWidth / 2, stem1TopY + beamHeight); // Bottom-left
+  ctx.closePath();
   ctx.fill();
+
+  // 4. Draw Noteheads (Drawn last so they cleanly overlap the bottoms of the stems)
+  ctx.beginPath();
+  // ctx.ellipse(x, y, radiusX, radiusY, rotation, startAngle, endAngle)
+  ctx.ellipse(head1X, head1Y, radiusX, radiusY, tilt, 0, Math.PI * 2);
+  ctx.ellipse(head2X, head2Y, radiusX, radiusY, tilt, 0, Math.PI * 2);
+  ctx.fill();
+
   ctx.restore();
 }
 
@@ -8074,6 +8513,27 @@ function drawUnitStatusOverlay(unit, scale) {
     ctx.arc(0, -3 * scale / 2.1, 13 * scale / 2.1, 0, Math.PI * 2);
     ctx.stroke();
   }
+  if (getStatusStacks(unit, "possessed") > 0) {
+    const possessor = state.battle ? getPossessingPhantom(unit, state.battle) : null;
+    const possessorFaction = possessor && state.battle ? findFaction(state.battle, possessor.factionId) : null;
+    const glowColor = possessorFaction?.color || "#9f87ff";
+    const possessPulse = 0.18 + Math.max(0, Math.sin(battleTime * 6.4 + unit.statusVisualSeed * 1.4)) * 0.18;
+    ctx.shadowColor = hexToRgba(glowColor, 0.55 + possessPulse * 0.25);
+    ctx.shadowBlur = 14 * scale / 2.1;
+    ctx.strokeStyle = hexToRgba(glowColor, 0.36 + possessPulse * 0.42);
+    ctx.lineWidth = 1.6 * scale / 2.1;
+    for (let i = 0; i < 2; i += 1) {
+      const radius = (13 + i * 3.2) * scale / 2.1;
+      ctx.beginPath();
+      ctx.arc(0, -4 * scale / 2.1, radius, battleTime * (1.1 + i * 0.3), battleTime * (1.1 + i * 0.3) + Math.PI * 1.2);
+      ctx.stroke();
+    }
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = hexToRgba(glowColor, 0.08 + possessPulse * 0.18);
+    ctx.beginPath();
+    ctx.ellipse(0, -2 * scale / 2.1, 13 * scale / 2.1, 18 * scale / 2.1, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
 }
 
 function getUnitStatusBadges(unit) {
@@ -8117,6 +8577,7 @@ function drawStatusBadge(badge, x, y, scale) {
     if (badge.kind === "bloodfrenzy") drawBloodFrenzyBadgeIcon(scale, badge.accentColor);
     if (badge.kind === "immobilized") drawImmobilizedBadgeIcon(scale, badge.accentColor);
     if (badge.kind === "bleed") drawBleedBadgeIcon(scale, badge.accentColor);
+    if (badge.kind === "possessed") drawPossessedBadgeIcon(scale, badge.accentColor);
   }
   if (badge.stacks > 1) {
     const pipRadius = 4.4 * scale / 2.1;
@@ -8316,33 +8777,83 @@ function drawShieldedBadgeIcon(scale, color) {
 }
 
 function drawBardHasteBadgeIcon(scale, color) {
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 1.2 * scale / 2.1;
-  ctx.lineCap = "round";
-  ctx.beginPath();
-  ctx.moveTo(-1.5 * scale / 2.1, -5.5 * scale / 2.1);
-  ctx.lineTo(-1.5 * scale / 2.1, 3 * scale / 2.1);
-  ctx.lineTo(4.5 * scale / 2.1, 1.5 * scale / 2.1);
-  ctx.moveTo(1.2 * scale / 2.1, -4.2 * scale / 2.1);
-  ctx.lineTo(1.2 * scale / 2.1, 4.6 * scale / 2.1);
-  ctx.lineTo(5.8 * scale / 2.1, 3.3 * scale / 2.1);
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.arc(-3.5 * scale / 2.1, 3.3 * scale / 2.1, 2.1 * scale / 2.1, 0, Math.PI * 2);
-  ctx.arc(3.2 * scale / 2.1, 4.8 * scale / 2.1, 2.1 * scale / 2.1, 0, Math.PI * 2);
+  ctx.save();
   ctx.fillStyle = color;
-  ctx.fill();
+  ctx.strokeStyle = color;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+
+  // Re-scaled slightly so the wide speed streaks comfortably fit the original bounds
+  const s = scale / 2.6;
+
+  // Tilt to convey an explosive forward/upward bounding motion
+  ctx.rotate(-0.15); // ~8.5 degrees
+
+  // --- 1. Draw the Shoe Silhouette with a Cutout ---
+  ctx.beginPath();
+  
+  // Outer Shoe Path (Starts at the front of the ankle and draws the silhouette)
+  ctx.moveTo(0.5 * s, -2.5 * s); 
+  ctx.bezierCurveTo(-1.0 * s, -1.0 * s, -2.5 * s, 1.0 * s, -2.5 * s, 3.5 * s); // Achilles/Heel
+  ctx.bezierCurveTo(-0.5 * s, 4.5 * s, 3.0 * s, 4.5 * s, 5.5 * s, 3.5 * s);  // Sole/Bottom
+  ctx.bezierCurveTo(7.0 * s, 3.0 * s, 7.0 * s, 1.5 * s, 5.0 * s, 1.0 * s);   // Toe box
+  ctx.bezierCurveTo(3.5 * s, 0.5 * s, 2.5 * s, 0.0 * s, 1.5 * s, -2.5 * s);  // Vamp/Instep
+  ctx.closePath();
+
+  // Inner Aerodynamic Stripe (Drawn as a sub-path)
+  ctx.moveTo(0.0 * s, 1.5 * s); 
+  ctx.bezierCurveTo(1.0 * s, 1.0 * s, 2.5 * s, 1.0 * s, 3.5 * s, 1.5 * s);   // Bottom edge
+  ctx.bezierCurveTo(4.0 * s, 1.8 * s, 4.5 * s, 1.5 * s, 4.5 * s, 1.5 * s);   // Tip
+  ctx.bezierCurveTo(3.0 * s, 2.2 * s, 1.5 * s, 2.5 * s, -0.5 * s, 2.0 * s);  // Top edge
+  ctx.closePath();
+
+  // Fill using "evenodd" rule to punch the inner cutout through the solid shoe
+  ctx.fill("evenodd");
+
+  // --- 2. Draw Speed Blur Lines (Streaks) ---
+  ctx.lineWidth = 1.0 * s;
+  ctx.beginPath();
+
+  // Top streak
+  ctx.moveTo(-5.5 * s, -1.0 * s);
+  ctx.lineTo(-2.5 * s, -1.0 * s);
+
+  // Middle streak (longer, conveying maximum speed)
+  ctx.moveTo(-7.0 * s, 1.0 * s);
+  ctx.lineTo(-3.5 * s, 1.0 * s);
+
+  // Bottom streak
+  ctx.moveTo(-5.0 * s, 3.0 * s);
+  ctx.lineTo(-3.0 * s, 3.0 * s);
+
+  ctx.stroke();
+
+  ctx.restore();
 }
 
 function drawBardValorBadgeIcon(scale, color) {
   ctx.fillStyle = color;
   ctx.beginPath();
-  ctx.moveTo(0, -6.5 * scale / 2.1);
-  ctx.lineTo(4.2 * scale / 2.1, -1 * scale / 2.1);
-  ctx.lineTo(1.6 * scale / 2.1, -1 * scale / 2.1);
-  ctx.lineTo(5 * scale / 2.1, 6.5 * scale / 2.1);
-  ctx.lineTo(-4 * scale / 2.1, 1.2 * scale / 2.1);
-  ctx.lineTo(-1.3 * scale / 2.1, 1.2 * scale / 2.1);
+  
+  // Start at the top right tip
+  ctx.moveTo(2 * scale / 2.1, -6.5 * scale / 2.1);
+  
+  // Slant down-left to the far left outer edge
+  ctx.lineTo(-4 * scale / 2.1, 1 * scale / 2.1);
+  
+  // Cut horizontally right to the inner left corner
+  ctx.lineTo(0.5 * scale / 2.1, 1 * scale / 2.1);
+  
+  // Slant down-left to the very bottom tip
+  ctx.lineTo(-2 * scale / 2.1, 6.5 * scale / 2.1);
+  
+  // Slant up-right to the far right outer edge
+  ctx.lineTo(4 * scale / 2.1, -1 * scale / 2.1);
+  
+  // Cut horizontally left to the inner right corner
+  ctx.lineTo(-0.5 * scale / 2.1, -1 * scale / 2.1);
+  
+  // Close path automatically connects back to the top right tip
   ctx.closePath();
   ctx.fill();
 }
@@ -8423,6 +8934,29 @@ function drawBleedBadgeIcon(scale, color) {
   ctx.beginPath();
   ctx.ellipse(-1.6 * scaled, -1.8 * scaled, 1.5 * scaled, 2.4 * scaled, -0.4, 0, Math.PI * 2);
   ctx.fill();
+}
+
+function drawPossessedBadgeIcon(scale, color) {
+  const scaled = scale / 2.1;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.3 * scaled;
+  ctx.beginPath();
+  ctx.moveTo(-4.2 * scaled, -5.5 * scaled);
+  ctx.quadraticCurveTo(0, -8.4 * scaled, 4.2 * scaled, -5.5 * scaled);
+  ctx.lineTo(4.2 * scaled, 1.6 * scaled);
+  ctx.quadraticCurveTo(2.2 * scaled, 0.9 * scaled, 0, 3.0 * scaled);
+  ctx.quadraticCurveTo(-2.2 * scaled, 0.9 * scaled, -4.2 * scaled, 1.6 * scaled);
+  ctx.closePath();
+  ctx.stroke();
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.arc(-1.7 * scaled, -2.1 * scaled, 0.82 * scaled, 0, Math.PI * 2);
+  ctx.arc(1.7 * scaled, -2.1 * scaled, 0.82 * scaled, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(-2.4 * scaled, 1.2 * scaled);
+  ctx.quadraticCurveTo(0, 3.4 * scaled, 2.4 * scaled, 1.2 * scaled);
+  ctx.stroke();
 }
 
 function drawMedic(main, dark, light, scale, unit) {
@@ -8805,6 +9339,51 @@ function drawArtificer(main, dark, light, scale, unit) {
   ctx.moveTo(13.6 * scale / 2.1, -10.1 * scale / 2.1);
   ctx.quadraticCurveTo(18.3 * scale / 2.1, -12.4 * scale / 2.1, 18.2 * scale / 2.1, -7.8 * scale / 2.1);
   ctx.quadraticCurveTo(16.3 * scale / 2.1, -5.2 * scale / 2.1, 12.8 * scale / 2.1, -6.5 * scale / 2.1);
+  ctx.stroke();
+}
+
+function drawPhantom(main, dark, light, scale, unit) {
+  const bodyScale = scale / 2.1;
+  const battleTime = state.battle?.time || 0;
+  const ripple = Math.sin(battleTime * 4.4 + unit.statusVisualSeed);
+  ctx.fillStyle = hexToRgba(shadeColor(main, -0.08), 0.24);
+  ctx.beginPath();
+  ctx.ellipse(0, 10 * bodyScale, 10.5 * bodyScale, 4.8 * bodyScale, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = hexToRgba(main, 0.88);
+  ctx.beginPath();
+  ctx.moveTo(0, -18 * bodyScale);
+  ctx.quadraticCurveTo(10 * bodyScale, -16 * bodyScale, 11 * bodyScale, -4 * bodyScale);
+  ctx.lineTo(11 * bodyScale, 9 * bodyScale);
+  ctx.quadraticCurveTo(8 * bodyScale, 5 * bodyScale, 4.5 * bodyScale, 9 * bodyScale);
+  ctx.quadraticCurveTo(2 * bodyScale, 12.6 * bodyScale, 0, 8.6 * bodyScale);
+  ctx.quadraticCurveTo(-2 * bodyScale, 12.6 * bodyScale, -4.5 * bodyScale, 9 * bodyScale);
+  ctx.quadraticCurveTo(-8 * bodyScale, 5 * bodyScale, -11 * bodyScale, 9 * bodyScale);
+  ctx.lineTo(-11 * bodyScale, -4 * bodyScale);
+  ctx.quadraticCurveTo(-10 * bodyScale, -16 * bodyScale, 0, -18 * bodyScale);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = hexToRgba(light, 0.34);
+  ctx.beginPath();
+  ctx.moveTo(-6 * bodyScale, -10 * bodyScale);
+  ctx.quadraticCurveTo(-0.5 * bodyScale, -18 * bodyScale, 5.5 * bodyScale, -12 * bodyScale);
+  ctx.quadraticCurveTo(1.8 * bodyScale, -10 * bodyScale, -2.3 * bodyScale, -8 * bodyScale);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = "#f4fbff";
+  ctx.beginPath();
+  ctx.arc(-3.1 * bodyScale, -6.2 * bodyScale, 1.2 * bodyScale, 0, Math.PI * 2);
+  ctx.arc(3.1 * bodyScale, -6.2 * bodyScale, 1.2 * bodyScale, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = `rgba(244, 250, 255, ${0.7 + Math.max(0, ripple) * 0.12})`;
+  ctx.lineWidth = 1.15 * bodyScale;
+  ctx.beginPath();
+  ctx.moveTo(-4.1 * bodyScale, -1.7 * bodyScale);
+  ctx.quadraticCurveTo(0, 1.5 * bodyScale, 4.1 * bodyScale, -1.7 * bodyScale);
   ctx.stroke();
 }
 
