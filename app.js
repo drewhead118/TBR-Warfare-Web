@@ -476,7 +476,7 @@ const UNIT_DEFINITIONS = {
     name: "Huntsman",
     keywords: ["net", "crossbow", "knife", "bleed", "hunter", "snare"],
     description: "Huntsmen are patient controllers. They pin targets down with a thrown net, then try to finish the setup with a thrown hunting knife that is hard to land on moving prey but reliable against enemies already trapped in place. Each knife hit is light, yet it leaves a lasting bleed until a support unit cleanses it.",
-    stats: { maxHealth: 68, speed: 36, range: 220, netRange: 220, netDuration: 6, damage: 5, cooldown: 3.2 },
+    stats: { maxHealth: 68, speed: 36, range: 150, netRange: 150, netDuration: 6, damage: 1, cooldown: 3.2 },
     healthBarWidth: 22,
     iconPaths: getHuntsmanIconSvgPaths,
     beforeStep: updateHuntsmanState,
@@ -487,6 +487,42 @@ const UNIT_DEFINITIONS = {
     performAttack: performHuntsmanAttack,
     render: drawHuntsman,
     veteran: { metric: "damage", threshold: 150, label: "Deal 150 damage" },
+  },
+  artificer: {
+    id: "artificer",
+    name: "Artificer",
+    keywords: ["engineer", "builder", "turret", "construct", "anti-swarm"],
+    description: "Artificers are battlefield engineers who deploy compact sentry turrets. They reposition cautiously behind the line, rebuild when the fight shifts, and are best at shredding clustered light units rather than winning straight duels.",
+    stats: { maxHealth: 64, speed: 40, range: 138, buildOffset: 28, cooldown: 3.9, rebuildThreshold: 110 },
+    healthBarWidth: 20,
+    iconPaths: getArtificerIconSvgPaths,
+    beforeStep: updateArtificerState,
+    selectTarget: selectArtificerTarget,
+    getAttackRange: getArtificerAttackRange,
+    getDesiredDestination: getArtificerDestination,
+    performAttack: performArtificerAttack,
+    render: drawArtificer,
+    veteran: null,
+  },
+  turret: {
+    id: "turret",
+    name: "Turret",
+    draftable: false,
+    keywords: ["construct", "stationary", "rapid fire", "anti-swarm"],
+    description: "A compact deployable turret that cannot move, ignores damage from poison and other status effects, and sprays weak shots into a tight area.",
+    stats: { maxHealth: 56, speed: 0, range: 120, damage: 3, splash: 5, cooldown: 0.5 },
+    healthBarWidth: 16,
+    iconPaths: getTurretIconSvgPaths,
+    leavesGrave: false,
+    immuneToStatusDamage: true,
+    beforeStep: updateTurretState,
+    selectTarget: selectTurretTarget,
+    getDesiredDestination: getTurretDestination,
+    getMoveSpeed: () => 0,
+    performAttack: performTurretAttack,
+    renderScale: 0.92,
+    render: drawTurret,
+    veteran: null,
   },
   spiderswarm: {
     id: "spiderswarm",
@@ -1066,12 +1102,34 @@ function getKriegerIconSvgPaths() {
 
 function getHuntsmanIconSvgPaths() {
   return `
-    <path fill="rgba(46, 37, 26, 0.96)" d="M0 -16 L10 -6 L8 12 L-8 12 L-10 -6 Z"></path>
+    <path fill="rgba(52, 41, 28, 0.96)" d="M0 -16 L10 -6 L8 12 L-8 12 L-10 -6 Z"></path>
     <path fill="currentColor" d="M0 -13 L7 -5 L6 11 L-6 11 L-7 -5 Z"></path>
-    <circle cx="0" cy="-14" r="4.8" fill="rgba(255,248,235,0.7)"></circle>
-    <path d="M8 -3 L17 -7 L17 1 L8 5" fill="none" stroke="rgba(78,40,18,0.92)" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"></path>
-    <path d="M-8 -1 L-14 -7 L-12 8" fill="none" stroke="rgba(181, 214, 224, 0.9)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path>
-    <path d="M-4 -18 L-8 -22 M4 -18 L8 -22" fill="none" stroke="rgba(78,40,18,0.86)" stroke-width="1.8" stroke-linecap="round"></path>
+    <circle cx="0" cy="-14" r="4.8" fill="rgba(255,248,235,0.72)"></circle>
+    <path d="M8 -3 L17 -8" fill="none" stroke="rgba(77,54,31,0.95)" stroke-width="2.2" stroke-linecap="round"></path>
+    <path d="M16 -9 L20 -5 L12 -1 Z" fill="#cfc7bb"></path>
+    <path d="M-9 -1 L-15 -7 L-14 6 L-8 10 L-4 3 Z" fill="none" stroke="rgba(185, 224, 236, 0.92)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path>
+    <path d="M-11 -4 L-6 1 M-13 0 L-5 5 M-12 7 L-7 2" fill="none" stroke="rgba(185, 224, 236, 0.82)" stroke-width="1.1" stroke-linecap="round"></path>
+  `;
+}
+
+function getArtificerIconSvgPaths() {
+  return `
+    <path fill="rgba(79, 63, 38, 0.96)" d="M0 -16 L10 -6 L8 12 L-8 12 L-10 -6 Z"></path>
+    <path fill="currentColor" d="M0 -13 L7 -5 L6 10 L-6 10 L-7 -5 Z"></path>
+    <path fill="#f3c44f" d="M-6 -17 Q0 -22 6 -17 L5 -12 L-5 -12 Z"></path>
+    <rect x="-6.5" y="-13.2" width="13" height="2.6" rx="1.3" fill="#d49b2d"></rect>
+    <circle cx="0" cy="-11" r="4.6" fill="rgba(255,244,222,0.72)"></circle>
+    <path d="M8 -4 L15 -11" fill="none" stroke="rgba(88,70,46,0.95)" stroke-width="2.1" stroke-linecap="round"></path>
+    <path d="M14 -12 Q18 -13 18 -9 Q16 -7 13 -8" fill="none" stroke="rgba(202, 214, 220, 0.95)" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"></path>
+  `;
+}
+
+function getTurretIconSvgPaths() {
+  return `
+    <rect x="-9" y="-1" width="18" height="10" rx="3" fill="currentColor"></rect>
+    <rect x="-4" y="-11" width="8" height="10" rx="2" fill="rgba(119, 101, 67, 0.95)"></rect>
+    <path d="M4 -7 L16 -11" fill="none" stroke="rgba(255, 232, 192, 0.92)" stroke-width="2.3" stroke-linecap="round"></path>
+    <path d="M-6 9 L0 15 L6 9" fill="none" stroke="rgba(78,40,18,0.9)" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"></path>
   `;
 }
 
@@ -1751,6 +1809,7 @@ function buildBattle(factionPool = state.factions, arena = createArenaVariant(0,
     particles: [],
     spells: [],
     swipes: [],
+    traces: [],
     bossBubbles: [],
     stuckArrows: [],
     bombs: [],
@@ -2512,7 +2571,9 @@ function hasNegativeStatuses(unit) {
 
 function applyStatus(unit, kind, stacks = 1, duration = null, source = null, battle = null) {
   const statusDef = getStatusDefinition(kind);
+  const unitDef = getUnitDefinition(unit);
   if (!unit || unit.dead || !statusDef || stacks <= 0) return null;
+  if (unitDef.immuneToStatusDamage && (statusDef.dps || 0) > 0) return null;
   const sourceStats = source ? getUnitStats(source) : null;
   const statusDuration = duration
     ?? (kind === "poison" ? sourceStats?.poisonDuration : null)
@@ -2621,6 +2682,9 @@ function makeUnit(factionId, type, x, y) {
     tauntCooldown: 0,
     huntsmanKnifeCooldown: 0,
     huntsmanNetCooldown: 0,
+    constructedTurretId: null,
+    builderId: null,
+    turretAimAngle: 0,
   };
 }
 
@@ -2782,6 +2846,7 @@ function stepBattle(battle, dt) {
   updateSpells(battle, dt);
   updateBossBubbles(battle, dt);
   updateSwipes(battle, dt);
+  updateTraces(battle, dt);
   updateStuckArrows(battle, dt);
   updateFactionExtinctions(battle);
   updateBattleHighlights(battle);
@@ -3657,6 +3722,207 @@ function selectHuntsmanTarget({ unit, enemies, unitDef }) {
 function updateHuntsmanState({ unit, dt }) {
   unit.huntsmanKnifeCooldown = Math.max(0, (unit.huntsmanKnifeCooldown || 0) - dt);
   unit.huntsmanNetCooldown = Math.max(0, (unit.huntsmanNetCooldown || 0) - dt);
+}
+
+function updateArtificerState({ unit, battle }) {
+  const turret = unit.constructedTurretId ? findUnitById(battle, unit.constructedTurretId) : null;
+  if (!turret || turret.dead || turret.fled || turret.type !== "turret" || turret.builderId !== unit.id) {
+    unit.constructedTurretId = null;
+  }
+}
+
+function selectArtificerTarget({ unit, enemies }) {
+  if (unit.constructedTurretId) {
+    unit.focusTargetId = null;
+    unit.currentTargetKind = null;
+    unit.currentGraveId = null;
+    return null;
+  }
+  unit.currentTargetKind = enemies.length ? "enemy" : null;
+  unit.currentGraveId = null;
+  let best = null;
+  let bestScore = -Infinity;
+  enemies.forEach((enemy) => {
+    const distance = Math.hypot(enemy.x - unit.x, enemy.y - unit.y);
+    let localDensity = 0;
+    enemies.forEach((other) => {
+      const neighborDistance = Math.hypot(other.x - enemy.x, other.y - enemy.y);
+      if (neighborDistance <= 42) localDensity += 1 - (neighborDistance / 42);
+    });
+    const score = localDensity * 18 - distance * 0.12 - enemy.health * 0.03 + (unit.focusTargetId === enemy.id ? 6 : 0);
+    if (score > bestScore) {
+      best = enemy;
+      bestScore = score;
+    }
+  });
+  unit.focusTargetId = best?.id || null;
+  return best;
+}
+
+function getArtificerAttackRange(unitDef, unit) {
+  if (unit?.constructedTurretId) return 0;
+  return getUnitStats(unit, unitDef).range;
+}
+
+function getArtificerDestination({ unit, target, distance, battle, enemies, destination }) {
+  if (!unit.constructedTurretId) {
+    return getRetreatingDestination(94, 0.82)({ unit, target, distance, destination });
+  }
+  const pressure = enemies
+    .slice()
+    .sort((a, b) => Math.hypot(a.x - unit.x, a.y - unit.y) - Math.hypot(b.x - unit.x, b.y - unit.y))[0];
+  const anchor = findFaction(battle, unit.factionId)?.homeBase || { x: unit.x, y: unit.y };
+  if (!pressure) return anchor;
+  const awayX = unit.x - pressure.x;
+  const awayY = unit.y - pressure.y;
+  const awayLength = Math.max(0.001, Math.hypot(awayX, awayY));
+  const retreatX = unit.x + (awayX / awayLength) * 118;
+  const retreatY = unit.y + (awayY / awayLength) * 118;
+  return {
+    x: clamp(lerp(retreatX, anchor.x, 0.35), 24, battle.field.width - 24),
+    y: clamp(lerp(retreatY, anchor.y, 0.35), 24, battle.field.height - 24),
+  };
+}
+
+function destroyConstructedTurret(builder, battle, options = {}) {
+  if (!builder?.constructedTurretId) return false;
+  const turret = findUnitById(battle, builder.constructedTurretId);
+  builder.constructedTurretId = null;
+  if (!turret || turret.dead || turret.fled || turret.type !== "turret") return false;
+  applyDamage(turret, turret.health + 999, battle, options.attacker || builder, {
+    noAttackerCredit: true,
+    skipDefaultDeathBurst: true,
+  });
+  spawnBurst(battle, turret.x, turret.y - 6, "#f0c98c", 10);
+  return true;
+}
+
+function createArtificerTurret(builder, target, battle) {
+  const faction = findFaction(battle, builder.factionId);
+  if (!faction) return null;
+  const stats = getUnitStats(builder);
+  const angle = target ? Math.atan2(target.y - builder.y, target.x - builder.x) : builder.facing || 0;
+  const radius = stats.buildOffset || 26;
+  const turret = makeUnit(
+    builder.factionId,
+    "turret",
+    clamp(builder.x + Math.cos(angle) * radius, 22, battle.field.width - 22),
+    clamp(builder.y + Math.sin(angle) * radius * 0.72, 22, battle.field.height - 22),
+  );
+  turret.builderId = builder.id;
+  turret.turretAimAngle = angle;
+  turret.facing = angle;
+  turret.displayFacingX = 1;
+  turret.bravery = 2;
+  turret.cooldown = 0.12;
+  faction.units.push(turret);
+  builder.constructedTurretId = turret.id;
+  return turret;
+}
+
+function performArtificerAttack({ unit, target, battle, unitDef }) {
+  if (!target) return;
+  const stats = getUnitStats(unit, unitDef);
+  const existingTurret = unit.constructedTurretId ? findUnitById(battle, unit.constructedTurretId) : null;
+  const existingDistance = existingTurret ? Math.hypot(target.x - existingTurret.x, target.y - existingTurret.y) : Infinity;
+  if (existingTurret && !existingTurret.dead && !existingTurret.fled && existingDistance <= stats.rebuildThreshold) return;
+  destroyConstructedTurret(unit, battle);
+  const turret = createArtificerTurret(unit, target, battle);
+  if (!turret) return;
+  spawnBurst(battle, turret.x, turret.y - 8, "#ffe0a1", 14);
+  battle.particles.push({ kind: "ring", x: turret.x, y: turret.y + 2, vx: 0, vy: 0, life: 0.34, age: 0, color: "#e7c071", size: 24, lineWidth: 3 });
+  setHighlight(`${findFaction(battle, unit.factionId)?.title || "A faction"}'s artificer deploys a turret`);
+}
+
+function updateTurretState({ unit, battle, enemies, dt }) {
+  unit.vx = 0;
+  unit.vy = 0;
+  unit.walkTilt += (0 - unit.walkTilt) * Math.min(1, dt * 12);
+  unit.stride += (0 - unit.stride) * Math.min(1, dt * 12);
+  unit.bob += (0 - unit.bob) * Math.min(1, dt * 10);
+  unit.displayFacingX = 1;
+  const target = enemies.find((enemy) => enemy.id === unit.focusTargetId && !enemy.dead && !enemy.fled) || null;
+  if (target) {
+    const desiredAngle = Math.atan2(target.y - unit.y, target.x - unit.x);
+    unit.turretAimAngle = normalizeAngle(lerpAngle(unit.turretAimAngle || desiredAngle, desiredAngle, Math.min(1, dt * 8)));
+  }
+  const builder = unit.builderId ? findUnitById(battle, unit.builderId) : null;
+  if (builder && builder.dead) {
+    unit.builderId = null;
+  }
+}
+
+function getTurretDestination({ unit }) {
+  return { x: unit.x, y: unit.y };
+}
+
+function selectTurretTarget({ unit, enemies, unitDef }) {
+  const stats = getUnitStats(unit, unitDef);
+  const inRangeEnemies = enemies.filter((enemy) => Math.hypot(enemy.x - unit.x, enemy.y - unit.y) <= stats.range);
+  const pool = inRangeEnemies.length ? inRangeEnemies : [];
+  let best = null;
+  let bestScore = -Infinity;
+  pool.forEach((enemy) => {
+    const distance = Math.hypot(enemy.x - unit.x, enemy.y - unit.y);
+    let swarmBias = 0;
+    pool.forEach((other) => {
+      const neighborDistance = Math.hypot(other.x - enemy.x, other.y - enemy.y);
+      if (neighborDistance <= 28) swarmBias += 1 - (neighborDistance / 28);
+    });
+    const healthBias = Math.max(0, 1 - (enemy.health / Math.max(1, enemy.maxHealth)));
+    const score = swarmBias * 28 - distance * 0.1 + healthBias * 6 + (enemy.type === "spiderswarm" ? 10 : 0);
+    if (score > bestScore) {
+      best = enemy;
+      bestScore = score;
+    }
+  });
+  unit.focusTargetId = best?.id || null;
+  unit.currentTargetKind = best ? "enemy" : null;
+  unit.currentGraveId = null;
+  return best;
+}
+
+function performTurretAttack({ unit, target, battle, unitDef }) {
+  const stats = getUnitStats(unit, unitDef);
+  if (!target) return;
+  const angle = Math.atan2(target.y - unit.y, target.x - unit.x);
+  unit.turretAimAngle = angle;
+  const muzzleX = unit.x + Math.cos(angle) * 9;
+  const muzzleY = unit.y - 5 + Math.sin(angle) * 6;
+  battle.factions.forEach((faction) => {
+    faction.units.forEach((enemy) => {
+      if (enemy.dead || enemy.fled || enemy.id === unit.id) return;
+      if (enemy.factionId === unit.factionId && !enemy.hostileToAll) return;
+      const distance = Math.hypot(enemy.x - target.x, enemy.y - target.y);
+      if (distance > stats.splash) return;
+      applyDamage(enemy, stats.damage * Math.max(0.45, 1 - distance / stats.splash), battle, unit);
+    });
+  });
+  battle.traces.push({
+    startX: muzzleX,
+    startY: muzzleY,
+    endX: target.x,
+    endY: target.y - 4,
+    angle,
+    age: 0,
+    duration: 0.09,
+    trailFraction: 0.24,
+    color: "#ffe4a8",
+    width: 1.4,
+  });
+  for (let i = 0; i < 3; i += 1) {
+    battle.particles.push({
+      x: muzzleX,
+      y: muzzleY,
+      vx: Math.cos(angle) * (28 + Math.random() * 26) + (Math.random() - 0.5) * 10,
+      vy: Math.sin(angle) * (18 + Math.random() * 16) - 6 + (Math.random() - 0.5) * 8,
+      life: 0.12 + Math.random() * 0.08,
+      age: 0,
+      color: i === 0 ? "#fff0ba" : "#d69d4e",
+      size: 2 + Math.random() * 2,
+    });
+  }
+  battle.particles.push({ kind: "ring", x: target.x, y: target.y, vx: 0, vy: 0, life: 0.18, age: 0, color: "rgba(255, 225, 160, 0.6)", size: stats.splash * 0.72, lineWidth: 2 });
 }
 
 function updateNecromancerState({ unit, battle }) {
@@ -4999,6 +5265,13 @@ function updateSwipes(battle, dt) {
   });
 }
 
+function updateTraces(battle, dt) {
+  battle.traces = (battle.traces || []).filter((trace) => {
+    trace.age = (trace.age || 0) + dt;
+    return trace.age < (trace.duration || 0.08);
+  });
+}
+
 function updateStuckArrows(battle, dt) {
   battle.stuckArrows = battle.stuckArrows.filter((arrow) => {
     arrow.life -= dt;
@@ -5057,7 +5330,9 @@ function applyDamage(unit, amount, battle, attacker = null, options = {}) {
 
 function applyRawDamage(unit, amount, battle, attacker = null, options = {}) {
   if (!unit || unit.dead || amount <= 0) return 0;
+  const unitDef = getUnitDefinition(unit);
   const damageKind = options.damageKind || "direct";
+  if (damageKind === "status" && unitDef.immuneToStatusDamage) return 0;
   let resolvedAmount = amount;
   const shieldStatus = getUnitStatus(unit, "shielded");
   if (damageKind !== "healing" && damageKind !== "status" && shieldStatus) {
@@ -5072,7 +5347,6 @@ function applyRawDamage(unit, amount, battle, attacker = null, options = {}) {
     recordUnitContribution(attacker, "damage", actualDamage, battle);
   }
   if (unit.health <= 0) {
-    const unitDef = getUnitDefinition(unit);
     unit.dead = true;
     unit.health = 0;
     unit.liftedBySpellId = null;
@@ -5841,6 +6115,7 @@ function render() {
   drawBossBubbles(viewport, state.battle);
   drawNecromancerLinks(viewport, state.battle);
   drawSwipes(viewport, state.battle.swipes);
+  drawTraces(viewport, state.battle.traces);
   drawSpells(viewport, state.battle);
   drawParticles(viewport, state.battle.particles);
   drawWeather(viewport, state.battle);
@@ -7664,7 +7939,7 @@ function drawHuntsman(main, dark, light, scale, unit) {
   ctx.beginPath();
   ctx.arc(0, -14.5 * scale / 2.1, 4.9 * scale / 2.1, 0, Math.PI * 2);
   ctx.fill();
-  ctx.fillStyle = "rgba(37, 29, 20, 0.86)";
+  ctx.fillStyle = "rgba(55, 44, 29, 0.92)";
   ctx.beginPath();
   ctx.moveTo(-5 * scale / 2.1, -16 * scale / 2.1);
   ctx.lineTo(0, -20.5 * scale / 2.1);
@@ -7678,26 +7953,37 @@ function drawHuntsman(main, dark, light, scale, unit) {
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
   ctx.beginPath();
-  ctx.moveTo(6.5 * scale / 2.1, -1 * scale / 2.1);
-  ctx.lineTo(16 * scale / 2.1, -6 * scale / 2.1);
-  ctx.lineTo(16 * scale / 2.1, 1.5 * scale / 2.1);
-  ctx.lineTo(7 * scale / 2.1, 5 * scale / 2.1);
-  ctx.moveTo(-8 * scale / 2.1, -1 * scale / 2.1);
-  ctx.lineTo(-14.5 * scale / 2.1, -7 * scale / 2.1);
-  ctx.lineTo(-12.5 * scale / 2.1, 6.5 * scale / 2.1);
+  ctx.moveTo(6.2 * scale / 2.1, -1.5 * scale / 2.1);
+  ctx.lineTo(14.8 * scale / 2.1, -7.2 * scale / 2.1);
   ctx.stroke();
-  ctx.fillStyle = "#3d2d1d";
-  ctx.fillRect(8.8 * scale / 2.1, -7.5 * scale / 2.1, 7.2 * scale / 2.1, 8.2 * scale / 2.1);
-  ctx.strokeStyle = "rgba(191, 224, 232, 0.9)";
-  ctx.lineWidth = 1.5 * scale / 2.1;
+
+  ctx.fillStyle = "#d7d0c6";
   ctx.beginPath();
-  ctx.moveTo(-14.5 * scale / 2.1, -4 * scale / 2.1);
-  ctx.lineTo(-8.8 * scale / 2.1, 1 * scale / 2.1);
-  ctx.lineTo(-12 * scale / 2.1, 8 * scale / 2.1);
-  ctx.moveTo(-12.8 * scale / 2.1, -2.2 * scale / 2.1);
-  ctx.lineTo(-9.6 * scale / 2.1, 3.1 * scale / 2.1);
-  ctx.moveTo(-10.6 * scale / 2.1, -5.2 * scale / 2.1);
-  ctx.lineTo(-14 * scale / 2.1, 0.4 * scale / 2.1);
+  ctx.moveTo(15.2 * scale / 2.1, -8.3 * scale / 2.1);
+  ctx.lineTo(20.2 * scale / 2.1, -5.2 * scale / 2.1);
+  ctx.lineTo(12.6 * scale / 2.1, -1.8 * scale / 2.1);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.strokeStyle = "rgba(191, 224, 232, 0.94)";
+  ctx.lineWidth = 1.45 * scale / 2.1;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.beginPath();
+  ctx.moveTo(-8.8 * scale / 2.1, -1.2 * scale / 2.1);
+  ctx.lineTo(-15.4 * scale / 2.1, -7.2 * scale / 2.1);
+  ctx.lineTo(-14.2 * scale / 2.1, 5.8 * scale / 2.1);
+  ctx.lineTo(-8.1 * scale / 2.1, 10.4 * scale / 2.1);
+  ctx.lineTo(-3.8 * scale / 2.1, 3.2 * scale / 2.1);
+  ctx.stroke();
+  ctx.lineWidth = 1.05 * scale / 2.1;
+  ctx.beginPath();
+  ctx.moveTo(-13.6 * scale / 2.1, -4.4 * scale / 2.1);
+  ctx.lineTo(-5.5 * scale / 2.1, 4.2 * scale / 2.1);
+  ctx.moveTo(-15 * scale / 2.1, 0.2 * scale / 2.1);
+  ctx.lineTo(-6.6 * scale / 2.1, 7.7 * scale / 2.1);
+  ctx.moveTo(-11.7 * scale / 2.1, -6.9 * scale / 2.1);
+  ctx.lineTo(-12.8 * scale / 2.1, 6.5 * scale / 2.1);
   ctx.stroke();
   if (getUnitStatus(unit, "immobilized")) {
     ctx.strokeStyle = "rgba(174, 221, 239, 0.72)";
@@ -7706,6 +7992,116 @@ function drawHuntsman(main, dark, light, scale, unit) {
     ctx.arc(0, 0, 14 * scale / 2.1, 0, Math.PI * 2);
     ctx.stroke();
   }
+}
+
+function drawArtificer(main, dark, light, scale, unit) {
+  drawStepLegs(dark, scale, unit, 5.9, 10.1);
+  ctx.fillStyle = shadeColor(main, -0.22);
+  ctx.beginPath();
+  ctx.moveTo(0, -16 * scale / 2.1);
+  ctx.lineTo(10 * scale / 2.1, -6 * scale / 2.1);
+  ctx.lineTo(8 * scale / 2.1, 12 * scale / 2.1);
+  ctx.lineTo(-8 * scale / 2.1, 12 * scale / 2.1);
+  ctx.lineTo(-10 * scale / 2.1, -6 * scale / 2.1);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = main;
+  ctx.beginPath();
+  ctx.moveTo(0, -13 * scale / 2.1);
+  ctx.lineTo(7 * scale / 2.1, -5 * scale / 2.1);
+  ctx.lineTo(6 * scale / 2.1, 10 * scale / 2.1);
+  ctx.lineTo(-6 * scale / 2.1, 10 * scale / 2.1);
+  ctx.lineTo(-7 * scale / 2.1, -5 * scale / 2.1);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = "#f1c54f";
+  ctx.beginPath();
+  ctx.moveTo(-6.2 * scale / 2.1, -16.2 * scale / 2.1);
+  ctx.quadraticCurveTo(0, -21.2 * scale / 2.1, 6.2 * scale / 2.1, -16.2 * scale / 2.1);
+  ctx.lineTo(5.4 * scale / 2.1, -12.2 * scale / 2.1);
+  ctx.lineTo(-5.4 * scale / 2.1, -12.2 * scale / 2.1);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = "#d39627";
+  ctx.fillRect(-6.4 * scale / 2.1, -13.6 * scale / 2.1, 12.8 * scale / 2.1, 2.8 * scale / 2.1);
+
+  ctx.fillStyle = light;
+  ctx.beginPath();
+  ctx.arc(0, -10.8 * scale / 2.1, 4.6 * scale / 2.1, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = "#6b573a";
+  ctx.lineWidth = 2.2 * scale / 2.1;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(7.2 * scale / 2.1, -2.6 * scale / 2.1);
+  ctx.lineTo(13.8 * scale / 2.1, -9.8 * scale / 2.1);
+  ctx.stroke();
+  ctx.strokeStyle = "#d6dde2";
+  ctx.lineWidth = 2.1 * scale / 2.1;
+  ctx.beginPath();
+  ctx.moveTo(13.6 * scale / 2.1, -10.1 * scale / 2.1);
+  ctx.quadraticCurveTo(18.3 * scale / 2.1, -12.4 * scale / 2.1, 18.2 * scale / 2.1, -7.8 * scale / 2.1);
+  ctx.quadraticCurveTo(16.3 * scale / 2.1, -5.2 * scale / 2.1, 12.8 * scale / 2.1, -6.5 * scale / 2.1);
+  ctx.stroke();
+}
+
+function drawTurret(main, dark, light, scale, unit) {
+  const bodyScale = scale / 2.1;
+  const pulse = 0.45 + Math.max(0, Math.sin((state.battle?.time || 0) * 11 + unit.statusVisualSeed)) * 0.22;
+  ctx.fillStyle = "rgba(0,0,0,0.2)";
+  ctx.beginPath();
+  ctx.ellipse(0, 11 * bodyScale, 12 * bodyScale, 4.8 * bodyScale, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = shadeColor(main, -0.28);
+  ctx.beginPath();
+  ctx.moveTo(-10 * bodyScale, 7 * bodyScale);
+  ctx.lineTo(0, 15 * bodyScale);
+  ctx.lineTo(10 * bodyScale, 7 * bodyScale);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = main;
+  ctx.beginPath();
+  ctx.moveTo(-7.8 * bodyScale, -1 * bodyScale);
+  ctx.lineTo(7.8 * bodyScale, -1 * bodyScale);
+  ctx.quadraticCurveTo(11 * bodyScale, -1 * bodyScale, 11 * bodyScale, 2.2 * bodyScale);
+  ctx.lineTo(11 * bodyScale, 6.8 * bodyScale);
+  ctx.quadraticCurveTo(11 * bodyScale, 10 * bodyScale, 7.8 * bodyScale, 10 * bodyScale);
+  ctx.lineTo(-7.8 * bodyScale, 10 * bodyScale);
+  ctx.quadraticCurveTo(-11 * bodyScale, 10 * bodyScale, -11 * bodyScale, 6.8 * bodyScale);
+  ctx.lineTo(-11 * bodyScale, 2.2 * bodyScale);
+  ctx.quadraticCurveTo(-11 * bodyScale, -1 * bodyScale, -7.8 * bodyScale, -1 * bodyScale);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = shadeColor(main, 0.14);
+  ctx.fillRect(-5 * bodyScale, -10 * bodyScale, 10 * bodyScale, 10 * bodyScale);
+
+  ctx.save();
+  ctx.translate(0, -5 * bodyScale);
+  ctx.rotate(unit.turretAimAngle || 0);
+  ctx.fillStyle = "#756441";
+  ctx.fillRect(-2.6 * bodyScale, -3 * bodyScale, 12 * bodyScale, 6 * bodyScale);
+  ctx.fillStyle = `rgba(255, 231, 180, ${pulse})`;
+  ctx.fillRect(7.8 * bodyScale, -1.5 * bodyScale, 3.6 * bodyScale, 3 * bodyScale);
+  ctx.restore();
+
+  ctx.strokeStyle = dark;
+  ctx.lineWidth = 1.6 * bodyScale;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(-7 * bodyScale, 10 * bodyScale);
+  ctx.lineTo(0, 15 * bodyScale);
+  ctx.lineTo(7 * bodyScale, 10 * bodyScale);
+  ctx.stroke();
+
+  ctx.fillStyle = light;
+  ctx.beginPath();
+  ctx.arc(0, -5 * bodyScale, 2.2 * bodyScale, 0, Math.PI * 2);
+  ctx.fill();
 }
 
 function drawMountainMan(main, dark, light, scale, unit) {
@@ -8244,6 +8640,56 @@ function drawSwipes(viewport, swipes) {
   });
 }
 
+function drawTraces(viewport, traces) {
+  (traces || []).forEach((trace) => {
+    const start = worldToScreen(trace.startX, trace.startY, viewport);
+    const end = worldToScreen(trace.endX, trace.endY, viewport);
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    const length = Math.hypot(dx, dy);
+    if (length <= 0.001) return;
+    const progress = clamp((trace.age || 0) / Math.max(trace.duration || 0.001, 0.001), 0, 1);
+    const tailProgress = clamp(progress - (trace.trailFraction || 0.22), 0, 1);
+    const headX = lerp(start.x, end.x, progress);
+    const headY = lerp(start.y, end.y, progress);
+    const tailX = lerp(start.x, end.x, tailProgress);
+    const tailY = lerp(start.y, end.y, tailProgress);
+    const alpha = clamp(1 - progress * 0.65, 0, 1);
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.strokeStyle = trace.color || "#ffe4a8";
+    ctx.lineWidth = (trace.width || 3) * start.scale / 2.1;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(tailX, tailY);
+    ctx.lineTo(headX, headY);
+    ctx.stroke();
+
+    const glow = ctx.createLinearGradient(tailX, tailY, headX, headY);
+    glow.addColorStop(0, "rgba(255, 250, 232, 0)");
+    glow.addColorStop(0.35, "rgba(255, 244, 198, 0.95)");
+    glow.addColorStop(1, "rgba(255, 232, 162, 0)");
+    ctx.strokeStyle = glow;
+    ctx.lineWidth = (trace.width || 3) * 2.4 * start.scale / 2.1;
+    ctx.beginPath();
+    ctx.moveTo(tailX, tailY);
+    ctx.lineTo(headX, headY);
+    ctx.stroke();
+
+    ctx.translate(headX, headY);
+    ctx.rotate(Math.atan2(dy, dx));
+    ctx.fillStyle = "rgba(255, 239, 189, 0.95)";
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(-8 * end.scale / 2.1, 2.4 * end.scale / 2.1);
+    ctx.lineTo(-8 * end.scale / 2.1, -2.4 * end.scale / 2.1);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  });
+}
+
 function drawSpells(viewport, battle) {
   battle.spells.forEach((spell) => {
     const source = findUnitById(battle, spell.sourceId);
@@ -8376,6 +8822,10 @@ function normalizeAngle(angle) {
   while (normalized > Math.PI) normalized -= Math.PI * 2;
   while (normalized < -Math.PI) normalized += Math.PI * 2;
   return normalized;
+}
+
+function lerpAngle(from, to, t) {
+  return from + normalizeAngle(to - from) * t;
 }
 function hexToRgba(hex, alpha) {
   const value = hex.replace("#", "");
