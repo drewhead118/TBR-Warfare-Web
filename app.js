@@ -3,6 +3,7 @@ const STORAGE_KEY = "tbr-warfare-state-v1";
 const TOURNAMENT_VIEW_STORAGE_KEY = "tbr-warfare-tournament-view-v1";
 const FIELD = { width: 1180, height: 760 };
 const SPEED_OPTIONS = [0.35, 0.65, 1, 1.4, 1.85];
+const SHIFT_INSPECT_SPEED = 0.12;
 const AUDIO_DEFAULT_FADE_SECONDS = 1.8;
 const AUDIO_END_FADE_SECONDS = 0.4;
 const AUDIO_PAUSE_DUCK_FACTOR = 0.24;
@@ -50,7 +51,7 @@ const INKLORD_TAUNTS = [
   "You are but a footnote in my shadow!",
   "You're on my T.B.R.: To Be Removed!",
 ];
-const DEFAULT_COMPOSITION = { archer: 1, mage: 1, knight: 1, bodyguard: 0, medic: 0, bomber: 0, assassin: 0, mountainman: 0, catapult: 0, poisoner: 0, firebreather: 0, necromancer: 0, graverobber: 0, arachnomist: 0, krieger: 0, huntsman: 0 };
+const DEFAULT_COMPOSITION = { archer: 1, mage: 1, knight: 1, bodyguard: 0, medic: 0, bard: 0, bomber: 0, assassin: 0, mountainman: 0, catapult: 0, poisoner: 0, firebreather: 0, necromancer: 0, graverobber: 0, arachnomist: 0, krieger: 0, huntsman: 0 };
 const UNIT_SPRITE_CANDIDATE_PATHS = [
   (unitId) => `assets/unit-sprites/${unitId}.png`,
   (unitId) => `assets/units/${unitId}.png`,
@@ -77,6 +78,7 @@ const UNIT_SPRITE_LAYOUTS = {
   knight: { height: 42, anchorX: 0.5, anchorY: 0.88 },
   bodyguard: { height: 43, anchorX: 0.5, anchorY: 0.88 },
   medic: { height: 38, anchorX: 0.5, anchorY: 0.88 },
+  bard: { height: 40, anchorX: 0.5, anchorY: 0.88 },
   bomber: { height: 40, anchorX: 0.5, anchorY: 0.88 },
   assassin: { height: 38, anchorX: 0.5, anchorY: 0.88 },
   mountainman: { height: 41, anchorX: 0.5, anchorY: 0.88 },
@@ -166,6 +168,39 @@ const STATUS_DEFINITIONS = {
     dps: 0,
     badgeColor: "#78bfd6",
     accentColor: "#def7ff",
+  },
+  bardichaste: {
+    kind: "bardichaste",
+    name: "Marching Song",
+    negative: false,
+    stackable: false,
+    defaultDuration: 0.35,
+    tickInterval: 1,
+    dps: 0,
+    badgeColor: "#6ec8ff",
+    accentColor: "#e2f5ff",
+  },
+  bardicvalor: {
+    kind: "bardicvalor",
+    name: "War Anthem",
+    negative: false,
+    stackable: false,
+    defaultDuration: 0.35,
+    tickInterval: 1,
+    dps: 0,
+    badgeColor: "#ffb35b",
+    accentColor: "#ffe5bd",
+  },
+  bardicguard: {
+    kind: "bardicguard",
+    name: "Ballad of Guarding",
+    negative: false,
+    stackable: false,
+    defaultDuration: 0.35,
+    tickInterval: 1,
+    dps: 0,
+    badgeColor: "#d98cff",
+    accentColor: "#f3ddff",
   },
   bloodfrenzy: {
     kind: "bloodfrenzy",
@@ -307,6 +342,21 @@ const UNIT_DEFINITIONS = {
     performAttack: performMedicHeal,
     render: drawMedic,
     veteran: { metric: "healing", threshold: 180, label: "Heal 180 health" },
+  },
+  bard: {
+    id: "bard",
+    name: "Bard",
+    keywords: ["music", "song", "support", "aura", "minstrel", "buff"],
+    description: "Bards are battlefield conductors. They drift behind the line and keep nearby allies under one of several songs, swapping between pace, valor, and guarding refrains depending on how the fight is unfolding.",
+    stats: { maxHealth: 58, speed: 34, range: 0, auraRadius: 108, marchSpeedBonus: 1.24, marchCooldownBonus: 0.82, valorPowerBonus: 1.18, valorRangeBonus: 1.05, guardReduction: 0.18, songDuration: 4.8 },
+    healthBarWidth: 20,
+    iconPaths: getBardIconSvgPaths,
+    canActWithoutEnemies: true,
+    beforeStep: updateBardState,
+    selectTarget: selectBardTarget,
+    getDesiredDestination: getBardDestination,
+    render: drawBard,
+    veteran: null,
   },
   bomber: {
     id: "bomber",
@@ -718,10 +768,18 @@ const state = {
     targetX: FIELD.width / 2,
     targetY: FIELD.height / 2,
     targetZoom: 1,
+    mode: "fit",
     manualUntil: 0,
     isDragging: false,
     lastPointerX: 0,
     lastPointerY: 0,
+    cinematic: {
+      poiId: null,
+      focusX: FIELD.width / 2,
+      focusY: FIELD.height / 2,
+      focusZoom: 1,
+      nextRetargetAt: 0,
+    },
   },
   hover: {
     focusedUnitId: null,
@@ -731,6 +789,7 @@ const state = {
     cssY: 0,
     insideCanvas: false,
     shiftHeld: false,
+    inspectSlowActive: false,
   },
   compositionModal: {
     factionId: null,
@@ -875,7 +934,7 @@ function renderSpeedControls() {
   els.speedControls.appendChild(pauseButton);
   SPEED_OPTIONS.forEach((speed, index) => {
     const button = document.createElement("button");
-    button.className = `speed-btn${index === state.speedIndex ? " active" : ""}`;
+    button.className = `speed-btn${index === state.speedIndex && !state.hover.inspectSlowActive ? " active" : ""}`;
     button.textContent = `${index + 1}`;
     button.title = `${speed.toFixed(2)}x simulation speed`;
     button.addEventListener("click", () => {
@@ -884,10 +943,28 @@ function renderSpeedControls() {
     });
     els.speedControls.appendChild(button);
   });
+
+  const cameraModeButton = document.createElement("button");
+  cameraModeButton.className = "speed-btn active";
+  cameraModeButton.innerHTML = `Camera Mode:<br>${state.camera.mode === "fit" ? "Frame All" : "Cinematic"}`;
+  cameraModeButton.title = state.camera.mode === "fit"
+    ? "Keep the full battle framed"
+    : "Slowly fly between battlefield points of interest";
+  cameraModeButton.addEventListener("click", () => {
+    state.camera.mode = state.camera.mode === "fit" ? "cinematic" : "fit";
+    resetCinematicCameraState();
+    renderSpeedControls();
+  });
+  els.speedControls.appendChild(cameraModeButton);
 }
 
 function cloneData(value) {
   return JSON.parse(JSON.stringify(value));
+}
+
+function getBattleSpeedMultiplier() {
+  if (state.hover.inspectSlowActive) return SHIFT_INSPECT_SPEED;
+  return SPEED_OPTIONS[state.speedIndex];
 }
 
 function createEmptyComposition() {
@@ -979,6 +1056,18 @@ function getMedicIconSvgPaths() {
     <path fill="currentColor" d="M0 -12 L9 -2 L6 11 L-6 11 L-9 -2 Z"></path>
     <circle cx="0" cy="-13" r="4.7" fill="rgba(255,255,255,0.58)"></circle>
     <path d="M0 -2 L0 6 M-4 2 L4 2" fill="none" stroke="rgba(78,40,18,0.92)" stroke-width="2.2" stroke-linecap="round"></path>
+  `;
+}
+
+function getBardIconSvgPaths() {
+  return `
+    <path fill="rgba(69, 48, 34, 0.94)" d="M0 -15 L10 -5 L8 12 L-8 12 L-10 -5 Z"></path>
+    <path fill="currentColor" d="M0 -12 L7 -4 L6 10 L-6 10 L-7 -4 Z"></path>
+    <circle cx="0" cy="-13.5" r="4.8" fill="rgba(255,248,233,0.72)"></circle>
+    <path d="M8 -7 L8 2" fill="none" stroke="rgba(88,61,38,0.95)" stroke-width="2" stroke-linecap="round"></path>
+    <path d="M8 -7 Q13 -9 16 -4 Q13 0 8 -1" fill="none" stroke="rgba(236, 196, 120, 0.95)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
+    <circle cx="13.5" cy="-14.5" r="1.8" fill="#8fd8ff"></circle>
+    <circle cx="16.5" cy="-11.2" r="1.6" fill="#ffcf8b"></circle>
   `;
 }
 
@@ -1231,6 +1320,7 @@ function parseRowComposition(row) {
     knight: row.knight ?? row.knights,
     bodyguard: row.bodyguard ?? row.bodyguards,
     medic: row.medic ?? row.medics,
+    bard: row.bard ?? row.bards,
     bomber: row.bomber ?? row.bombers,
     assassin: row.assassin ?? row.assassins,
     mountainman: row.mountainman ?? row.mountainmen ?? row.menofthemountain,
@@ -1731,6 +1821,7 @@ function resetCamera() {
   state.camera.targetZoom = 1;
   state.camera.manualUntil = 0;
   state.camera.isDragging = false;
+  resetCinematicCameraState();
   els.canvas.classList.remove("is-dragging");
 }
 
@@ -2489,7 +2580,8 @@ function scaleZombieStat(stat, value) {
 function getUnitStats(unitOrType, unitDef = getUnitDefinition(unitOrType)) {
   const unit = typeof unitOrType === "string" ? null : unitOrType;
   const zombie = Boolean(unit && getUnitStatus(unit, "zombie"));
-  if (!unit?.veteran && !zombie && !unitDef.modifyStats) return unitDef.stats;
+  const hasSongBuff = Boolean(unit && (getUnitStatus(unit, "bardichaste") || getUnitStatus(unit, "bardicvalor")));
+  if (!unit?.veteran && !zombie && !unitDef.modifyStats && !hasSongBuff) return unitDef.stats;
   const scaledStats = {};
   Object.entries(unitDef.stats).forEach(([stat, value]) => {
     let nextValue = value;
@@ -2497,7 +2589,37 @@ function getUnitStats(unitOrType, unitDef = getUnitDefinition(unitOrType)) {
     if (zombie) nextValue = scaleZombieStat(stat, nextValue);
     scaledStats[stat] = nextValue;
   });
-  return unitDef.modifyStats ? unitDef.modifyStats(unit, scaledStats) : scaledStats;
+  const modifiedStats = unitDef.modifyStats ? unitDef.modifyStats(unit, scaledStats) : scaledStats;
+  return modifyStatsForStatuses(unit, modifiedStats);
+}
+
+function modifyStatsForStatuses(unit, stats) {
+  if (!unit || !stats) return stats;
+  let modified = stats;
+  if (getUnitStatus(unit, "bardichaste")) {
+    modified = {
+      ...modified,
+      speed: (modified.speed ?? 0) * 1.24,
+      cooldown: (modified.cooldown ?? 1) * 0.82,
+    };
+  }
+  if (getUnitStatus(unit, "bardicvalor")) {
+    modified = {
+      ...modified,
+      damage: typeof modified.damage === "number" ? modified.damage * 1.18 : modified.damage,
+      heal: typeof modified.heal === "number" ? modified.heal * 1.18 : modified.heal,
+      backstabDamage: typeof modified.backstabDamage === "number" ? modified.backstabDamage * 1.18 : modified.backstabDamage,
+      slashDamage: typeof modified.slashDamage === "number" ? modified.slashDamage * 1.18 : modified.slashDamage,
+      impulseDamage: typeof modified.impulseDamage === "number" ? modified.impulseDamage * 1.18 : modified.impulseDamage,
+      holdDamage: typeof modified.holdDamage === "number" ? modified.holdDamage * 1.18 : modified.holdDamage,
+      poisonDamage: typeof modified.poisonDamage === "number" ? modified.poisonDamage * 1.18 : modified.poisonDamage,
+      igniteDamage: typeof modified.igniteDamage === "number" ? modified.igniteDamage * 1.18 : modified.igniteDamage,
+      biteDamage: typeof modified.biteDamage === "number" ? modified.biteDamage * 1.18 : modified.biteDamage,
+      biteHeal: typeof modified.biteHeal === "number" ? modified.biteHeal * 1.18 : modified.biteHeal,
+      range: typeof modified.range === "number" ? modified.range * 1.05 : modified.range,
+    };
+  }
+  return modified;
 }
 
 function syncUnitMaxHealth(unit, preserveRatio = true) {
@@ -2685,6 +2807,8 @@ function makeUnit(factionId, type, x, y) {
     constructedTurretId: null,
     builderId: null,
     turretAimAngle: 0,
+    activeSongKind: null,
+    songTimer: 0,
   };
 }
 
@@ -2821,7 +2945,7 @@ function drawStatusBadgeSprite(statusId, scale) {
 function loop(timestamp) {
   const dt = Math.min(0.033, (timestamp - lastFrame) / 1000);
   lastFrame = timestamp;
-  const simDt = dt * SPEED_OPTIONS[state.speedIndex];
+  const simDt = dt * getBattleSpeedMultiplier();
   if (state.running && state.battle) stepBattle(state.battle, simDt);
   if (state.tournament || state.running || state.battle?.completed) syncTournamentViewState();
   updateAudioFades(dt);
@@ -2834,6 +2958,7 @@ function stepBattle(battle, dt) {
   battle.time += dt;
   updateInkLordEvent(battle, dt);
   updateBodyguardAuras(battle);
+  updateBardAuras(battle);
   updateStatuses(battle, dt);
   battle.factions.forEach((faction) => {
     updateFactionBanner(faction);
@@ -2841,6 +2966,7 @@ function stepBattle(battle, dt) {
     faction.units.forEach((unit) => updateUnit(unit, faction, battle, dt));
   });
   updateBodyguardAuras(battle);
+  updateBardAuras(battle);
   updateProjectiles(battle, dt);
   updateParticles(battle, dt);
   updateSpells(battle, dt);
@@ -3027,6 +3153,23 @@ function updateBodyguardAuras(battle) {
       living.forEach((ally) => {
         if (Math.hypot(ally.x - bodyguard.x, ally.y - bodyguard.y) <= stats.auraRadius) {
           applyStatus(ally, "shielded", 1, 0.3, bodyguard, battle);
+        }
+      });
+    });
+  });
+}
+
+function updateBardAuras(battle) {
+  battle.factions.forEach((faction) => {
+    const living = faction.units.filter((unit) => !unit.dead && !unit.fled);
+    const bards = living.filter((unit) => unit.type === "bard");
+    if (!bards.length) return;
+    bards.forEach((bard) => {
+      const stats = getUnitStats(bard);
+      const songKind = bard.activeSongKind || "bardichaste";
+      living.forEach((ally) => {
+        if (Math.hypot(ally.x - bard.x, ally.y - bard.y) <= stats.auraRadius) {
+          applyStatus(ally, songKind, 1, 0.35, bard, battle);
         }
       });
     });
@@ -3387,6 +3530,103 @@ function selectMedicTarget({ unit, allies }) {
   }
   unit.focusTargetId = null;
   return allies.find((ally) => ally.id !== unit.id && !ally.liftedBySpellId) || null;
+}
+
+function updateBardState({ unit, faction, allies, enemies, battle, unitDef, dt }) {
+  unit.songTimer = Math.max(0, (unit.songTimer || 0) - dt);
+  const factionSongState = faction.bardSongState || null;
+  if (factionSongState?.kind && battle.time < (factionSongState.endsAt || 0)) {
+    unit.activeSongKind = factionSongState.kind;
+    unit.songTimer = Math.max(0, factionSongState.endsAt - battle.time);
+    return;
+  }
+
+  const nextSong = chooseBardSong(unit, allies, enemies, unitDef);
+  const duration = getUnitStats(unit, unitDef).songDuration * (0.9 + Math.random() * 0.25);
+  faction.bardSongState = {
+    kind: nextSong,
+    endsAt: battle.time + duration,
+    sourceId: unit.id,
+  };
+  unit.activeSongKind = nextSong;
+  unit.songTimer = duration;
+  if (battle && Math.random() > 0.45) {
+    setHighlight(`${findFaction(battle, unit.factionId)?.title || "A faction"}'s bards strike up ${getStatusDefinition(unit.activeSongKind)?.name.toLowerCase() || "a new song"}`);
+  }
+}
+
+function chooseBardSong(unit, allies, enemies, unitDef = getUnitDefinition(unit)) {
+  const stats = getUnitStats(unit, unitDef);
+  const nearbyAllies = allies.filter((ally) => Math.hypot(ally.x - unit.x, ally.y - unit.y) <= stats.auraRadius);
+  const woundedNearby = nearbyAllies.filter((ally) => ally.health / Math.max(1, ally.maxHealth) < 0.62).length;
+  const nearbyEnemies = enemies.filter((enemy) => Math.hypot(enemy.x - unit.x, enemy.y - unit.y) <= stats.auraRadius * 1.2).length;
+  const weightedSongs = [];
+  const addSong = (kind, weight) => {
+    for (let i = 0; i < weight; i += 1) weightedSongs.push(kind);
+  };
+  addSong("bardichaste", 2 + (nearbyEnemies <= 1 ? 2 : 0));
+  addSong("bardicvalor", 2 + (nearbyEnemies >= 3 ? 2 : 0));
+  addSong("bardicguard", 1 + (woundedNearby >= 2 ? 3 : 0) + (nearbyEnemies >= nearbyAllies.length ? 1 : 0));
+  return weightedSongs[Math.floor(Math.random() * weightedSongs.length)] || "bardichaste";
+}
+
+function selectBardTarget({ unit, enemies, allies, battle }) {
+  const nonBardAllies = allies.filter((ally) => ally.id !== unit.id && ally.type !== "bard");
+  const escort = unit.focusTargetId ? findUnitById(battle, unit.focusTargetId) : null;
+  if (escort && !escort.dead && !escort.fled && escort.factionId === unit.factionId && escort.type !== "bard") {
+    return escort;
+  }
+  if (!nonBardAllies.length) {
+    unit.focusTargetId = null;
+    return enemies
+      .slice()
+      .sort((a, b) => Math.hypot(a.x - unit.x, a.y - unit.y) - Math.hypot(b.x - unit.x, b.y - unit.y))[0] || null;
+  }
+  const selectedEscort = nonBardAllies[Math.floor(Math.random() * nonBardAllies.length)] || null;
+  unit.focusTargetId = selectedEscort?.id || null;
+  return selectedEscort;
+}
+
+function getBardDestination({ unit, target, battle, allies, enemies }) {
+  const nonBardAllies = allies.filter((ally) => ally.id !== unit.id && ally.type !== "bard");
+  if (!nonBardAllies.length) {
+    const faction = findFaction(battle, unit.factionId);
+    const homeBase = faction?.homeBase || faction?.bannerPos || { x: unit.x, y: unit.y };
+    const awayX = unit.x - battle.field.centerX;
+    const awayY = unit.y - battle.field.centerY;
+    const awayLength = Math.max(0.001, Math.hypot(awayX, awayY));
+    return {
+      x: clamp(lerp(unit.x + (awayX / awayLength) * 180, homeBase.x, 0.45), 24, battle.field.width - 24),
+      y: clamp(lerp(unit.y + (awayY / awayLength) * 180, homeBase.y, 0.45), 28, battle.field.height - 28),
+    };
+  }
+
+  const escort = target && target.factionId === unit.factionId && target.type !== "bard" ? target : null;
+  if (!escort) {
+    const anchor = findFaction(battle, unit.factionId)?.bannerPos || { x: unit.x, y: unit.y };
+    return { x: anchor.x, y: anchor.y };
+  }
+
+  const orbitSeed = unit.statusVisualSeed || ((unit.id.length % 10) / 10);
+  const orbitAngle = orbitSeed * Math.PI * 2;
+  const orbitRadius = 28 + Math.floor(orbitSeed * 16);
+  const pressure = enemies
+    .slice()
+    .sort((a, b) => Math.hypot(a.x - unit.x, a.y - unit.y) - Math.hypot(b.x - unit.x, b.y - unit.y))[0] || null;
+  let offsetX = Math.cos(orbitAngle) * orbitRadius;
+  let offsetY = Math.sin(orbitAngle) * orbitRadius * 0.72;
+  if (pressure) {
+    const pressureDx = unit.x - pressure.x;
+    const pressureDy = unit.y - pressure.y;
+    const pressureLength = Math.max(0.001, Math.hypot(pressureDx, pressureDy));
+    const pressureScale = clamp(1 - (pressureLength / 132), 0, 1);
+    offsetX += (pressureDx / pressureLength) * 34 * pressureScale;
+    offsetY += (pressureDy / pressureLength) * 26 * pressureScale;
+  }
+  return {
+    x: clamp(escort.x + offsetX, 20, battle.field.width - 20),
+    y: clamp(escort.y + offsetY, 24, battle.field.height - 24),
+  };
 }
 
 function selectBodyguardTarget({ unit, enemies, battle, unitDef }) {
@@ -5340,6 +5580,12 @@ function applyRawDamage(unit, amount, battle, attacker = null, options = {}) {
     const reduction = getUnitStats(shieldSource || "bodyguard").shieldReduction ?? 0.25;
     resolvedAmount *= Math.max(0, 1 - reduction);
   }
+  const bardGuardStatus = getUnitStatus(unit, "bardicguard");
+  if (damageKind !== "healing" && damageKind !== "status" && bardGuardStatus) {
+    const guardSource = bardGuardStatus.sourceId ? findUnitById(battle, bardGuardStatus.sourceId) : null;
+    const reduction = getUnitStats(guardSource || "bard").guardReduction ?? 0.18;
+    resolvedAmount *= Math.max(0, 1 - reduction);
+  }
   const previousHealth = unit.health;
   unit.health -= resolvedAmount;
   const actualDamage = Math.max(0, Math.min(previousHealth, resolvedAmount));
@@ -5914,6 +6160,17 @@ function getStatusTooltipCopy(unit, status, battle) {
     const reduction = (getUnitStats(source || "bodyguard").shieldReduction ?? 0.25) * 100;
     return `Protected${source ? ` by ${getUnitDefinition(source).name}` : ""}. Reduces incoming direct damage by ${formatHoverStatNumber(reduction)}% for ${formatHoverDuration(status.duration)}.`;
   }
+  if (status.kind === "bardichaste") {
+    return `Inspired by a marching song. Movement speed is increased by 24% and attack cooldowns are reduced by 18% while the bard keeps playing nearby.`;
+  }
+  if (status.kind === "bardicvalor") {
+    return `Emboldened by a war anthem. Damage and healing are increased by 18%, and basic attack reach is slightly extended while the song lasts.`;
+  }
+  if (status.kind === "bardicguard") {
+    const source = status.sourceId ? findUnitById(battle, status.sourceId) : null;
+    const reduction = (getUnitStats(source || "bard").guardReduction ?? 0.18) * 100;
+    return `Protected by a guarding ballad. Incoming direct damage is reduced by ${formatHoverStatNumber(reduction)}% while the bard maintains the refrain nearby.`;
+  }
   if (status.kind === "bloodfrenzy") {
     return `Berserk for ${formatHoverDuration(status.duration)}. Attacks the closest unit in reach, including allies.`;
   }
@@ -5975,18 +6232,30 @@ function refreshFocusedBattleUnitFromPointer() {
 
 function onWindowKeyDown(event) {
   if (event.key !== "Shift") return;
+  if (!state.hover.inspectSlowActive) {
+    state.hover.inspectSlowActive = true;
+    renderSpeedControls();
+  }
   state.hover.shiftHeld = true;
   refreshFocusedBattleUnitFromPointer();
 }
 
 function onWindowKeyUp(event) {
   if (event.key !== "Shift") return;
+  if (state.hover.inspectSlowActive) {
+    state.hover.inspectSlowActive = false;
+    renderSpeedControls();
+  }
   state.hover.shiftHeld = false;
   state.hover.focusedUnitId = null;
   clearBattleHover();
 }
 
 function onWindowBlur() {
+  if (state.hover.inspectSlowActive) {
+    state.hover.inspectSlowActive = false;
+    renderSpeedControls();
+  }
   state.hover.shiftHeld = false;
   state.hover.focusedUnitId = null;
   clearBattleHover();
@@ -6034,6 +6303,17 @@ function markCameraManual() {
   state.camera.manualUntil = performance.now() + 6000;
 }
 
+function resetCinematicCameraState() {
+  state.camera.cinematic = {
+    poiId: null,
+    focusX: state.camera.x,
+    focusY: state.camera.y,
+    focusZoom: state.camera.zoom,
+    nextRetargetAt: 0,
+    path: null,
+  };
+}
+
 function updateCamera(dt) {
   if (!state.battle) return;
   const auto = getAutoCameraTarget(state.battle);
@@ -6042,13 +6322,20 @@ function updateCamera(dt) {
   state.camera.targetZoom = auto.zoom;
   const manualActive = performance.now() < state.camera.manualUntil || state.camera.isDragging;
   if (!manualActive) {
-    state.camera.x += (state.camera.targetX - state.camera.x) * Math.min(1, dt * 3.6);
-    state.camera.y += (state.camera.targetY - state.camera.y) * Math.min(1, dt * 3.6);
-    state.camera.zoom += (state.camera.targetZoom - state.camera.zoom) * Math.min(1, dt * 2.8);
+    const panSpeed = state.camera.mode === "cinematic" ? 1.35 : 3.6;
+    const zoomSpeed = state.camera.mode === "cinematic" ? 1.1 : 2.8;
+    state.camera.x += (state.camera.targetX - state.camera.x) * Math.min(1, dt * panSpeed);
+    state.camera.y += (state.camera.targetY - state.camera.y) * Math.min(1, dt * panSpeed);
+    state.camera.zoom += (state.camera.targetZoom - state.camera.zoom) * Math.min(1, dt * zoomSpeed);
   }
   clampCameraToField();
 }
 function getAutoCameraTarget(battle) {
+  if (state.camera.mode === "cinematic") return getCinematicCameraTarget(battle);
+  return getFitCameraTarget(battle);
+}
+
+function getFitCameraTarget(battle) {
   const activeUnits = battle.factions.flatMap((faction) => faction.units.filter((unit) => !unit.dead && !unit.fled));
   if (!activeUnits.length) return { x: FIELD.width / 2, y: FIELD.height / 2, zoom: 1 };
   let minX = Infinity;
@@ -6066,6 +6353,214 @@ function getAutoCameraTarget(battle) {
   const baseScale = getBaseScale(viewport);
   const fitZoom = Math.min(viewport.width / Math.max(260, maxX - minX + buffer * 2), viewport.height / Math.max(220, maxY - minY + buffer * 2)) / baseScale;
   return { x: clamp((minX + maxX) / 2, 0, FIELD.width), y: clamp((minY + maxY) / 2, 0, FIELD.height), zoom: clamp(fitZoom, 0.32, 2.25) };
+}
+
+function getCinematicCameraTarget(battle) {
+  const activeUnits = battle.factions.flatMap((faction) => faction.units.filter((unit) => !unit.dead && !unit.fled));
+  if (!activeUnits.length) return { x: FIELD.width / 2, y: FIELD.height / 2, zoom: 1 };
+  const fit = getFitCameraTarget(battle);
+  const cinematic = state.camera.cinematic || (state.camera.cinematic = {
+    poiId: null,
+    focusX: fit.x,
+    focusY: fit.y,
+    focusZoom: fit.zoom,
+    nextRetargetAt: 0,
+    path: null,
+  });
+  const pois = buildCinematicCameraPois(battle, activeUnits, fit);
+  const time = battle.time || 0;
+  let activePoi = pois.find((poi) => poi.id === cinematic.poiId) || null;
+
+  if (!activePoi || time >= cinematic.nextRetargetAt) {
+    activePoi = pickCinematicCameraPoi(pois, cinematic, fit);
+    cinematic.poiId = activePoi?.id || null;
+    cinematic.nextRetargetAt = time + 3.4 + Math.random() * 2.4;
+    cinematic.path = createCinematicCameraPath(cinematic, activePoi || fit, time);
+  }
+
+  const destination = activePoi || fit;
+  if (!cinematic.path) {
+    cinematic.path = createCinematicCameraPath(cinematic, destination, time);
+  }
+
+  const pathDuration = Math.max(0.001, cinematic.path.duration || 1);
+  cinematic.path.t = Math.min(1, (time - cinematic.path.startedAt) / pathDuration);
+  const easedT = smoothStep(0, 1, cinematic.path.t);
+  const point = getCameraBezierPoint(cinematic.path.start, cinematic.path.control1, cinematic.path.control2, cinematic.path.end, easedT);
+  cinematic.focusX = point.x;
+  cinematic.focusY = point.y;
+  cinematic.focusZoom = lerp(cinematic.path.startZoom, cinematic.path.endZoom, easedT);
+
+  return {
+    x: clamp(cinematic.focusX, 0, FIELD.width),
+    y: clamp(cinematic.focusY, 0, FIELD.height),
+    zoom: clamp(cinematic.focusZoom, 1.75, 3.65),
+  };
+}
+
+function createCinematicCameraPath(cinematic, destination, time) {
+  const start = { x: cinematic.focusX, y: cinematic.focusY };
+  const end = { x: destination.x, y: destination.y };
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const distance = Math.hypot(dx, dy);
+  const dirX = distance > 0.001 ? dx / distance : 1;
+  const dirY = distance > 0.001 ? dy / distance : 0;
+  const normalX = -dirY;
+  const normalY = dirX;
+  const curveOffset = Math.min(120, Math.max(34, distance * 0.22)) * (Math.random() > 0.5 ? 1 : -1);
+  const forwardBias = Math.min(92, Math.max(28, distance * 0.18));
+  const control1 = {
+    x: start.x + dx * 0.28 + normalX * curveOffset * 0.72 + dirX * forwardBias * 0.3,
+    y: start.y + dy * 0.18 + normalY * curveOffset * 0.72 + dirY * forwardBias * 0.3,
+  };
+  const control2 = {
+    x: start.x + dx * 0.72 + normalX * curveOffset - dirX * forwardBias * 0.18,
+    y: start.y + dy * 0.82 + normalY * curveOffset - dirY * forwardBias * 0.18,
+  };
+  return {
+    startedAt: time,
+    duration: 2.8 + Math.random() * 1.8 + distance / 210,
+    start,
+    control1,
+    control2,
+    end,
+    startZoom: cinematic.focusZoom,
+    endZoom: destination.zoom,
+    t: 0,
+  };
+}
+
+function pickCinematicCameraPoi(pois, cinematic, fit) {
+  if (!pois.length) return fit;
+  const previousId = cinematic.poiId;
+  return pois
+    .slice()
+    .sort((a, b) => {
+      const repeatPenaltyA = a.id === previousId ? 28 : 0;
+      const repeatPenaltyB = b.id === previousId ? 28 : 0;
+      const motionBiasA = Math.hypot(a.x - cinematic.focusX, a.y - cinematic.focusY) * 0.02;
+      const motionBiasB = Math.hypot(b.x - cinematic.focusX, b.y - cinematic.focusY) * 0.02;
+      return (b.score + motionBiasB - repeatPenaltyB) - (a.score + motionBiasA - repeatPenaltyA);
+    })[0];
+}
+
+function buildCinematicCameraPois(battle, activeUnits, fit) {
+  const pois = [{
+    id: "fit-overview",
+    x: fit.x,
+    y: fit.y,
+    zoom: Math.max(1.8, fit.zoom * 1.45),
+    score: 12,
+  }];
+
+  (battle.traces || []).forEach((trace, index) => {
+    pois.push({
+      id: `trace-${index}`,
+      x: lerp(trace.startX, trace.endX, 0.72),
+      y: lerp(trace.startY, trace.endY, 0.72),
+      zoom: 3.4,
+      score: 120,
+    });
+  });
+
+  (battle.swipes || []).forEach((swipe, index) => {
+    pois.push({
+      id: `swipe-${index}-${Math.round(swipe.x)}-${Math.round(swipe.y)}`,
+      x: swipe.x,
+      y: swipe.y,
+      zoom: 3.05,
+      score: 82,
+    });
+  });
+
+  (battle.spells || []).forEach((spell, index) => {
+    const source = findUnitById(battle, spell.sourceId);
+    const target = findUnitById(battle, spell.targetId);
+    if (!source || !target) return;
+    pois.push({
+      id: `spell-${spell.id || index}`,
+      x: lerp(source.x, target.x, 0.5),
+      y: lerp(source.y, target.y, 0.5),
+      zoom: spell.kind === "flame-breath" ? 2.55 : 2.95,
+      score: spell.kind === "flame-breath" ? 90 : 106,
+    });
+  });
+
+  const endangeredFactions = battle.factions
+    .filter((faction) => !faction.excludeFromResults)
+    .map((faction) => ({
+      faction,
+      survivors: faction.units.filter((unit) => !unit.dead && !unit.fled),
+    }))
+    .filter((entry) => entry.survivors.length > 0 && entry.survivors.length <= 2);
+
+  const featuredEndangered = endangeredFactions.length
+    ? endangeredFactions[Math.floor(Math.random() * endangeredFactions.length)]
+    : null;
+
+  if (featuredEndangered) {
+    const survivors = featuredEndangered.survivors;
+    const centroid = survivors.reduce((acc, unit) => ({ x: acc.x + unit.x, y: acc.y + unit.y }), { x: 0, y: 0 });
+    centroid.x /= survivors.length;
+    centroid.y /= survivors.length;
+    pois.push({
+      id: `endangered-${featuredEndangered.faction.id}`,
+      x: centroid.x,
+      y: centroid.y,
+      zoom: survivors.length === 1 ? 3.4 : 3.2,
+      score: 260,
+    });
+    survivors.forEach((unit) => {
+      pois.push({
+        id: `endangered-unit-${unit.id}`,
+        x: unit.x,
+        y: unit.y,
+        zoom: unit.type === "inklord" ? 2.2 : 3.25,
+        score: 240 + ((1 - (unit.health / Math.max(1, unit.maxHealth))) * 24),
+      });
+    });
+  }
+
+  activeUnits.forEach((unit, index) => {
+    const nearbyEnemies = activeUnits.filter((other) => other.factionId !== unit.factionId && Math.hypot(other.x - unit.x, other.y - unit.y) <= 112);
+    const score = 10
+      + nearbyEnemies.length * 14
+      + (unit.killStreak || 0) * 10
+      + (unit.veteran ? 12 : 0)
+      + (unit.activeSpellId ? 16 : 0)
+      + (unit.type === "inklord" ? 44 : 0)
+      + (unit.type === "krieger" ? 10 : 0)
+      + ((unit.constructedTurretId || unit.type === "turret") ? 8 : 0)
+      + ((1 - (unit.health / Math.max(1, unit.maxHealth))) * 18);
+    if (score < 28) return;
+    pois.push({
+      id: `unit-${unit.id || index}`,
+      x: unit.x,
+      y: unit.y - (unit.type === "inklord" ? 20 : 0),
+      zoom: unit.type === "inklord" ? 1.95 : 2.85,
+      score,
+    });
+  });
+
+  for (let i = 0; i < activeUnits.length; i += 1) {
+    const a = activeUnits[i];
+    for (let j = i + 1; j < activeUnits.length; j += 1) {
+      const b = activeUnits[j];
+      if (a.factionId === b.factionId) continue;
+      const distance = Math.hypot(a.x - b.x, a.y - b.y);
+      if (distance > 136) continue;
+      pois.push({
+        id: `duel-${a.id}-${b.id}`,
+        x: (a.x + b.x) / 2,
+        y: (a.y + b.y) / 2,
+        zoom: clamp(3.4 - distance / 150, 2.35, 3.55),
+        score: 70 + (136 - distance) * 0.35 + ((1 - a.health / Math.max(1, a.maxHealth)) + (1 - b.health / Math.max(1, b.maxHealth))) * 16,
+      });
+    }
+  }
+
+  return pois;
 }
 
 function clampCameraToField() {
@@ -6111,6 +6606,7 @@ function render() {
   drawBanners(viewport, state.battle.factions);
   drawProjectiles(viewport, state.battle.projectiles);
   drawBodyguardAuras(viewport, state.battle.factions);
+  drawBardAuras(viewport, state.battle.factions);
   drawUnits(viewport, state.battle.factions);
   drawBossBubbles(viewport, state.battle);
   drawNecromancerLinks(viewport, state.battle);
@@ -7274,6 +7770,71 @@ function drawBodyguardAuras(viewport, factions) {
   });
 }
 
+function getBardSongVisuals(songKind) {
+  if (songKind === "bardicvalor") return { color: "#ffb46a", fill: "rgba(255, 191, 120, 0.1)" };
+  if (songKind === "bardicguard") return { color: "#d79bff", fill: "rgba(214, 155, 255, 0.1)" };
+  return { color: "#86dcff", fill: "rgba(134, 220, 255, 0.1)" };
+}
+
+function drawMusicNote(x, y, scale, color, angle = 0) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(angle);
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  ctx.lineWidth = 1.3 * scale / 2.1;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(-1.4 * scale / 2.1, -5.5 * scale / 2.1);
+  ctx.lineTo(-1.4 * scale / 2.1, 2.2 * scale / 2.1);
+  ctx.lineTo(3.5 * scale / 2.1, 1.1 * scale / 2.1);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(-3.4 * scale / 2.1, 2.9 * scale / 2.1, 2 * scale / 2.1, 0, Math.PI * 2);
+  ctx.arc(2.2 * scale / 2.1, 4.1 * scale / 2.1, 2 * scale / 2.1, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawBardAuras(viewport, factions) {
+  const battleTime = state.battle?.time || 0;
+  const pulse = Math.sin(2 * battleTime) ** 6;
+  factions.forEach((faction) => {
+    faction.units.forEach((unit) => {
+      if (unit.dead || unit.fled || unit.type !== "bard") return;
+      const point = worldToScreen(unit.x, unit.y, viewport);
+      const stats = getUnitStats(unit);
+      const radius = stats.auraRadius * point.scale;
+      const songKind = unit.activeSongKind || "bardichaste";
+      const visuals = getBardSongVisuals(songKind);
+      ctx.save();
+      ctx.setLineDash([8 * point.scale, 6 * point.scale]);
+      ctx.strokeStyle = hexToRgba(visuals.color, pulse * 0.42);
+      ctx.lineWidth = Math.max(1.4, (pulse * 0.9) * point.scale);
+      ctx.beginPath();
+      ctx.arc(point.x, point.y, radius, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = hexToRgba(visuals.color, pulse * 0.09);
+      ctx.beginPath();
+      ctx.arc(point.x, point.y, radius, 0, Math.PI * 2);
+      ctx.fill();
+      for (let i = 0; i < 3; i += 1) {
+        const orbit = battleTime * (1.4 + i * 0.22) + unit.statusVisualSeed + i * (Math.PI * 2 / 3);
+        const noteRadius = (18 + i * 8) * point.scale / 2.1;
+        drawMusicNote(
+          point.x + Math.cos(orbit) * noteRadius,
+          point.y - 18 * point.scale / 2.1 + Math.sin(orbit * 0.9) * 10 * point.scale / 2.1,
+          point.scale * (0.85 + i * 0.08),
+          hexToRgba(visuals.color, 0.72),
+          Math.sin(orbit) * 0.18,
+        );
+      }
+      ctx.restore();
+    });
+  });
+}
+
 function drawGraves(viewport, graves) {
   graves
     .slice()
@@ -7411,6 +7972,27 @@ function drawUnitStatusOverlay(unit, scale) {
     ctx.arc(0, -3 * scale / 2.1, 14 * scale / 2.1, 0.18, Math.PI - 0.18);
     ctx.stroke();
   }
+  if (getStatusStacks(unit, "bardichaste") > 0) {
+    ctx.strokeStyle = "rgba(134, 218, 255, 0.34)";
+    ctx.lineWidth = 1.2 * scale / 2.1;
+    ctx.beginPath();
+    ctx.arc(0, -2 * scale / 2.1, 15 * scale / 2.1, Math.PI * 0.08, Math.PI * 0.92);
+    ctx.stroke();
+  }
+  if (getStatusStacks(unit, "bardicvalor") > 0) {
+    ctx.strokeStyle = "rgba(255, 188, 110, 0.36)";
+    ctx.lineWidth = 1.2 * scale / 2.1;
+    ctx.beginPath();
+    ctx.arc(0, -2 * scale / 2.1, 16 * scale / 2.1, Math.PI * 1.06, Math.PI * 1.94);
+    ctx.stroke();
+  }
+  if (getStatusStacks(unit, "bardicguard") > 0) {
+    ctx.strokeStyle = "rgba(219, 162, 255, 0.34)";
+    ctx.lineWidth = 1.2 * scale / 2.1;
+    ctx.beginPath();
+    ctx.arc(0, -3 * scale / 2.1, 13 * scale / 2.1, 0, Math.PI * 2);
+    ctx.stroke();
+  }
 }
 
 function getUnitStatusBadges(unit) {
@@ -7448,6 +8030,9 @@ function drawStatusBadge(badge, x, y, scale) {
     if (badge.kind === "ignite") drawIgniteBadgeIcon(scale, badge.accentColor);
     if (badge.kind === "zombie") drawZombieBadgeIcon(scale, badge.accentColor);
     if (badge.kind === "shielded") drawShieldedBadgeIcon(scale, badge.accentColor);
+    if (badge.kind === "bardichaste") drawBardHasteBadgeIcon(scale, badge.accentColor);
+    if (badge.kind === "bardicvalor") drawBardValorBadgeIcon(scale, badge.accentColor);
+    if (badge.kind === "bardicguard") drawBardGuardBadgeIcon(scale, badge.accentColor);
     if (badge.kind === "bloodfrenzy") drawBloodFrenzyBadgeIcon(scale, badge.accentColor);
     if (badge.kind === "immobilized") drawImmobilizedBadgeIcon(scale, badge.accentColor);
     if (badge.kind === "bleed") drawBleedBadgeIcon(scale, badge.accentColor);
@@ -7649,6 +8234,59 @@ function drawShieldedBadgeIcon(scale, color) {
   ctx.stroke();
 }
 
+function drawBardHasteBadgeIcon(scale, color) {
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.2 * scale / 2.1;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(-1.5 * scale / 2.1, -5.5 * scale / 2.1);
+  ctx.lineTo(-1.5 * scale / 2.1, 3 * scale / 2.1);
+  ctx.lineTo(4.5 * scale / 2.1, 1.5 * scale / 2.1);
+  ctx.moveTo(1.2 * scale / 2.1, -4.2 * scale / 2.1);
+  ctx.lineTo(1.2 * scale / 2.1, 4.6 * scale / 2.1);
+  ctx.lineTo(5.8 * scale / 2.1, 3.3 * scale / 2.1);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(-3.5 * scale / 2.1, 3.3 * scale / 2.1, 2.1 * scale / 2.1, 0, Math.PI * 2);
+  ctx.arc(3.2 * scale / 2.1, 4.8 * scale / 2.1, 2.1 * scale / 2.1, 0, Math.PI * 2);
+  ctx.fillStyle = color;
+  ctx.fill();
+}
+
+function drawBardValorBadgeIcon(scale, color) {
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(0, -6.5 * scale / 2.1);
+  ctx.lineTo(4.2 * scale / 2.1, -1 * scale / 2.1);
+  ctx.lineTo(1.6 * scale / 2.1, -1 * scale / 2.1);
+  ctx.lineTo(5 * scale / 2.1, 6.5 * scale / 2.1);
+  ctx.lineTo(-4 * scale / 2.1, 1.2 * scale / 2.1);
+  ctx.lineTo(-1.3 * scale / 2.1, 1.2 * scale / 2.1);
+  ctx.closePath();
+  ctx.fill();
+}
+
+function drawBardGuardBadgeIcon(scale, color) {
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(0, -5.8 * scale / 2.1);
+  ctx.lineTo(4.6 * scale / 2.1, -3.1 * scale / 2.1);
+  ctx.lineTo(4.1 * scale / 2.1, 3 * scale / 2.1);
+  ctx.lineTo(0, 6.2 * scale / 2.1);
+  ctx.lineTo(-4.1 * scale / 2.1, 3 * scale / 2.1);
+  ctx.lineTo(-4.6 * scale / 2.1, -3.1 * scale / 2.1);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = "rgba(61, 31, 77, 0.82)";
+  ctx.lineWidth = 0.9 * scale / 2.1;
+  ctx.beginPath();
+  ctx.moveTo(0, -2.8 * scale / 2.1);
+  ctx.lineTo(0, 3.8 * scale / 2.1);
+  ctx.moveTo(-2.1 * scale / 2.1, 0.2 * scale / 2.1);
+  ctx.lineTo(2.1 * scale / 2.1, 0.2 * scale / 2.1);
+  ctx.stroke();
+}
+
 function drawBloodFrenzyBadgeIcon(scale, color) {
   ctx.fillStyle = color;
   ctx.beginPath();
@@ -7737,6 +8375,48 @@ function drawMedic(main, dark, light, scale, unit) {
   ctx.stroke();
   ctx.fillStyle = shadeColor(main, -0.12);
   ctx.fillRect(-9 * scale / 2.1, 1 * scale / 2.1, 3 * scale / 2.1, 8 * scale / 2.1);
+}
+
+function drawBard(main, dark, light, scale, unit) {
+  drawStepLegs(dark, scale, unit, 5.7, 9.7);
+  ctx.fillStyle = shadeColor(main, -0.18);
+  ctx.beginPath();
+  ctx.moveTo(0, -15 * scale / 2.1);
+  ctx.lineTo(10 * scale / 2.1, -5 * scale / 2.1);
+  ctx.lineTo(8 * scale / 2.1, 12 * scale / 2.1);
+  ctx.lineTo(-8 * scale / 2.1, 12 * scale / 2.1);
+  ctx.lineTo(-10 * scale / 2.1, -5 * scale / 2.1);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = main;
+  ctx.beginPath();
+  ctx.moveTo(0, -12 * scale / 2.1);
+  ctx.lineTo(7 * scale / 2.1, -4 * scale / 2.1);
+  ctx.lineTo(6 * scale / 2.1, 10 * scale / 2.1);
+  ctx.lineTo(-6 * scale / 2.1, 10 * scale / 2.1);
+  ctx.lineTo(-7 * scale / 2.1, -4 * scale / 2.1);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = light;
+  ctx.beginPath();
+  ctx.arc(0, -13.2 * scale / 2.1, 4.8 * scale / 2.1, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "#6f4b2f";
+  ctx.lineWidth = 1.8 * scale / 2.1;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(7.5 * scale / 2.1, -7 * scale / 2.1);
+  ctx.lineTo(7.5 * scale / 2.1, 4 * scale / 2.1);
+  ctx.stroke();
+  ctx.strokeStyle = "#e2b46f";
+  ctx.lineWidth = 1.7 * scale / 2.1;
+  ctx.beginPath();
+  ctx.moveTo(7.5 * scale / 2.1, -7 * scale / 2.1);
+  ctx.quadraticCurveTo(13.5 * scale / 2.1, -10 * scale / 2.1, 16 * scale / 2.1, -4 * scale / 2.1);
+  ctx.quadraticCurveTo(13.5 * scale / 2.1, 1.5 * scale / 2.1, 7.5 * scale / 2.1, -0.8 * scale / 2.1);
+  ctx.stroke();
+  const songColor = getBardSongVisuals(unit.activeSongKind || "bardichaste").color;
+  drawMusicNote(13.5 * scale / 2.1, -16 * scale / 2.1, scale * 0.7, hexToRgba(songColor, 0.78), -0.18);
 }
 
 function drawBomber(main, dark, light, scale, unit) {
@@ -8817,6 +9497,23 @@ function drawParticles(viewport, particles) {
 }
 
 function lerp(a, b, t) { return a + (b - a) * t; }
+function smoothStep(edge0, edge1, value) {
+  const t = clamp((value - edge0) / Math.max(0.0001, edge1 - edge0), 0, 1);
+  return t * t * (3 - 2 * t);
+}
+
+function getCameraBezierPoint(start, control1, control2, end, t) {
+  const u = 1 - t;
+  const uu = u * u;
+  const uuu = uu * u;
+  const tt = t * t;
+  const ttt = tt * t;
+  return {
+    x: (uuu * start.x) + (3 * uu * t * control1.x) + (3 * u * tt * control2.x) + (ttt * end.x),
+    y: (uuu * start.y) + (3 * uu * t * control1.y) + (3 * u * tt * control2.y) + (ttt * end.y),
+  };
+}
+
 function normalizeAngle(angle) {
   let normalized = angle;
   while (normalized > Math.PI) normalized -= Math.PI * 2;
