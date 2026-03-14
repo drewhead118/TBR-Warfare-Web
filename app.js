@@ -50,7 +50,7 @@ const INKLORD_TAUNTS = [
   "You are but a footnote in my shadow!",
   "You're on my T.B.R.: To Be Removed!",
 ];
-const DEFAULT_COMPOSITION = { archer: 1, mage: 1, knight: 1, bodyguard: 0, medic: 0, bomber: 0, assassin: 0, mountainman: 0, catapult: 0, poisoner: 0, firebreather: 0, necromancer: 0, graverobber: 0, arachnomist: 0 };
+const DEFAULT_COMPOSITION = { archer: 1, mage: 1, knight: 1, bodyguard: 0, medic: 0, bomber: 0, assassin: 0, mountainman: 0, catapult: 0, poisoner: 0, firebreather: 0, necromancer: 0, graverobber: 0, arachnomist: 0, krieger: 0 };
 const UNIT_SPRITE_CANDIDATE_PATHS = [
   (unitId) => `assets/unit-sprites/${unitId}.png`,
   (unitId) => `assets/units/${unitId}.png`,
@@ -86,6 +86,7 @@ const UNIT_SPRITE_LAYOUTS = {
   necromancer: { height: 42, anchorX: 0.5, anchorY: 0.88 },
   graverobber: { height: 40, anchorX: 0.5, anchorY: 0.88 },
   arachnomist: { height: 41, anchorX: 0.5, anchorY: 0.88 },
+  krieger: { height: 60, anchorX: 0.5, anchorY: 0.92 },
   spiderswarm: { height: 26, anchorX: 0.5, anchorY: 0.92 },
 };
 const UNIT_SPRITE_TINT_ALPHA = 0.56;
@@ -164,6 +165,17 @@ const STATUS_DEFINITIONS = {
     dps: 0,
     badgeColor: "#78bfd6",
     accentColor: "#def7ff",
+  },
+  bloodfrenzy: {
+    kind: "bloodfrenzy",
+    name: "Blood Frenzy",
+    negative: true,
+    stackable: false,
+    defaultDuration: 10,
+    tickInterval: 1,
+    dps: 0,
+    badgeColor: "#d76767",
+    accentColor: "#ffe0db",
   },
 };
 const DEFAULT_PROP_WEIGHTS = {
@@ -416,6 +428,25 @@ const UNIT_DEFINITIONS = {
     performAttack: performArachnomistAttack,
     render: drawArachnomist,
     veteran: null,
+  },
+  krieger: {
+    id: "krieger",
+    name: "Krieger",
+    keywords: ["titan", "hulk", "brute", "regeneration", "blood frenzy", "melee"],
+    description: "Kriegers are towering lurching hulks that crush whatever they reach. They regenerate steadily, hit like siege beasts in melee, and can lose all sense of allegiance in a blood frenzy after a kill, turning on the nearest body no matter whose banner it serves.",
+    stats: { maxHealth: 384, speed: 22, range: 32, damage: 58, cooldown: 1.55, regenPerSecond: 4.2, frenzyChance: 0.32 },
+    healthBarWidth: 36,
+    iconPaths: getKriegerIconSvgPaths,
+    canActWithoutEnemies: true,
+    beforeStep: updateKriegerState,
+    selectTarget: selectKriegerTarget,
+    getMoveSpeed: (unit, unitDef) => {
+      const stats = getUnitStats(unit, unitDef);
+      return getUnitStatus(unit, "bloodfrenzy") ? stats.speed * 1.12 : stats.speed;
+    },
+    performAttack: performKriegerAttack,
+    render: drawKrieger,
+    veteran: { metric: "kills", threshold: 3, label: "Score 3 kills" },
   },
   spiderswarm: {
     id: "spiderswarm",
@@ -971,6 +1002,16 @@ function getArachnomistIconSvgPaths() {
   `;
 }
 
+function getKriegerIconSvgPaths() {
+  return `
+    <ellipse cx="0" cy="2" rx="13" ry="15" fill="currentColor"></ellipse>
+    <path fill="rgba(70, 41, 27, 0.38)" d="M-12 -1 Q0 10 12 -1 L9 10 L-9 10 Z"></path>
+    <circle cx="0" cy="-14" r="6.2" fill="rgba(255, 238, 220, 0.58)"></circle>
+    <path d="M-12 2 L-18 12 M12 2 L18 12" fill="none" stroke="rgba(78,40,18,0.92)" stroke-width="2.5" stroke-linecap="round"></path>
+    <path d="M-4 -15 L-8 -20 M4 -15 L8 -20" fill="none" stroke="rgba(78,40,18,0.92)" stroke-width="2.4" stroke-linecap="round"></path>
+  `;
+}
+
 function getSpiderSwarmIconSvgPaths() {
   return `
     <ellipse cx="0" cy="2" rx="7.5" ry="5.5" fill="currentColor"></ellipse>
@@ -1076,6 +1117,7 @@ function parseRowComposition(row) {
     poisoner: row.poisoner ?? row.poisoners,
     firebreather: row.firebreather ?? row.firebreathers,
     arachnomist: row.arachnomist ?? row.arachnomists,
+    krieger: row.krieger ?? row.kriegers,
   };
 }
 
@@ -2302,7 +2344,7 @@ function getVeteranGoal(unitOrType) {
 function scaleVeteranStat(stat, value) {
   if (typeof value !== "number") return value;
   if (stat === "maxHealth") return value * VETERAN_BONUSES.maxHealth;
-  if (["damage", "heal", "backstabDamage", "slashDamage", "impulseDamage", "holdDamage", "poisonDamage", "igniteDamage", "biteDamage", "biteHeal"].includes(stat)) return value * VETERAN_BONUSES.power;
+  if (["damage", "heal", "backstabDamage", "slashDamage", "impulseDamage", "holdDamage", "poisonDamage", "igniteDamage", "biteDamage", "biteHeal", "regenPerSecond"].includes(stat)) return value * VETERAN_BONUSES.power;
   if (["range", "abductRange", "splash", "deathSplash", "impulseRange", "impulseDistance", "holdRange", "resetRadius", "contagionRadius", "raiseRange", "graveRange", "graveDeadZone", "auraRadius", "aggroRadius"].includes(stat)) return value * VETERAN_BONUSES.radius;
   if (stat === "speed") return value * VETERAN_BONUSES.speed;
   if (stat === "cooldown") return value * VETERAN_BONUSES.cooldown;
@@ -2313,7 +2355,7 @@ function scaleVeteranStat(stat, value) {
 function scaleZombieStat(stat, value) {
   if (typeof value !== "number") return value;
   if (stat === "maxHealth") return value * ZOMBIE_PENALTIES.maxHealth;
-  if (["damage", "heal", "backstabDamage", "slashDamage", "impulseDamage", "holdDamage", "poisonDamage", "igniteDamage", "biteDamage", "biteHeal"].includes(stat)) return value * ZOMBIE_PENALTIES.power;
+  if (["damage", "heal", "backstabDamage", "slashDamage", "impulseDamage", "holdDamage", "poisonDamage", "igniteDamage", "biteDamage", "biteHeal", "regenPerSecond"].includes(stat)) return value * ZOMBIE_PENALTIES.power;
   if (["range", "abductRange", "splash", "deathSplash", "impulseRange", "impulseDistance", "holdRange", "resetRadius", "contagionRadius", "raiseRange", "graveRange", "graveDeadZone", "auraRadius", "aggroRadius"].includes(stat)) return value * ZOMBIE_PENALTIES.radius;
   if (stat === "speed") return value * ZOMBIE_PENALTIES.speed;
   if (stat === "cooldown") return value * ZOMBIE_PENALTIES.cooldown;
@@ -2347,7 +2389,8 @@ function syncUnitMaxHealth(unit, preserveRatio = true) {
 
 function getUnitRenderScale(unit) {
   if (unit?.type === "inklord") return 4;
-  return unit?.veteran ? VETERAN_BONUSES.spriteScale : 1;
+  const baseScale = getUnitDefinition(unit).renderScale || (unit?.type === "krieger" ? 1.2 : 1);
+  return baseScale * (unit?.veteran ? VETERAN_BONUSES.spriteScale : 1);
 }
 
 function getVeteranProgressValue(unit, metric) {
@@ -3473,6 +3516,45 @@ function selectDefaultTarget({ unit, enemies }) {
   return best;
 }
 
+function updateKriegerState({ unit, battle, dt }) {
+  const stats = getUnitStats(unit);
+  if (unit.dead || unit.fled) return;
+  if (unit.health < unit.maxHealth) {
+    unit.health = Math.min(unit.maxHealth, unit.health + stats.regenPerSecond * dt);
+  }
+  if (getUnitStatus(unit, "bloodfrenzy") && Math.random() > 0.992) {
+    setHighlight(`${findFaction(battle, unit.factionId)?.title || "A faction"}'s krieger is in a blood frenzy`);
+  }
+}
+
+function selectKriegerTarget({ unit, enemies, battle }) {
+  const frenzy = getUnitStatus(unit, "bloodfrenzy");
+  let candidates = enemies;
+  if (frenzy && battle) {
+    candidates = battle.factions
+      .flatMap((faction) => faction.units)
+      .filter((candidate) => (
+        candidate.id !== unit.id
+        && !candidate.dead
+        && !candidate.fled
+        && canUnitBeTargeted(candidate, unit)
+      ));
+  }
+  unit.currentTargetKind = candidates.length ? "enemy" : null;
+  unit.currentGraveId = null;
+  let best = null;
+  let bestDistance = Infinity;
+  candidates.forEach((candidate) => {
+    const distance = Math.hypot(candidate.x - unit.x, candidate.y - unit.y);
+    const tieBreaker = distance + candidate.health * 0.02;
+    if (tieBreaker < bestDistance) {
+      best = candidate;
+      bestDistance = tieBreaker;
+    }
+  });
+  return best;
+}
+
 function updateNecromancerState({ unit, battle }) {
   if (unit.thrallOwnerId) {
     unit.thrallIds = [];
@@ -4377,6 +4459,24 @@ function performKnightAttack({ unit, target, battle, unitDef }) {
   spawnBurst(battle, target.x, target.y, "#ffd59b", 10);
 }
 
+function performKriegerAttack({ unit, target, battle, unitDef }) {
+  const stats = getUnitStats(unit, unitDef);
+  if (Math.hypot(target.x - unit.x, target.y - unit.y) > stats.range + 5) return;
+  applyDamage(target, stats.damage * (0.94 + Math.random() * 0.34), battle, unit);
+  battle.swipes.push({ x: target.x, y: target.y - 14, angle: unit.facing, life: 0.28, maxLife: 0.28, color: "rgba(255, 162, 120, 0.82)" });
+  spawnBurst(battle, target.x, target.y + 2, "#d79b71", 18);
+  battle.particles.push({ kind: "shockwave", x: target.x, y: target.y + 2, vx: 0, vy: 0, life: 0.22, age: 0, color: "rgba(197, 118, 84, 0.56)", size: 12, startSize: 12, maxSize: 38, lineWidth: 5 });
+}
+
+function maybeTriggerKriegerBloodFrenzy(attacker, battle) {
+  if (!attacker || attacker.dead || attacker.type !== "krieger") return;
+  const stats = getUnitStats(attacker);
+  if (Math.random() > (stats.frenzyChance ?? 0.32)) return;
+  applyStatus(attacker, "bloodfrenzy", 1, 10, attacker, battle);
+  spawnBurst(battle, attacker.x, attacker.y - 12, "#d86f62", 20);
+  setHighlight(`${findFaction(battle, attacker.factionId)?.title || "A faction"}'s krieger snaps into a blood frenzy`);
+}
+
 function findFaction(battle, factionId) {
   return battle.factions.find((entry) => entry.id === factionId);
 }
@@ -4798,6 +4898,7 @@ function applyRawDamage(unit, amount, battle, attacker = null, options = {}) {
     if (!options.noAttackerCredit && attacker && !attacker.dead) {
       attacker.killStreak = (attacker.killStreak || 0) + 1;
       recordUnitContribution(attacker, "kills", 1, battle);
+      maybeTriggerKriegerBloodFrenzy(attacker, battle);
     }
     if (!options.skipDefaultDeathBurst) spawnBurst(battle, unit.x, unit.y, "#f3c58a", 16);
   }
@@ -5350,11 +5451,14 @@ function getStatusTooltipCopy(unit, status, battle) {
   if (status.kind === "zombie") {
     return "Reanimated thrall. Permanent until destroyed, with reduced max health, damage, speed, and duration-based stats.";
   }
-  if (status.kind === "shielded") {
-    const source = status.sourceId ? findUnitById(battle, status.sourceId) : null;
-    const reduction = (getUnitStats(source || "bodyguard").shieldReduction ?? 0.25) * 100;
-    return `Protected${source ? ` by ${getUnitDefinition(source).name}` : ""}. Reduces incoming direct damage by ${formatHoverStatNumber(reduction)}% for ${formatHoverDuration(status.duration)}.`;
-  }
+    if (status.kind === "shielded") {
+      const source = status.sourceId ? findUnitById(battle, status.sourceId) : null;
+      const reduction = (getUnitStats(source || "bodyguard").shieldReduction ?? 0.25) * 100;
+      return `Protected${source ? ` by ${getUnitDefinition(source).name}` : ""}. Reduces incoming direct damage by ${formatHoverStatNumber(reduction)}% for ${formatHoverDuration(status.duration)}.`;
+    }
+    if (status.kind === "bloodfrenzy") {
+      return `Berserk for ${formatHoverDuration(status.duration)}. Attacks the closest unit in reach, including allies.`;
+    }
   return definition.name;
 }
 
@@ -7155,6 +7259,53 @@ function drawBodyguard(main, dark, light, scale, unit) {
   ctx.moveTo(10 * scale / 2.1, -2 * scale / 2.1);
   ctx.lineTo(16 * scale / 2.1, -16 * scale / 2.1);
   ctx.stroke();
+}
+
+function drawKrieger(main, dark, light, scale, unit) {
+  drawStepLegs(dark, scale * 1.2, unit, 8.8, 14.5);
+  ctx.fillStyle = shadeColor(main, -0.22);
+  ctx.beginPath();
+  ctx.moveTo(0, -18 * scale / 2.1);
+  ctx.lineTo(14 * scale / 2.1, -8 * scale / 2.1);
+  ctx.lineTo(16 * scale / 2.1, 8 * scale / 2.1);
+  ctx.lineTo(8 * scale / 2.1, 18 * scale / 2.1);
+  ctx.lineTo(-9 * scale / 2.1, 17 * scale / 2.1);
+  ctx.lineTo(-16 * scale / 2.1, 7 * scale / 2.1);
+  ctx.lineTo(-14 * scale / 2.1, -8 * scale / 2.1);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = main;
+  ctx.beginPath();
+  ctx.ellipse(0, 3 * scale / 2.1, 13 * scale / 2.1, 16 * scale / 2.1, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = shadeColor(main, 0.08);
+  ctx.beginPath();
+  ctx.ellipse(0, 1 * scale / 2.1, 8.5 * scale / 2.1, 11 * scale / 2.1, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = light;
+  ctx.beginPath();
+  ctx.arc(0, -15 * scale / 2.1, 6.2 * scale / 2.1, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = dark;
+  ctx.lineWidth = 2.8 * scale / 2.1;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(-13 * scale / 2.1, 2 * scale / 2.1);
+  ctx.lineTo(-18 * scale / 2.1, 14 * scale / 2.1);
+  ctx.moveTo(13 * scale / 2.1, 2 * scale / 2.1);
+  ctx.lineTo(18 * scale / 2.1, 14 * scale / 2.1);
+  ctx.moveTo(-4 * scale / 2.1, -16 * scale / 2.1);
+  ctx.lineTo(-8 * scale / 2.1, -22 * scale / 2.1);
+  ctx.moveTo(4 * scale / 2.1, -16 * scale / 2.1);
+  ctx.lineTo(8 * scale / 2.1, -22 * scale / 2.1);
+  ctx.stroke();
+  if (getUnitStatus(unit, "bloodfrenzy")) {
+    ctx.strokeStyle = "rgba(214, 92, 84, 0.78)";
+    ctx.lineWidth = 2.2 * scale / 2.1;
+    ctx.beginPath();
+    ctx.arc(0, -2 * scale / 2.1, 17 * scale / 2.1, 0, Math.PI * 2);
+    ctx.stroke();
+  }
 }
 
 function drawMountainMan(main, dark, light, scale, unit) {
