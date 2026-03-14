@@ -51,7 +51,7 @@ const INKLORD_TAUNTS = [
   "You are but a footnote in my shadow!",
   "You're on my T.B.R.: To Be Removed!",
 ];
-const DEFAULT_COMPOSITION = { archer: 1, mage: 1, knight: 1, bodyguard: 0, medic: 0, bard: 0, bomber: 0, assassin: 0, mountainman: 0, catapult: 0, poisoner: 0, firebreather: 0, necromancer: 0, graverobber: 0, arachnomist: 0, krieger: 0, huntsman: 0 };
+const DEFAULT_COMPOSITION = { archer: 1, mage: 1, knight: 1, paladin: 0, bodyguard: 0, medic: 0, bard: 0, bomber: 0, assassin: 0, mountainman: 0, catapult: 0, poisoner: 0, firebreather: 0, necromancer: 0, graverobber: 0, arachnomist: 0, krieger: 0, huntsman: 0 };
 const UNIT_SPRITE_CANDIDATE_PATHS = [
   (unitId) => `assets/unit-sprites/${unitId}.png`,
   (unitId) => `assets/units/${unitId}.png`,
@@ -76,6 +76,7 @@ const UNIT_SPRITE_LAYOUTS = {
   archer: { height: 38, anchorX: 0.5, anchorY: 0.88 },
   mage: { height: 39, anchorX: 0.5, anchorY: 0.88 },
   knight: { height: 42, anchorX: 0.5, anchorY: 0.88 },
+  paladin: { height: 43, anchorX: 0.5, anchorY: 0.88 },
   bodyguard: { height: 43, anchorX: 0.5, anchorY: 0.88 },
   medic: { height: 38, anchorX: 0.5, anchorY: 0.88 },
   bard: { height: 40, anchorX: 0.5, anchorY: 0.88 },
@@ -311,6 +312,19 @@ const UNIT_DEFINITIONS = {
     getMoveSpeed: (unit, unitDef) => getUnitStats(unit, unitDef).speed,
     performAttack: performKnightAttack,
     render: drawKnight,
+    veteran: { metric: "kills", threshold: 4, label: "Score 4 kills" },
+  },
+  paladin: {
+    id: "paladin",
+    name: "Paladin",
+    keywords: ["holy", "melee", "undead", "thrall", "cleanse", "heal", "templar"],
+    description: "Paladins are steadfast holy warriors who excel at purging corrupted foes. Their melee strikes punish undead and thralls especially hard, and every kill releases a sanctifying burst that cleanses poison and restores a little health to nearby allies.",
+    stats: { maxHealth: 172, speed: 30, range: 24, damage: 31, cooldown: 1.12, undeadBonus: 1.75, consecrationRadius: 30, consecrationHeal: 10 },
+    healthBarWidth: 28,
+    iconPaths: getPaladinIconSvgPaths,
+    getMoveSpeed: (unit, unitDef) => getUnitStats(unit, unitDef).speed,
+    performAttack: performPaladinAttack,
+    render: drawPaladin,
     veteran: { metric: "kills", threshold: 4, label: "Score 4 kills" },
   },
   bodyguard: {
@@ -1097,6 +1111,17 @@ function getKnightIconSvgPaths() {
   `;
 }
 
+function getPaladinIconSvgPaths() {
+  return `
+    <path fill="rgba(111, 79, 36, 0.98)" d="M0 -16 L10 -6 L8 12 L-8 12 L-10 -6 Z"></path>
+    <path fill="currentColor" d="M0 -13 L7 -5 L6 11 L-6 11 L-7 -5 Z"></path>
+    <circle cx="0" cy="-14" r="5.2" fill="rgba(255,246,224,0.76)"></circle>
+    <path d="M0 -3 L0 8 M-4 2.5 L4 2.5" fill="none" stroke="rgba(255, 238, 190, 0.94)" stroke-width="2" stroke-linecap="round"></path>
+    <path d="M10 -3 L16 -17" fill="none" stroke="rgba(85,58,27,0.95)" stroke-width="2.2" stroke-linecap="round"></path>
+    <path d="M13 -15 L18 -11 L14 -5 L9 -8 Z" fill="#d8d8db"></path>
+  `;
+}
+
 function getBodyguardIconSvgPaths() {
   return `
     <path fill="rgba(0,0,0,0.22)" d="M0 -2 L12 4 L10 12 L-10 12 L-12 4 Z"></path>
@@ -1318,6 +1343,7 @@ function parseRowComposition(row) {
     archer: row.archer ?? row.archers,
     mage: row.mage ?? row.mages,
     knight: row.knight ?? row.knights,
+    paladin: row.paladin ?? row.paladins,
     bodyguard: row.bodyguard ?? row.bodyguards,
     medic: row.medic ?? row.medics,
     bard: row.bard ?? row.bards,
@@ -2742,6 +2768,17 @@ function clearNegativeStatuses(unit) {
   unit.flameExposure = {};
   if (changed) syncUnitMaxHealth(unit, true);
   return changed;
+}
+
+function clearPoisonStatuses(unit) {
+  if (!unit) return false;
+  const hadStatuses = unit.statuses?.length || 0;
+  unit.statuses = (unit.statuses || []).filter((status) => status.kind !== "poison");
+  return (unit.statuses?.length || 0) !== hadStatuses;
+}
+
+function isUndeadOrThrall(unit) {
+  return Boolean(unit && (getUnitStatus(unit, "zombie") || unit.raisedThrall || unit.thrallOwnerId));
 }
 
 function makeUnit(factionId, type, x, y) {
@@ -5117,6 +5154,19 @@ function performKnightAttack({ unit, target, battle, unitDef }) {
   spawnBurst(battle, target.x, target.y, "#ffd59b", 10);
 }
 
+function performPaladinAttack({ unit, target, battle, unitDef }) {
+  const stats = getUnitStats(unit, unitDef);
+  if (Math.hypot(target.x - unit.x, target.y - unit.y) > stats.range + 4) return;
+  const baseDamage = stats.damage * (0.92 + Math.random() * 0.4);
+  const damage = isUndeadOrThrall(target) ? baseDamage * (stats.undeadBonus ?? 1.75) : baseDamage;
+  applyDamage(target, damage, battle, unit);
+  battle.swipes.push({ x: target.x, y: target.y - 12, angle: unit.facing, life: 0.24, maxLife: 0.24, color: "rgba(255, 235, 164, 0.92)" });
+  spawnBurst(battle, target.x, target.y - 1, isUndeadOrThrall(target) ? "#fff0a8" : "#f5d8a0", isUndeadOrThrall(target) ? 14 : 10);
+  if (isUndeadOrThrall(target)) {
+    battle.particles.push({ kind: "ring", x: target.x, y: target.y - 2, vx: 0, vy: 0, life: 0.24, age: 0, color: "rgba(255, 232, 157, 0.86)", size: 14, lineWidth: 3 });
+  }
+}
+
 function performKriegerAttack({ unit, target, battle, unitDef }) {
   const stats = getUnitStats(unit, unitDef);
   if (Math.hypot(target.x - unit.x, target.y - unit.y) > stats.range + 5) return;
@@ -5133,6 +5183,36 @@ function maybeTriggerKriegerBloodFrenzy(attacker, battle) {
   applyStatus(attacker, "bloodfrenzy", 1, 10, attacker, battle);
   spawnBurst(battle, attacker.x, attacker.y - 12, "#d86f62", 20);
   setHighlight(`${findFaction(battle, attacker.factionId)?.title || "A faction"}'s krieger snaps into a blood frenzy`);
+}
+
+function maybeTriggerPaladinConsecration(attacker, battle) {
+  if (!attacker || attacker.dead || attacker.fled || attacker.type !== "paladin") return;
+  const stats = getUnitStats(attacker);
+  const faction = findFaction(battle, attacker.factionId);
+  if (!faction) return;
+  let affectedAllies = 0;
+  let cleansedAllies = 0;
+  faction.units.forEach((ally) => {
+    if (ally.dead || ally.fled) return;
+    if (Math.hypot(ally.x - attacker.x, ally.y - attacker.y) > stats.consecrationRadius) return;
+    const healed = applyHealing(ally, stats.consecrationHeal, battle, attacker, { ignoreZombieInversion: true });
+    const cleansed = clearPoisonStatuses(ally);
+    if (healed > 0 || cleansed) affectedAllies += 1;
+    if (cleansed) cleansedAllies += 1;
+    if (healed > 0) {
+      battle.particles.push({ x: ally.x, y: ally.y - 12, vx: 0, vy: -18, life: 0.46, age: 0, color: "#9dffb1", size: 6.5 });
+      recordUnitContribution(attacker, "healing", healed, battle);
+    }
+    if (cleansed) {
+      spawnBurst(battle, ally.x, ally.y - 8, "#c8ffd4", 8);
+    }
+  });
+  spawnBurst(battle, attacker.x, attacker.y - 8, "#8effa7", 22);
+  battle.particles.push({ kind: "shockwave", x: attacker.x, y: attacker.y, vx: 0, vy: 0, life: 0.4, age: 0, color: "rgba(137, 255, 170, 0.72)", size: 18, startSize: 18, maxSize: stats.consecrationRadius, lineWidth: 6 });
+  battle.particles.push({ kind: "ring", x: attacker.x, y: attacker.y, vx: 0, vy: 0, life: 0.55, age: 0, color: "rgba(206, 255, 219, 0.94)", size: stats.consecrationRadius, lineWidth: 3 });
+  if (affectedAllies > 0 && Math.random() > 0.45) {
+    setHighlight(`${findFaction(battle, attacker.factionId)?.title || "A faction"}'s paladin releases a cleansing consecration${cleansedAllies > 0 ? " and purges poison" : ""}`);
+  }
 }
 
 function findFaction(battle, factionId) {
@@ -5603,6 +5683,7 @@ function applyRawDamage(unit, amount, battle, attacker = null, options = {}) {
       attacker.killStreak = (attacker.killStreak || 0) + 1;
       recordUnitContribution(attacker, "kills", 1, battle);
       maybeTriggerKriegerBloodFrenzy(attacker, battle);
+      maybeTriggerPaladinConsecration(attacker, battle);
     }
     if (!options.skipDefaultDeathBurst) spawnBurst(battle, unit.x, unit.y, "#f3c58a", 16);
   }
@@ -8725,6 +8806,55 @@ function drawArtificer(main, dark, light, scale, unit) {
   ctx.quadraticCurveTo(18.3 * scale / 2.1, -12.4 * scale / 2.1, 18.2 * scale / 2.1, -7.8 * scale / 2.1);
   ctx.quadraticCurveTo(16.3 * scale / 2.1, -5.2 * scale / 2.1, 12.8 * scale / 2.1, -6.5 * scale / 2.1);
   ctx.stroke();
+}
+
+function drawPaladin(main, dark, light, scale, unit) {
+  drawStepLegs(dark, scale, unit, 7.1, 11.4);
+  ctx.fillStyle = shadeColor(main, -0.15);
+  ctx.beginPath();
+  ctx.moveTo(0, -15 * scale / 2.1);
+  ctx.lineTo(10 * scale / 2.1, -6 * scale / 2.1);
+  ctx.lineTo(8 * scale / 2.1, 12 * scale / 2.1);
+  ctx.lineTo(-8 * scale / 2.1, 12 * scale / 2.1);
+  ctx.lineTo(-10 * scale / 2.1, -6 * scale / 2.1);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = main;
+  ctx.beginPath();
+  ctx.moveTo(0, -12.5 * scale / 2.1);
+  ctx.lineTo(7 * scale / 2.1, -5 * scale / 2.1);
+  ctx.lineTo(6 * scale / 2.1, 10.5 * scale / 2.1);
+  ctx.lineTo(-6 * scale / 2.1, 10.5 * scale / 2.1);
+  ctx.lineTo(-7 * scale / 2.1, -5 * scale / 2.1);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = light;
+  ctx.beginPath();
+  ctx.arc(0, -14 * scale / 2.1, 5.3 * scale / 2.1, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "rgba(255, 241, 188, 0.96)";
+  ctx.lineWidth = 1.7 * scale / 2.1;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(0, -3 * scale / 2.1);
+  ctx.lineTo(0, 8 * scale / 2.1);
+  ctx.moveTo(-4 * scale / 2.1, 2.5 * scale / 2.1);
+  ctx.lineTo(4 * scale / 2.1, 2.5 * scale / 2.1);
+  ctx.stroke();
+  ctx.strokeStyle = dark;
+  ctx.lineWidth = 2.2 * scale / 2.1;
+  ctx.beginPath();
+  ctx.moveTo(9.5 * scale / 2.1, -3 * scale / 2.1);
+  ctx.lineTo(15.5 * scale / 2.1, -17 * scale / 2.1);
+  ctx.stroke();
+  ctx.fillStyle = "#d9d9dc";
+  ctx.beginPath();
+  ctx.moveTo(12.5 * scale / 2.1, -14.5 * scale / 2.1);
+  ctx.lineTo(18 * scale / 2.1, -10 * scale / 2.1);
+  ctx.lineTo(14 * scale / 2.1, -4.5 * scale / 2.1);
+  ctx.lineTo(9 * scale / 2.1, -8 * scale / 2.1);
+  ctx.closePath();
+  ctx.fill();
 }
 
 function drawTurret(main, dark, light, scale, unit) {
