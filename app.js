@@ -1,5 +1,6 @@
 
 const STORAGE_KEY = "tbr-warfare-state-v1";
+const TOURNAMENT_VIEW_STORAGE_KEY = "tbr-warfare-tournament-view-v1";
 const FIELD = { width: 1180, height: 760 };
 const SPEED_OPTIONS = [0.35, 0.65, 1, 1.4, 1.85];
 const AUDIO_DEFAULT_FADE_SECONDS = 1.8;
@@ -32,6 +33,7 @@ const MAX_BATTLE_FACTIONS = 10;
 const INKLORD_DEBUG_DELAY = 60;
 const HEALTH_CHART_SAMPLE_INTERVAL = 0.16;
 const HEALTH_CHART_VISIBLE_SECONDS = 30;
+const TOURNAMENT_VIEW_SYNC_INTERVAL_MS = 500;
 const INKLORD_FACTION_ID = "neutral-inklord";
 const INKLORD_FACTION_TITLE = "InkLord";
 const INKLORD_COLOR = "#161418";
@@ -525,6 +527,7 @@ const PROP_RENDERERS = {
   signpost: drawPropSignpost,
 };
 const EXPLOSION_READABILITY_INSET = 5;
+const BATTLE_HIGHLIGHT_COOLDOWN_MS = 1000;
 const SAMPLE_BOOKS = [
   {
     title: "The Spear of Starlight",
@@ -615,6 +618,8 @@ const state = {
     search: "",
     pendingTransfer: null,
   },
+  lastBattleHighlightAt: -Infinity,
+  lastTournamentViewSyncAt: -Infinity,
 };
 
 const els = {
@@ -624,6 +629,7 @@ const els = {
   advanceQueueBtn: document.getElementById("advanceQueueBtn"),
   randomizeArenaBtn: document.getElementById("randomizeArenaBtn"),
   seedSampleBtn: document.getElementById("seedSampleBtn"),
+  viewTournamentStoryBtn: document.getElementById("viewTournamentStoryBtn"),
   csvInput: document.getElementById("csvInput"),
   csvFileInput: document.getElementById("csvFileInput"),
   importCsvBtn: document.getElementById("importCsvBtn"),
@@ -643,6 +649,14 @@ const els = {
   winnerCard: document.getElementById("winnerCard"),
   winnerModal: document.getElementById("winnerModal"),
   closeWinnerModalBtn: document.getElementById("closeWinnerModalBtn"),
+  resetTournamentModal: document.getElementById("resetTournamentModal"),
+  closeResetTournamentModalBtn: document.getElementById("closeResetTournamentModalBtn"),
+  cancelResetTournamentBtn: document.getElementById("cancelResetTournamentBtn"),
+  confirmResetTournamentBtn: document.getElementById("confirmResetTournamentBtn"),
+  tournamentStoryModal: document.getElementById("tournamentStoryModal"),
+  closeTournamentStoryBtn: document.getElementById("closeTournamentStoryBtn"),
+  tournamentStorySummary: document.getElementById("tournamentStorySummary"),
+  tournamentStoryGraph: document.getElementById("tournamentStoryGraph"),
   speedControls: document.getElementById("speedControls"),
   template: document.getElementById("armyEditorTemplate"),
   compositionModal: document.getElementById("compositionModal"),
@@ -679,9 +693,10 @@ function bootstrap() {
 
 function bindUi() {
   els.runBattleBtn.addEventListener("click", startBattle);
-  els.resetBattleBtn.addEventListener("click", resetBattle);
+  els.resetBattleBtn.addEventListener("click", handleResetBattleClick);
   els.advanceQueueBtn.addEventListener("click", applyWinnerToQueue);
   els.randomizeArenaBtn.addEventListener("click", randomizeArenaAndWeather);
+  els.viewTournamentStoryBtn.addEventListener("click", openTournamentPage);
   els.seedSampleBtn.addEventListener("click", () => {
     state.factions = cloneData(SAMPLE_BOOKS).map(withFactionDefaults);
     state.roundsApplied = 0;
@@ -694,6 +709,10 @@ function bindUi() {
   els.csvFileInput.addEventListener("change", importCsvFile);
   els.downloadCsvBtn.addEventListener("click", exportCsv);
   els.closeWinnerModalBtn.addEventListener("click", closeWinnerModal);
+  els.closeResetTournamentModalBtn.addEventListener("click", closeResetTournamentModal);
+  els.cancelResetTournamentBtn.addEventListener("click", closeResetTournamentModal);
+  els.confirmResetTournamentBtn.addEventListener("click", confirmResetTournament);
+  els.closeTournamentStoryBtn.addEventListener("click", closeTournamentStoryModal);
   els.closeCompositionModalBtn.addEventListener("click", closeCompositionModal);
   els.cancelCompositionBtn.addEventListener("click", closeCompositionModal);
   els.compositionSearch.addEventListener("input", () => {
@@ -702,6 +721,12 @@ function bindUi() {
   });
   els.compositionModal.addEventListener("click", (event) => {
     if (event.target.dataset.close) closeCompositionModal();
+  });
+  els.resetTournamentModal.addEventListener("click", (event) => {
+    if (event.target.dataset.closeReset) closeResetTournamentModal();
+  });
+  els.tournamentStoryModal.addEventListener("click", (event) => {
+    if (event.target.dataset.closeStory) closeTournamentStoryModal();
   });
   els.winnerModal.addEventListener("click", (event) => {
     if (event.target.dataset.closeWinner) closeWinnerModal();
@@ -984,6 +1009,7 @@ function loadState() {
 
 function saveState() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify({ factions: state.factions, roundsApplied: state.roundsApplied }));
+  syncTournamentViewState(true);
 }
 function syncCsvInput() {
   const rows = [
@@ -1428,8 +1454,11 @@ function sizeCanvas() {
 
 function resetBattle() {
   state.running = false;
+  state.lastBattleHighlightAt = -Infinity;
   endBattleAudio();
   clearBattleHover();
+  closeResetTournamentModal();
+  closeTournamentStoryModal();
   state.tournament = shouldUseTournament(state.factions) ? createTournament(state.factions) : null;
   state.battle = buildActiveBattle();
   clearKnockoutAnnouncement();
@@ -1443,6 +1472,69 @@ function resetBattle() {
   updateAdvanceButtonLabel();
   renderSpeedControls();
   setTicker(state.factions.length ? getReadyMessage() : "Add at least one army to begin.");
+  syncTournamentViewState(true);
+}
+
+function isTournamentActive() {
+  return Boolean(state.tournament && !state.tournament.complete);
+}
+
+function handleResetBattleClick() {
+  if (isTournamentActive()) {
+    openResetTournamentModal();
+    return;
+  }
+  resetBattle();
+}
+
+function openResetTournamentModal() {
+  els.resetTournamentModal.classList.remove("hidden");
+}
+
+function closeResetTournamentModal() {
+  els.resetTournamentModal.classList.add("hidden");
+}
+
+function confirmResetTournament() {
+  closeResetTournamentModal();
+  resetBattle();
+  setTicker("The bracket has been reset back to the opening heats.");
+}
+
+function openTournamentPage() {
+  if (!isTournamentActive()) return;
+  syncTournamentViewState(true);
+  window.open("tournament.html", "_blank", "noopener");
+}
+
+function buildTournamentViewSnapshot() {
+  return {
+    updatedAt: Date.now(),
+    factions: state.factions.map((faction) => ({
+      id: faction.id,
+      title: faction.title,
+      coverUrl: faction.coverUrl,
+      armySize: faction.armySize,
+      submissionType: faction.submissionType,
+    })),
+    tournament: state.tournament ? cloneData(state.tournament) : null,
+    battle: state.battle ? {
+      completed: Boolean(state.battle.completed),
+      pendingWinner: state.battle.pendingWinner || null,
+      meta: state.battle.meta ? { ...state.battle.meta } : null,
+      activeFactionIds: getResultFactions(state.battle).map((faction) => faction.id),
+      livingFactionIds: getLivingResultFactions(state.battle).map((faction) => faction.id),
+    } : null,
+    running: Boolean(state.running),
+    battleStateLabel: els.battleState?.textContent || "",
+  };
+}
+
+function syncTournamentViewState(force = false) {
+  const now = performance.now();
+  if (!force && (now - state.lastTournamentViewSyncAt) < TOURNAMENT_VIEW_SYNC_INTERVAL_MS) return;
+  state.lastTournamentViewSyncAt = now;
+  localStorage.setItem(TOURNAMENT_VIEW_STORAGE_KEY, JSON.stringify(buildTournamentViewSnapshot()));
 }
 
 function resetCamera() {
@@ -1473,6 +1565,7 @@ function startBattle() {
   setHighlight("Scouts report movement across the field");
   renderBracketTracker();
   renderSpeedControls();
+  syncTournamentViewState(true);
 }
 
 function shouldUseTournament(factions) {
@@ -1690,6 +1783,31 @@ function getCurrentMatchLabel(tournament) {
   return `${round.label} - ${match.label}`;
 }
 
+function getTournamentFactionColor(tournament, factionId) {
+  const index = tournament?.originalFactionIds?.indexOf(factionId) ?? -1;
+  return factionColor(index >= 0 ? index : 0);
+}
+
+function getTournamentEntryState(tournament, roundIndex, matchIndex, match, factionId) {
+  if (match.winnerId === factionId) return "advanced";
+  if (match.status === "complete") return "eliminated";
+  if (roundIndex === tournament.currentRoundIndex && matchIndex === tournament.currentMatchIndex) return "active";
+  return "pending";
+}
+
+function getTournamentEntryLabel(stateName) {
+  if (stateName === "advanced") return "Advances";
+  if (stateName === "eliminated") return "Defeated";
+  if (stateName === "active") return "Fighting";
+  return "Queued";
+}
+
+function getTournamentMatchBadgeLabel(match) {
+  if (match.status === "complete") return match.winnerId ? "Finished" : "No Winner";
+  if (match.status === "active") return "Live Heat";
+  return "Awaiting Call";
+}
+
 function createArenaVariant(roundIndex, matchIndex, factionCount) {
   const theme = ARENA_THEMES[(roundIndex + matchIndex) % ARENA_THEMES.length];
   const weather = WEATHER_OPTIONS[(roundIndex * 2 + matchIndex + factionCount) % WEATHER_OPTIONS.length];
@@ -1806,6 +1924,213 @@ function randomizeArenaAndWeather() {
 function factionColor(index) {
   const palette = ["#db7d4a", "#5ca5cf", "#d2bf62", "#b375d7", "#c45c68", "#53b88a", "#d6809b", "#7498e5"];
   return palette[index % palette.length];
+}
+
+function openTournamentStoryModal() {
+  if (!isTournamentActive()) return;
+  renderTournamentStoryModal();
+  els.tournamentStoryModal.classList.remove("hidden");
+}
+
+function closeTournamentStoryModal() {
+  els.tournamentStoryModal.classList.add("hidden");
+}
+
+function renderTournamentStoryModal() {
+  const tournament = state.tournament;
+  if (!tournament) {
+    els.tournamentStorySummary.textContent = "The full bracket will appear here once a tournament begins.";
+    els.tournamentStoryGraph.innerHTML = "";
+    return;
+  }
+
+  const completedMatches = tournament.rounds.reduce((total, round) => total + round.matches.filter((match) => match.status === "complete").length, 0);
+  els.tournamentStorySummary.textContent = tournament.complete
+    ? (tournament.championId
+      ? `${findSourceFaction(tournament.championId)?.title || "A champion"} completed the run after ${completedMatches} finished heats.`
+      : `The bracket ended without a surviving champion after ${completedMatches} finished heats.`)
+    : `${completedMatches} heats have concluded so far. The tree below traces every surviving route through the bracket.`;
+
+  const layout = buildTournamentStoryLayout(tournament);
+  const connectors = layout.connectors.map((connector) => `
+    <path d="M ${connector.startX} ${connector.startY} H ${connector.midX} V ${connector.endY} H ${connector.endX}" />
+  `).join("");
+  const nodes = layout.nodes.map((node) => `
+    <article class="story-node ${node.match.status}" style="left:${node.x}px; top:${node.y}px; width:${layout.nodeWidth}px; min-height:${node.height}px;">
+      <div class="story-node-header">
+        <div>
+          <p class="story-node-round">${escapeHtml(node.roundLabel)}</p>
+          <h3 class="story-node-title">${escapeHtml(node.match.label)}</h3>
+        </div>
+        <span class="bracket-badge">${escapeHtml(getTournamentMatchBadgeLabel(node.match))}</span>
+      </div>
+      <p class="story-node-arena">${escapeHtml(node.match.arena.name)} under ${escapeHtml(node.match.arena.weather)}</p>
+      <div class="story-node-banners" style="grid-template-columns: repeat(${node.columns}, minmax(0, 1fr));">
+        ${node.match.factionIds.map((factionId) => buildTournamentStoryBanner(tournament, node.roundIndex, node.matchIndex, node.match, factionId)).join("")}
+      </div>
+    </article>
+  `).join("");
+
+  els.tournamentStoryGraph.innerHTML = `
+    <div class="story-bracket-shell">
+      <div class="story-bracket-stage" style="width:${layout.width}px; height:${layout.height}px;">
+        <svg class="story-bracket-lines" viewBox="0 0 ${layout.width} ${layout.height}" preserveAspectRatio="none" aria-hidden="true" focusable="false">
+          ${connectors}
+        </svg>
+        ${nodes}
+      </div>
+    </div>
+  `;
+}
+
+function buildTournamentStoryLayout(tournament) {
+  const nodeWidth = 368;
+  const columnGap = 108;
+  const rowGap = 32;
+  const paddingX = 28;
+  const paddingY = 32;
+  const nodes = [];
+  const byMatchId = new Map();
+
+  tournament.rounds.forEach((round, roundIndex) => {
+    if (roundIndex === 0) {
+      round.matches.forEach((match, matchIndex) => {
+        const x = paddingX + (roundIndex * (nodeWidth + columnGap));
+        const height = getTournamentStoryNodeHeight(match);
+        const y = matchIndex === 0
+          ? paddingY
+          : nodes[nodes.length - 1].y + nodes[nodes.length - 1].height + rowGap;
+        const node = { match, roundIndex, matchIndex, roundLabel: round.label, x, y, height, columns: getTournamentStoryBannerColumns(match) };
+        nodes.push(node);
+        byMatchId.set(match.id, node);
+      });
+      return;
+    }
+
+    const previousRound = tournament.rounds[roundIndex - 1];
+    const sourceGroups = chunkEvenly(previousRound.matches.map((match) => match.id), round.matches.length);
+    round.matches.forEach((match, matchIndex) => {
+      const height = getTournamentStoryNodeHeight(match);
+      const sourceNodes = (sourceGroups[matchIndex] || []).map((matchId) => byMatchId.get(matchId)).filter(Boolean);
+      const averageCenterY = sourceNodes.length
+        ? sourceNodes.reduce((sum, entry) => sum + getTournamentStoryNodeCenter(entry), 0) / sourceNodes.length
+        : paddingY + (matchIndex * (height + rowGap)) + (height / 2);
+      const x = paddingX + (roundIndex * (nodeWidth + columnGap));
+      const y = averageCenterY - (height / 2);
+      const node = { match, roundIndex, matchIndex, roundLabel: round.label, x, y, height, columns: getTournamentStoryBannerColumns(match), sourceIds: sourceNodes.map((entry) => entry.match.id) };
+      nodes.push(node);
+      byMatchId.set(match.id, node);
+    });
+  });
+
+  tournament.rounds.forEach((round, roundIndex) => {
+    const roundNodes = nodes
+      .filter((node) => node.roundIndex === roundIndex)
+      .sort((a, b) => a.y - b.y);
+    let cursor = paddingY;
+    roundNodes.forEach((node) => {
+      node.y = Math.max(node.y, cursor);
+      cursor = node.y + node.height + rowGap;
+    });
+  });
+
+  const minY = Math.min(...nodes.map((node) => node.y), paddingY);
+  if (minY < paddingY) {
+    const shift = paddingY - minY;
+    nodes.forEach((node) => {
+      node.y += shift;
+    });
+  }
+
+  const connectors = nodes.flatMap((node) => {
+    if (!node.sourceIds?.length) return [];
+    return node.sourceIds
+      .map((matchId) => byMatchId.get(matchId))
+      .filter(Boolean)
+      .map((sourceNode) => ({
+        startX: sourceNode.x + nodeWidth,
+        startY: getTournamentStoryNodeCenter(sourceNode),
+        midX: sourceNode.x + nodeWidth + (columnGap / 2),
+        endX: node.x,
+        endY: getTournamentStoryNodeCenter(node),
+      }));
+  });
+
+  const width = paddingX * 2 + (tournament.rounds.length * nodeWidth) + (Math.max(0, tournament.rounds.length - 1) * columnGap);
+  const height = Math.max(
+    paddingY * 2 + 180,
+    ...nodes.map((node) => node.y + node.height + paddingY),
+  );
+
+  return { nodes, connectors, width, height, nodeWidth };
+}
+
+function getTournamentStoryNodeCenter(node) {
+  return node.y + (node.height / 2);
+}
+
+function getTournamentStoryBannerColumns(match) {
+  return Math.min(2, Math.max(1, Math.ceil((match?.factionIds?.length || 1) / 4)));
+}
+
+function getTournamentStoryNodeHeight(match) {
+  const bannerCount = Math.max(1, match?.factionIds?.length || 0);
+  const columns = getTournamentStoryBannerColumns(match);
+  const rows = Math.ceil(bannerCount / columns);
+  const headerHeight = 76;
+  const bannerRowHeight = 108;
+  const bannerGap = 8;
+  const bodyPadding = 24;
+  return headerHeight + bodyPadding + (rows * bannerRowHeight) + (Math.max(0, rows - 1) * bannerGap);
+}
+
+function estimateWrappedLineCount(text, charsPerLine = 18) {
+  const words = `${text || ""}`.trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return 1;
+  let lines = 1;
+  let current = 0;
+  words.forEach((word) => {
+    const length = word.length;
+    if (!current) {
+      current = length;
+      return;
+    }
+    if ((current + 1 + length) <= charsPerLine) {
+      current += 1 + length;
+      return;
+    }
+    lines += 1;
+    current = length;
+  });
+  return Math.min(lines, 4);
+}
+
+function buildTournamentStoryBanner(tournament, roundIndex, matchIndex, match, factionId) {
+  const faction = findSourceFaction(factionId);
+  const stateName = getTournamentEntryState(tournament, roundIndex, matchIndex, match, factionId);
+  const statusLabel = getTournamentEntryLabel(stateName);
+  const title = faction?.title || "TBD";
+  const meta = faction ? `${faction.armySize} troops` : "Unknown size";
+  const className = stateName === "eliminated" ? "defeated" : stateName;
+  const titleClass = getTournamentStoryBannerTitleClass(title, getTournamentStoryBannerColumns(match));
+  return `
+    <div class="story-banner-chip ${className}" style="--banner-color: ${escapeHtml(getTournamentFactionColor(tournament, factionId))}">
+      <span class="story-banner-flag">${escapeHtml(getFallbackCoverMark(title))}</span>
+      <div class="story-banner-chip-copy">
+        <span class="story-banner-chip-name ${titleClass}">${escapeHtml(title)}</span>
+        <span class="story-banner-chip-size">${escapeHtml(meta)}</span>
+      </div>
+      <span class="story-banner-chip-status">${escapeHtml(statusLabel)}</span>
+    </div>
+  `;
+}
+
+function getTournamentStoryBannerTitleClass(title, columns) {
+  const lineCount = estimateWrappedLineCount(title, columns > 1 ? 15 : 28);
+  if (lineCount >= 5) return "story-banner-chip-name-xxsmall";
+  if (lineCount >= 4) return "story-banner-chip-name-xsmall";
+  if (lineCount >= 3) return "story-banner-chip-name-small";
+  return "";
 }
 
 function spawnUnitsForFaction(faction, baseX, baseY) {
@@ -2225,6 +2550,7 @@ function loop(timestamp) {
   lastFrame = timestamp;
   const simDt = dt * SPEED_OPTIONS[state.speedIndex];
   if (state.running && state.battle) stepBattle(state.battle, simDt);
+  if (state.tournament || state.running || state.battle?.completed) syncTournamentViewState();
   updateAudioFades(dt);
   updateCamera(dt);
   render();
@@ -4474,6 +4800,7 @@ function finalizeSingleBattle() {
   renderArmyEditors();
   resetBattle();
   setTicker(hadWinner ? "Winner removed. Remaining armies have been reinforced." : "No winner emerged. All surviving titles regroup with reinforcements.");
+  syncTournamentViewState(true);
 }
 
 function advanceTournament() {
@@ -4508,6 +4835,7 @@ function advanceTournament() {
     renderBracketTracker();
     updateAdvanceButtonLabel();
     renderArmyEditors();
+    syncTournamentViewState(true);
     return;
   }
 
@@ -4528,6 +4856,7 @@ function advanceTournament() {
     renderBracketTracker();
     updateAdvanceButtonLabel();
     renderArmyEditors();
+    syncTournamentViewState(true);
     return;
   }
 
@@ -4547,6 +4876,7 @@ function advanceTournament() {
   renderArmyEditors();
   resetBattle();
   setTicker(advancingIds[0] ? "Tournament complete. The champion is removed and the defeated armies regroup." : "Tournament complete with no surviving champion. The bracket resets around the remaining queue.");
+  syncTournamentViewState(true);
 }
 
 function setTicker(text) {
@@ -4554,6 +4884,9 @@ function setTicker(text) {
 }
 
 function setHighlight(text) {
+  const now = performance.now();
+  if ((now - state.lastBattleHighlightAt) < BATTLE_HIGHLIGHT_COOLDOWN_MS) return;
+  state.lastBattleHighlightAt = now;
   setTicker(text);
 }
 
@@ -4652,8 +4985,20 @@ function buildKnockoutAnnouncementMarkup(entry) {
 }
 
 function getFallbackCoverMark(title = "") {
-  const words = title.trim().split(/\s+/).filter(Boolean);
-  return words.slice(0, 2).map((word) => word[0]).join("").toUpperCase() || "KO";
+  const minorWords = new Set(["a", "an", "and", "at", "for", "from", "in", "of", "on", "or", "the", "to"]);
+  const words = title
+    .trim()
+    .split(/\s+/)
+    .map((word) => word.replace(/[^a-z0-9']/gi, ""))
+    .filter(Boolean);
+  if (!words.length) return "KO";
+  return words
+    .map((word) => {
+      const initial = word[0] || "";
+      return minorWords.has(word.toLowerCase()) ? initial.toLowerCase() : initial.toUpperCase();
+    })
+    .join("")
+    .slice(0, 8);
 }
 
 function escapeHtml(value) {
@@ -5323,6 +5668,7 @@ function renderBracketTracker() {
   const tournament = state.tournament;
   if (!tournament) {
     els.arenaLabel.textContent = state.battle?.arena?.name || "Single arena";
+    els.viewTournamentStoryBtn.disabled = true;
     els.bracketSummary.textContent = state.factions.length > 1
       ? `${state.factions.length} armies enter one decisive battle.`
       : "One battle decides the next read.";
@@ -5337,10 +5683,12 @@ function renderBracketTracker() {
         </div>
       </div>
     ` : "";
+    if (!els.tournamentStoryModal.classList.contains("hidden")) renderTournamentStoryModal();
     return;
   }
 
   const currentMatch = getCurrentTournamentMatch(tournament);
+  els.viewTournamentStoryBtn.disabled = false;
   els.arenaLabel.textContent = currentMatch?.arena?.name || "Bracket arena";
   els.bracketSummary.textContent = tournament.complete
     ? (tournament.championId ? `${findSourceFaction(tournament.championId)?.title || "A champion"} conquered the bracket.` : "No title survived the bracket.")
@@ -5359,14 +5707,8 @@ function renderBracketTracker() {
           <div class="bracket-entries">
             ${match.factionIds.map((factionId) => {
               const faction = findSourceFaction(factionId);
-              const status = match.winnerId === factionId
-                ? "advanced"
-                : match.status === "complete"
-                  ? "eliminated"
-                  : roundIndex === tournament.currentRoundIndex && matchIndex === tournament.currentMatchIndex
-                    ? "active"
-                    : "pending";
-              const statusLabel = match.winnerId === factionId ? "Advances" : match.status === "complete" ? "Out" : "Queued";
+              const status = getTournamentEntryState(tournament, roundIndex, matchIndex, match, factionId);
+              const statusLabel = status === "eliminated" ? "Out" : getTournamentEntryLabel(status);
               return `<div class="bracket-entry ${status}"><span>${faction?.title || "TBD"}</span><span>${statusLabel}</span></div>`;
             }).join("")}
           </div>
@@ -5374,6 +5716,7 @@ function renderBracketTracker() {
       `).join("")}
     </section>
   `).join("");
+  if (!els.tournamentStoryModal.classList.contains("hidden")) renderTournamentStoryModal();
 }
 
 function updateAdvanceButtonLabel() {

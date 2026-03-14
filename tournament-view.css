@@ -1,0 +1,131 @@
+html, body {
+  margin: 0;
+  min-height: 100%;
+  background:
+    radial-gradient(circle at top, rgba(190, 129, 74, 0.08), transparent 38%),
+    linear-gradient(180deg, #23140d, #140d09 74%);
+  color: #f3e6d2;
+  font-family: "Manrope", sans-serif;
+}
+
+body {
+  overflow: hidden;
+}
+
+.tournament-shell {
+  min-height: 100vh;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.tournament-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 22px 28px 16px;
+}
+
+.eyebrow {
+  margin: 0 0 8px;
+  font-size: 0.78rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: #d7b788;
+}
+
+.tournament-header h1 {
+  margin: 0;
+  font-family: "Cinzel", serif;
+  font-size: clamp(1.8rem, 2.2vw, 2.7rem);
+}
+
+.status-copy {
+  margin: 10px 0 0;
+  color: rgba(243, 230, 210, 0.82);
+}
+
+.tournament-actions {
+  display: grid;
+  justify-items: end;
+  gap: 10px;
+}
+
+.updated-at {
+  color: rgba(243, 230, 210, 0.66);
+  font-size: 0.85rem;
+}
+
+.action-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
+  padding: 0 16px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 224, 182, 0.18);
+  background: rgba(255, 242, 220, 0.08);
+  color: #f8e7cf;
+  text-decoration: none;
+  font-weight: 700;
+}
+
+.action-link:hover {
+  background: rgba(255, 242, 220, 0.14);
+}
+
+.tournament-stage {
+  position: relative;
+  min-height: 0;
+  padding: 0 20px 20px;
+}
+
+#tournamentCanvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  border-radius: 26px;
+  background:
+    linear-gradient(180deg, rgba(74, 43, 24, 0.92), rgba(30, 18, 12, 0.96));
+  box-shadow: inset 0 0 0 1px rgba(255, 224, 182, 0.08), 0 24px 44px rgba(0, 0, 0, 0.24);
+  cursor: grab;
+}
+
+#tournamentCanvas.is-dragging {
+  cursor: grabbing;
+}
+
+.stage-hint {
+  position: absolute;
+  right: 36px;
+  bottom: 34px;
+  padding: 10px 14px;
+  border-radius: 999px;
+  background: rgba(17, 11, 8, 0.62);
+  color: rgba(243, 230, 210, 0.74);
+  font-size: 0.82rem;
+  pointer-events: none;
+}
+
+@media (max-width: 900px) {
+  .tournament-header {
+    grid-template-columns: 1fr;
+    display: grid;
+  }
+
+  .tournament-actions {
+    justify-items: start;
+  }
+
+  .tournament-stage {
+    padding: 0 12px 12px;
+  }
+
+  .stage-hint {
+    left: 24px;
+    right: 24px;
+    bottom: 22px;
+    border-radius: 18px;
+    text-align: center;
+  }
+}

@@ -160,6 +160,9 @@ button:active { transform: translateY(1px); }
   display: grid;
   gap: 12px;
 }
+.bracket-actions {
+  margin-top: -4px;
+}
 .bracket-tracker {
   display: grid;
   gap: 12px;
@@ -813,6 +816,12 @@ canvas.is-dragging { cursor: grabbing; }
   background: rgba(45, 28, 17, 0.96);
   box-shadow: 0 24px 60px rgba(0,0,0,0.36);
 }
+.modal-card-compact {
+  width: min(520px, calc(100vw - 24px));
+}
+.modal-card-wide {
+  width: min(1220px, calc(100vw - 24px));
+}
 .composition-layout {
   display: grid;
   grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.15fr);
@@ -871,6 +880,167 @@ canvas.is-dragging { cursor: grabbing; }
 }
 .composition-quick-actions .hint {
   margin: 0;
+}
+.tournament-story-graph {
+  overflow: auto;
+  padding: 6px 0 2px;
+}
+.story-bracket-shell {
+  min-width: min-content;
+}
+.story-bracket-stage {
+  position: relative;
+}
+.story-bracket-lines {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.story-bracket-lines path {
+  fill: none;
+  stroke: rgba(255, 229, 188, 0.3);
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.story-node {
+  position: absolute;
+  display: grid;
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: 22px;
+  background:
+    radial-gradient(circle at top, rgba(255, 234, 184, 0.1), transparent 46%),
+    rgba(45, 28, 17, 0.94);
+  border: 1px solid rgba(255, 229, 188, 0.14);
+  box-shadow: 0 18px 34px rgba(0, 0, 0, 0.18);
+}
+.story-node.active {
+  border-color: rgba(159, 221, 161, 0.42);
+  box-shadow: 0 0 0 1px rgba(159, 221, 161, 0.16), 0 18px 34px rgba(0, 0, 0, 0.22);
+}
+.story-node.complete {
+  border-color: rgba(255, 211, 128, 0.28);
+}
+.story-node.pending {
+  opacity: 0.86;
+}
+.story-node-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.story-node-round {
+  margin: 0 0 4px;
+  color: var(--accent-soft);
+  font-size: 0.68rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+.story-node-title {
+  margin: 0;
+  font-size: 1rem;
+}
+.story-node-arena {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+.story-node-banners {
+  display: grid;
+  gap: 8px;
+  align-items: start;
+}
+.story-banner-chip {
+  --banner-color: #d8c28e;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  padding: 10px 12px;
+  border-radius: 16px;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--banner-color) 18%, rgba(255,255,255,0.05)), rgba(17, 12, 9, 0.2)),
+    rgba(255, 241, 217, 0.05);
+  border: 1px solid color-mix(in srgb, var(--banner-color) 35%, rgba(255, 229, 188, 0.12));
+  min-height: 100px;
+  box-sizing: border-box;
+}
+.story-banner-chip.defeated {
+  opacity: 0.56;
+  filter: saturate(0.7);
+}
+.story-banner-chip.active {
+  box-shadow: 0 0 0 1px rgba(159, 221, 161, 0.14);
+}
+.story-banner-flag {
+  min-width: 40px;
+  padding: 0 6px;
+  height: 42px;
+  clip-path: polygon(0 0, 100% 0, 100% 78%, 50% 100%, 0 78%);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--banner-color) 85%, white), color-mix(in srgb, var(--banner-color) 68%, black));
+  color: #1f140d;
+  font-family: "Cinzel", serif;
+  font-size: 0.76rem;
+  letter-spacing: 0.04em;
+  font-weight: 800;
+  display: grid;
+  place-items: center;
+  grid-row: 1 / span 2;
+}
+.story-banner-chip-copy {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+  align-content: start;
+}
+.story-banner-chip-name {
+  min-width: 0;
+  line-height: 1.18;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.story-banner-chip-name-small {
+  font-size: 0.9rem;
+}
+.story-banner-chip-name-xsmall {
+  font-size: 0.82rem;
+  line-height: 1.14;
+}
+.story-banner-chip-name-xxsmall {
+  font-size: 0.76rem;
+  line-height: 1.1;
+}
+.story-banner-chip-size {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
+.story-banner-chip-status {
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(17, 12, 9, 0.3);
+  color: #fff1dd;
+  font-size: 0.7rem;
+  white-space: nowrap;
+  grid-column: 2;
+  justify-self: start;
+  margin-top: auto;
+}
+.story-banner-chip.advanced .story-banner-chip-status {
+  background: rgba(197, 240, 175, 0.18);
+  color: #def5cf;
+}
+.story-banner-chip.defeated .story-banner-chip-status {
+  background: rgba(131, 78, 59, 0.24);
+  color: #f0c3b3;
 }
 .unit-card {
   display: grid;
@@ -1128,6 +1298,13 @@ canvas.is-dragging { cursor: grabbing; }
   .selected-unit,
   .victory-entry {
     display: grid;
+  }
+  .story-banner-chip {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .story-banner-chip-status {
+    grid-column: 2;
+    justify-self: start;
   }
   .winner-header {
     grid-template-columns: 1fr;
