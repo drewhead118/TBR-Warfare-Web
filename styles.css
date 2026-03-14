@@ -240,6 +240,14 @@ button:active { transform: translateY(1px); }
 .bracket-entry.pending span:first-child {
   color: var(--text-muted);
 }
+.bracket-entry.champion {
+  border-color: rgba(255, 214, 115, 0.42);
+  background: rgba(255, 211, 128, 0.12);
+}
+.champion-showcase {
+  border-color: rgba(255, 214, 115, 0.34);
+  box-shadow: 0 0 0 1px rgba(255, 214, 115, 0.12);
+}
 .arena-weather {
   color: var(--text-muted);
   font-size: 0.78rem;
@@ -1244,6 +1252,14 @@ canvas.is-dragging { cursor: grabbing; }
   gap: 16px;
   align-items: center;
 }
+.winner-header-ultimate {
+  padding: 16px 18px;
+  border-radius: 20px;
+  background:
+    radial-gradient(circle at top right, rgba(255, 220, 124, 0.18), transparent 34%),
+    rgba(255, 241, 217, 0.06);
+  border: 1px solid rgba(255, 220, 124, 0.22);
+}
 .winner-header-copy {
   display: grid;
   gap: 6px;
@@ -1289,6 +1305,28 @@ canvas.is-dragging { cursor: grabbing; }
   color: var(--accent-soft);
   font-size: 0.8rem;
 }
+.tournament-victory-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  gap: 10px;
+}
+.tournament-victory-stat {
+  display: grid;
+  gap: 4px;
+  padding: 14px;
+  border-radius: 16px;
+  background: rgba(255, 241, 217, 0.06);
+  border: 1px solid rgba(255, 220, 124, 0.12);
+}
+.tournament-victory-stat strong {
+  font-size: 1.55rem;
+  font-family: "Cinzel", serif;
+  color: var(--accent-soft);
+}
+.tournament-victory-stat span {
+  color: var(--text-muted);
+  line-height: 1.35;
+}
 @media (max-width: 760px) {
   .composition-layout {
     grid-template-columns: 1fr;
@@ -1308,6 +1346,9 @@ canvas.is-dragging { cursor: grabbing; }
   }
   .winner-header {
     grid-template-columns: 1fr;
+  }
+  .winner-header-ultimate {
+    padding: 14px;
   }
   .winner-card-cover {
     width: 72px;

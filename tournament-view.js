@@ -77,16 +77,24 @@ function refreshSnapshot() {
 }
 
 function updateHeader() {
-  if (!state.snapshot?.tournament) {
+  if (!state.snapshot?.tournament && !state.snapshot?.completedTournament) {
     els.status.textContent = "Waiting for an active tournament from the battle page.";
     els.updatedAt.textContent = "No tournament synced";
     return;
   }
   const tournament = state.snapshot.tournament;
+  const completedTournament = state.snapshot.completedTournament;
   const completed = tournament.rounds.reduce((sum, round) => sum + round.matches.filter((match) => match.status === "complete").length, 0);
-  els.status.textContent = state.snapshot.battleStateLabel
-    ? `${state.snapshot.battleStateLabel}. ${completed} heats resolved so far.`
-    : `${completed} heats resolved so far.`;
+  if (completedTournament) {
+    const stats = completedTournament.stats || {};
+    els.status.textContent = completedTournament.championId
+      ? `${completedTournament.championTitle} won the tournament. ${stats.armiesOutlasted || 0} armies fell across ${stats.completedHeats || completed} heats.`
+      : `The tournament ended without a champion after ${stats.completedHeats || completed} heats.`;
+  } else {
+    els.status.textContent = state.snapshot.battleStateLabel
+      ? `${state.snapshot.battleStateLabel}. ${completed} heats resolved so far.`
+      : `${completed} heats resolved so far.`;
+  }
   els.updatedAt.textContent = `Updated ${new Date(state.snapshot.updatedAt || Date.now()).toLocaleTimeString()}`;
 }
 
@@ -222,8 +230,10 @@ function drawNode(viewport, node) {
   const radius = 24 * state.camera.zoom * viewport.dpr;
   const active = node.match.status === "active";
   const complete = node.match.status === "complete";
-  const baseFill = active ? "#4a3528" : "#3a271c";
-  const border = active ? "rgba(167, 216, 154, 0.95)" : complete ? "rgba(255, 210, 136, 0.72)" : "rgba(255, 229, 188, 0.18)";
+  const baseFill = node.isChampionNode ? "#4b3218" : active ? "#4a3528" : "#3a271c";
+  const border = node.isChampionNode
+    ? "rgba(255, 223, 118, 0.94)"
+    : active ? "rgba(167, 216, 154, 0.95)" : complete ? "rgba(255, 210, 136, 0.72)" : "rgba(255, 229, 188, 0.18)";
   fillRoundedRect(topLeft.x, topLeft.y, width, height, radius, baseFill);
   strokeRoundedRect(topLeft.x, topLeft.y, width, height, radius, border, Math.max(1.4, 2 * state.camera.zoom * viewport.dpr));
 
@@ -232,7 +242,7 @@ function drawNode(viewport, node) {
   drawText(node.roundLabel.toUpperCase(), topLeft.x + pad, cursorY, 10, "#d7b788", "700");
   cursorY += 18 * state.camera.zoom * viewport.dpr;
   drawText(node.match.label, topLeft.x + pad, cursorY, 18, "#f7ead6", "800");
-  drawPill(getMatchBadgeLabel(node.match), topLeft.x + width - pad - (90 * state.camera.zoom * viewport.dpr), topLeft.y + pad - 2, 90 * state.camera.zoom * viewport.dpr, 30 * state.camera.zoom * viewport.dpr, active ? "#e8dcc4" : "rgba(255,242,220,0.84)", "#443024");
+  drawPill(node.isChampionNode ? "Champion" : getMatchBadgeLabel(node.match), topLeft.x + width - pad - (90 * state.camera.zoom * viewport.dpr), topLeft.y + pad - 2, 90 * state.camera.zoom * viewport.dpr, 30 * state.camera.zoom * viewport.dpr, node.isChampionNode ? "#f3c956" : active ? "#e8dcc4" : "rgba(255,242,220,0.84)", "#443024");
   cursorY += 28 * state.camera.zoom * viewport.dpr;
   drawText(`${node.match.arena.name} under ${node.match.arena.weather}`, topLeft.x + pad, cursorY, 11, "rgba(247,234,214,0.76)", "500");
   cursorY += 22 * state.camera.zoom * viewport.dpr;
@@ -252,10 +262,15 @@ function drawBannerChip(viewport, x, y, width, height, entry) {
   const screenW = width * state.camera.zoom * viewport.dpr;
   const screenH = height * state.camera.zoom * viewport.dpr;
   const radius = 16 * state.camera.zoom * viewport.dpr;
-  const border = entry.state === "advanced" ? "rgba(168, 223, 156, 0.84)" : entry.state === "defeated" ? "rgba(191, 121, 95, 0.46)" : entry.color;
+  const border = entry.state === "champion"
+    ? "rgba(255, 220, 122, 0.96)"
+    : entry.state === "advanced" ? "rgba(168, 223, 156, 0.84)" : entry.state === "defeated" ? "rgba(191, 121, 95, 0.46)" : entry.color;
   const fill = "rgba(71, 46, 31, 0.96)";
   fillRoundedRect(topLeft.x, topLeft.y, screenW, screenH, radius, fill);
   strokeRoundedRect(topLeft.x, topLeft.y, screenW, screenH, radius, border, Math.max(1, 1.5 * state.camera.zoom * viewport.dpr));
+  if (entry.state === "champion") {
+    strokeRoundedRect(topLeft.x - 3, topLeft.y - 3, screenW + 6, screenH + 6, radius + 2, "rgba(255, 238, 182, 0.36)", Math.max(1, 2 * state.camera.zoom * viewport.dpr));
+  }
 
   const pad = 10 * state.camera.zoom * viewport.dpr;
   const flagW = 44 * state.camera.zoom * viewport.dpr;
@@ -339,6 +354,7 @@ function buildBracketLayout(snapshot) {
 }
 
 function makeNode(match, round, roundIndex, matchIndex, x, y, factionMap, snapshot) {
+  const championId = snapshot.completedTournament?.championId || null;
   const entries = match.factionIds.map((factionId) => {
     const faction = factionMap.get(factionId);
     const stateName = getEntryState(snapshot, roundIndex, matchIndex, match, factionId);
@@ -358,6 +374,7 @@ function makeNode(match, round, roundIndex, matchIndex, x, y, factionMap, snapsh
     roundLabel: round.label,
     roundIndex,
     matchIndex,
+    isChampionNode: Boolean(championId && match.winnerId === championId),
     x,
     y,
     width: NODE_WIDTH,
@@ -378,6 +395,8 @@ function getNodeHeight(match) {
 }
 
 function getEntryState(snapshot, roundIndex, matchIndex, match, factionId) {
+  const championId = snapshot.completedTournament?.championId || null;
+  if (championId && match.winnerId === championId && factionId === championId) return "champion";
   if (match.winnerId === factionId) return "advanced";
   if (match.status === "complete") return "defeated";
   const currentRound = snapshot.tournament?.currentRoundIndex;
@@ -387,6 +406,7 @@ function getEntryState(snapshot, roundIndex, matchIndex, match, factionId) {
 }
 
 function getEntryLabel(stateName) {
+  if (stateName === "champion") return "Champion";
   if (stateName === "advanced") return "Advances";
   if (stateName === "defeated") return "Defeated";
   if (stateName === "active") return "Fighting";

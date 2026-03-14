@@ -583,6 +583,7 @@ const state = {
   factions: [],
   battle: null,
   tournament: null,
+  tournamentResult: null,
   images: new Map(),
   unitSpriteSources: new Map(),
   statusBadgeSources: new Map(),
@@ -1455,6 +1456,7 @@ function sizeCanvas() {
 function resetBattle() {
   state.running = false;
   state.lastBattleHighlightAt = -Infinity;
+  state.tournamentResult = null;
   endBattleAudio();
   clearBattleHover();
   closeResetTournamentModal();
@@ -1477,6 +1479,10 @@ function resetBattle() {
 
 function isTournamentActive() {
   return Boolean(state.tournament && !state.tournament.complete);
+}
+
+function isTournamentViewAvailable() {
+  return Boolean(state.tournament || state.tournamentResult);
 }
 
 function handleResetBattleClick() {
@@ -1502,22 +1508,37 @@ function confirmResetTournament() {
 }
 
 function openTournamentPage() {
-  if (!isTournamentActive()) return;
+  if (!isTournamentViewAvailable()) return;
   syncTournamentViewState(true);
   window.open("tournament.html", "_blank", "noopener");
 }
 
 function buildTournamentViewSnapshot() {
-  return {
-    updatedAt: Date.now(),
-    factions: state.factions.map((faction) => ({
+  const tournamentSource = state.tournament || state.tournamentResult?.tournament || null;
+  const factionMap = new Map();
+  (tournamentSource?.entrantData || []).forEach((faction) => {
+    factionMap.set(faction.id, {
       id: faction.id,
       title: faction.title,
       coverUrl: faction.coverUrl,
       armySize: faction.armySize,
       submissionType: faction.submissionType,
-    })),
-    tournament: state.tournament ? cloneData(state.tournament) : null,
+    });
+  });
+  state.factions.forEach((faction) => {
+    factionMap.set(faction.id, {
+      id: faction.id,
+      title: faction.title,
+      coverUrl: faction.coverUrl,
+      armySize: faction.armySize,
+      submissionType: faction.submissionType,
+    });
+  });
+  return {
+    updatedAt: Date.now(),
+    factions: Array.from(factionMap.values()),
+    tournament: tournamentSource ? cloneData(tournamentSource) : null,
+    completedTournament: state.tournamentResult ? cloneData(state.tournamentResult) : null,
     battle: state.battle ? {
       completed: Boolean(state.battle.completed),
       pendingWinner: state.battle.pendingWinner || null,
@@ -1550,6 +1571,15 @@ function resetCamera() {
 }
 
 function startBattle() {
+  if (state.tournamentResult) {
+    showTournamentVictoryCard(state.tournamentResult);
+    setTicker("The bracket is complete. Start the next tournament when you're ready.");
+    return;
+  }
+  if (state.battle?.completed) {
+    setTicker("Apply the current result before starting another battle.");
+    return;
+  }
   const activeCombatants = getActiveBattleFactions();
   if (activeCombatants.length < 2) {
     setTicker("At least two armies are required.");
@@ -1720,15 +1750,85 @@ function getActiveBattleFactions() {
 }
 
 function createTournament(factions) {
-  const factionIds = factions.map((faction) => faction.id);
+  const entrantData = factions.map((faction) => ({
+    id: faction.id,
+    title: faction.title,
+    coverUrl: faction.coverUrl,
+    armySize: faction.armySize,
+    submissionType: faction.submissionType,
+  }));
+  const factionIds = entrantData.map((faction) => faction.id);
   return {
     originalFactionIds: factionIds,
+    entrantData,
     currentRoundIndex: 0,
     currentMatchIndex: 0,
     rounds: [createTournamentRound(factionIds, 0)],
     eliminated: Object.fromEntries(factionIds.map((id) => [id, { fled: 0, growth: 0, eliminated: false }])),
+    stats: createTournamentStats(entrantData),
     championId: null,
     complete: false,
+  };
+}
+
+function createTournamentStats(entrantData) {
+  const factionIds = entrantData.map((faction) => faction.id);
+  return {
+    totalEntrants: entrantData.length,
+    startingTroops: entrantData.reduce((sum, faction) => sum + faction.armySize, 0),
+    completedHeats: 0,
+    totalPerished: 0,
+    totalRouted: 0,
+    eliminatedArmies: 0,
+    winsByFaction: Object.fromEntries(factionIds.map((id) => [id, 0])),
+    survivingTroopsByFaction: Object.fromEntries(factionIds.map((id) => [id, 0])),
+  };
+}
+
+function getTournamentFactionRecord(tournament, factionId) {
+  return tournament?.entrantData?.find((entry) => entry.id === factionId) || findSourceFaction(factionId) || null;
+}
+
+function recordTournamentHeatStats(tournament, battle, winnerId) {
+  const stats = tournament?.stats;
+  if (!stats || !battle) return;
+  stats.completedHeats += 1;
+  const resultFactions = getResultFactions(battle);
+  resultFactions.forEach((faction) => {
+    const perished = faction.units.filter((unit) => unit.dead).length;
+    const routed = faction.units.filter((unit) => unit.fled).length;
+    const survivors = faction.units.filter((unit) => !unit.dead && !unit.fled).length;
+    stats.totalPerished += perished;
+    stats.totalRouted += routed;
+    stats.survivingTroopsByFaction[faction.id] = survivors;
+    if (faction.id === winnerId) {
+      stats.winsByFaction[faction.id] = (stats.winsByFaction[faction.id] || 0) + 1;
+    }
+  });
+  stats.eliminatedArmies += resultFactions.filter((faction) => faction.id !== winnerId).length;
+}
+
+function buildTournamentResult(tournament, championId) {
+  const champion = championId ? getTournamentFactionRecord(tournament, championId) : null;
+  const stats = tournament?.stats || createTournamentStats(tournament?.entrantData || []);
+  const completedHeats = stats.completedHeats || tournament.rounds.reduce((sum, round) => sum + round.matches.filter((match) => match.status === "complete").length, 0);
+  return {
+    finishedAt: Date.now(),
+    championId: championId || null,
+    championTitle: champion?.title || null,
+    championCoverUrl: champion?.coverUrl || "",
+    tournament: cloneData(tournament),
+    stats: {
+      totalEntrants: tournament?.originalFactionIds?.length || stats.totalEntrants || 0,
+      startingTroops: stats.startingTroops || 0,
+      completedHeats,
+      totalPerished: stats.totalPerished || 0,
+      totalRouted: stats.totalRouted || 0,
+      eliminatedArmies: stats.eliminatedArmies || 0,
+      championWins: championId ? (stats.winsByFaction?.[championId] || 0) : 0,
+      championSurvivors: championId ? (stats.survivingTroopsByFaction?.[championId] || 0) : 0,
+      armiesOutlasted: championId ? Math.max(0, (tournament?.originalFactionIds?.length || 0) - 1) : 0,
+    },
   };
 }
 
@@ -4774,7 +4874,91 @@ function showWinnerCard(winner, battle) {
   renderArmyEditors();
 }
 
+function showTournamentVictoryCard(result) {
+  const champion = result?.championId ? getTournamentFactionRecord(result.tournament, result.championId) : null;
+  const coverUrl = result?.championCoverUrl || champion?.coverUrl || "";
+  const cover = coverUrl ? `<img class="winner-card-cover" src="${coverUrl}" alt="${escapeHtml(result?.championTitle || champion?.title || "Champion")} cover">` : "";
+  const stats = result?.stats || {};
+  const fallenArmies = result?.championId
+    ? Math.max(0, (stats.totalEntrants || 0) - 1)
+    : stats.totalEntrants || 0;
+
+  els.winnerCard.innerHTML = result?.championId ? `
+    <div class="winner-header winner-header-ultimate">
+      ${cover}
+      <div class="winner-header-copy">
+        <span class="winner-kicker">Tournament Champion</span>
+        <h3>${escapeHtml(result.championTitle || champion?.title || "Unknown Champion")}</h3>
+        <p>One army endured while ${fallenArmies} others perished across ${stats.completedHeats || 0} heats.</p>
+      </div>
+    </div>
+    <section class="tournament-victory-summary">
+      <div class="tournament-victory-stat">
+        <strong>${stats.championWins || 0}</strong>
+        <span>heats won</span>
+      </div>
+      <div class="tournament-victory-stat">
+        <strong>${stats.championSurvivors || 0}</strong>
+        <span>soldiers still standing</span>
+      </div>
+      <div class="tournament-victory-stat">
+        <strong>${stats.totalPerished || 0}</strong>
+        <span>troops perished overall</span>
+      </div>
+      <div class="tournament-victory-stat">
+        <strong>${stats.totalRouted || 0}</strong>
+        <span>troops routed overall</span>
+      </div>
+    </section>
+    <div class="victory-list">
+      <div class="victory-entry">
+        <div>
+          <strong>${escapeHtml(result.championTitle || champion?.title || "Champion")}</strong>
+          <p>The last banner standing, outlasting ${stats.armiesOutlasted || 0} rival armies.</p>
+        </div>
+        <div class="victory-badges">
+          <span class="victory-badge">${stats.startingTroops || 0} starting troops in bracket</span>
+          <span class="victory-badge">${fallenArmies} armies lost</span>
+        </div>
+      </div>
+    </div>
+  ` : `
+    <div class="winner-header winner-header-ultimate">
+      <div class="winner-header-copy">
+        <span class="winner-kicker">Tournament Complete</span>
+        <h3>No champion emerged</h3>
+        <p>${stats.totalEntrants || 0} armies entered and all were lost before a final survivor could be crowned.</p>
+      </div>
+    </div>
+    <section class="tournament-victory-summary">
+      <div class="tournament-victory-stat">
+        <strong>${stats.completedHeats || 0}</strong>
+        <span>heats resolved</span>
+      </div>
+      <div class="tournament-victory-stat">
+        <strong>${stats.totalPerished || 0}</strong>
+        <span>troops perished overall</span>
+      </div>
+      <div class="tournament-victory-stat">
+        <strong>${stats.totalRouted || 0}</strong>
+        <span>troops routed overall</span>
+      </div>
+      <div class="tournament-victory-stat">
+        <strong>${stats.eliminatedArmies || 0}</strong>
+        <span>armies erased</span>
+      </div>
+    </section>
+  `;
+  els.winnerModal.classList.remove("hidden");
+}
+
 function applyWinnerToQueue() {
+  if (state.tournamentResult) {
+    closeWinnerModal();
+    resetBattle();
+    setTicker(shouldUseTournament(state.factions) ? "A new tournament bracket is ready." : "The next battle is ready.");
+    return;
+  }
   if (!state.battle?.completed) {
     setTicker("Finish a battle before applying results.");
     return;
@@ -4811,6 +4995,7 @@ function advanceTournament() {
 
   match.winnerId = winnerId;
   match.status = "complete";
+  recordTournamentHeatStats(tournament, state.battle, winnerId);
   getResultFactions(state.battle).forEach((faction) => {
     if (faction.id === winnerId) return;
     const record = tournament.eliminated[faction.id];
@@ -4862,6 +5047,7 @@ function advanceTournament() {
 
   tournament.complete = true;
   tournament.championId = advancingIds[0] || null;
+  const tournamentResult = buildTournamentResult(tournament, tournament.championId);
   state.factions = state.factions.flatMap((faction) => {
     if (faction.id === tournament.championId) return [];
     const record = tournament.eliminated[faction.id];
@@ -4870,12 +5056,26 @@ function advanceTournament() {
     return [withFactionDefaults({ ...faction, armySize: faction.armySize + growth + fled, fledReserve: 0 })];
   });
   state.roundsApplied += 1;
+  state.tournamentResult = tournamentResult;
   state.tournament = null;
   saveState();
   syncCsvInput();
   renderArmyEditors();
-  resetBattle();
-  setTicker(advancingIds[0] ? "Tournament complete. The champion is removed and the defeated armies regroup." : "Tournament complete with no surviving champion. The bracket resets around the remaining queue.");
+  closeWinnerModal();
+  clearBattleHover();
+  clearKnockoutAnnouncement();
+  clearBossAnnouncement();
+  endBattleAudio();
+  state.running = false;
+  els.battleState.textContent = "Tournament Complete";
+  els.winnerLabel.textContent = tournamentResult.championTitle || "No champion";
+  setTicker(advancingIds[0]
+    ? `${tournamentResult.championTitle} has conquered the bracket. Review the final tally, then start the next tournament when ready.`
+    : "The tournament ended without a surviving champion. Review the final tally before starting again.");
+  showTournamentVictoryCard(tournamentResult);
+  renderBracketTracker();
+  updateAdvanceButtonLabel();
+  renderSpeedControls();
   syncTournamentViewState(true);
 }
 
@@ -5666,7 +5866,37 @@ function drawGroundProps(viewport, props) {
 
 function renderBracketTracker() {
   const tournament = state.tournament;
+  const tournamentResult = state.tournamentResult;
   if (!tournament) {
+    if (tournamentResult) {
+      const stats = tournamentResult.stats || {};
+      els.arenaLabel.textContent = "Completed bracket";
+      els.viewTournamentStoryBtn.disabled = false;
+      els.bracketSummary.textContent = tournamentResult.championId
+        ? `${tournamentResult.championTitle} won the tournament after ${stats.completedHeats || 0} heats and ${stats.totalPerished || 0} battlefield losses.`
+        : `The tournament ended without a champion after ${stats.completedHeats || 0} heats.`;
+      els.bracketTracker.innerHTML = `
+        <div class="bracket-match complete champion-showcase">
+          <div class="bracket-match-header">
+            <p class="bracket-match-title">${tournamentResult.championId ? "Ultimate Victor" : "Tournament Complete"}</p>
+            <span class="bracket-badge">${stats.totalEntrants || 0} armies</span>
+          </div>
+          <div class="bracket-entries">
+            <div class="bracket-entry advanced champion">
+              <span>${escapeHtml(tournamentResult.championTitle || "No champion")}</span>
+              <span>${tournamentResult.championId ? `${stats.armiesOutlasted || 0} armies defeated` : "Mutual destruction"}</span>
+            </div>
+            <div class="bracket-entry complete">
+              <span>Bracket carnage</span>
+              <span>${stats.totalPerished || 0} perished, ${stats.totalRouted || 0} routed</span>
+            </div>
+          </div>
+        </div>
+      `;
+      if (!els.tournamentStoryModal.classList.contains("hidden")) renderTournamentStoryModal();
+      return;
+    }
+
     els.arenaLabel.textContent = state.battle?.arena?.name || "Single arena";
     els.viewTournamentStoryBtn.disabled = true;
     els.bracketSummary.textContent = state.factions.length > 1
@@ -5679,7 +5909,7 @@ function renderBracketTracker() {
           <span class="bracket-badge">${state.battle?.arena?.weather || "clear"}</span>
         </div>
         <div class="bracket-entries">
-          ${state.factions.map((faction) => `<div class="bracket-entry"><span>${faction.title}</span><span>${faction.armySize}</span></div>`).join("")}
+          ${state.factions.map((faction) => `<div class="bracket-entry"><span>${escapeHtml(faction.title)}</span><span>${faction.armySize}</span></div>`).join("")}
         </div>
       </div>
     ` : "";
@@ -5706,10 +5936,10 @@ function renderBracketTracker() {
           <div class="arena-weather">${match.arena.name}</div>
           <div class="bracket-entries">
             ${match.factionIds.map((factionId) => {
-              const faction = findSourceFaction(factionId);
+              const faction = getTournamentFactionRecord(tournament, factionId);
               const status = getTournamentEntryState(tournament, roundIndex, matchIndex, match, factionId);
               const statusLabel = status === "eliminated" ? "Out" : getTournamentEntryLabel(status);
-              return `<div class="bracket-entry ${status}"><span>${faction?.title || "TBD"}</span><span>${statusLabel}</span></div>`;
+              return `<div class="bracket-entry ${status}"><span>${escapeHtml(faction?.title || "TBD")}</span><span>${escapeHtml(statusLabel)}</span></div>`;
             }).join("")}
           </div>
         </article>
@@ -5720,6 +5950,10 @@ function renderBracketTracker() {
 }
 
 function updateAdvanceButtonLabel() {
+  if (state.tournamentResult) {
+    els.advanceQueueBtn.textContent = shouldUseTournament(state.factions) ? "Start Next Tournament" : "Apply Result To Queue";
+    return;
+  }
   if (state.tournament && !state.tournament.complete) {
     els.advanceQueueBtn.textContent = "Advance Bracket";
     return;
