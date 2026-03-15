@@ -120,6 +120,13 @@ button {
 button:hover { transform: translateY(-1px); }
 button:active { transform: translateY(1px); }
 
+.tool-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+}
+
 .primary, .accent, .secondary, .ghost, .speed-btn {
   color: #23160d;
   font-weight: 800;
@@ -1353,6 +1360,186 @@ canvas.is-dragging { cursor: grabbing; }
   .winner-card-cover {
     width: 72px;
     height: 104px;
+  }
+}
+
+.sprite-rig-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.sprite-rig-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(320px, 0.9fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.sprite-rig-column {
+  display: grid;
+  gap: 14px;
+}
+
+.sprite-rig-toolbar {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+}
+
+.sprite-rig-toolbar label,
+.sprite-rig-fields label {
+  display: grid;
+  gap: 6px;
+}
+
+.sprite-rig-toolbar span,
+.sprite-rig-fields span {
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.file-button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0 14px;
+  overflow: hidden;
+}
+
+.file-button input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.sprite-rig-source-frame,
+.sprite-rig-preview-card {
+  padding: 14px;
+  border-radius: 22px;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.03), transparent 38%),
+    rgba(255, 241, 217, 0.05);
+  border: 1px solid rgba(255, 229, 188, 0.08);
+}
+
+.sprite-rig-source-frame canvas,
+.sprite-rig-preview-card canvas {
+  width: 100%;
+  height: auto;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 229, 188, 0.12);
+  background:
+    linear-gradient(45deg, rgba(255,255,255,0.04) 25%, transparent 25%, transparent 75%, rgba(255,255,255,0.04) 75%),
+    linear-gradient(45deg, rgba(255,255,255,0.04) 25%, transparent 25%, transparent 75%, rgba(255,255,255,0.04) 75%),
+    rgba(30, 19, 11, 0.9);
+  background-position: 0 0, 12px 12px;
+  background-size: 24px 24px;
+}
+
+.sprite-rig-source-hint {
+  margin-top: 10px;
+  color: var(--text-muted);
+  font-size: 0.86rem;
+}
+
+.sprite-rig-zoom-row {
+  align-items: center;
+  margin-top: 0;
+}
+
+.sprite-rig-zoom-label {
+  color: var(--accent-soft);
+  font-size: 0.86rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.sprite-rig-sidebar {
+  grid-template-rows: auto auto auto auto auto;
+}
+
+.sprite-rig-part-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+  gap: 10px;
+}
+
+.sprite-rig-part-btn {
+  padding: 12px 13px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 229, 188, 0.12);
+  background: rgba(255, 241, 217, 0.05);
+  color: var(--text-main);
+  text-align: left;
+}
+
+.sprite-rig-part-btn.active {
+  border-color: rgba(255, 211, 128, 0.42);
+  box-shadow: 0 0 0 1px rgba(255, 211, 128, 0.18);
+}
+
+.sprite-rig-part-btn.is-defined {
+  background: rgba(159, 221, 161, 0.11);
+}
+
+.sprite-rig-part-btn strong,
+.sprite-rig-part-btn span {
+  display: block;
+}
+
+.sprite-rig-part-btn span {
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: 0.76rem;
+}
+
+.sprite-rig-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 12px;
+}
+
+.sprite-rig-preview-card {
+  display: grid;
+  gap: 12px;
+}
+
+.sprite-rig-preview-card h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.sprite-rig-preview-card input[type="range"] {
+  width: 100%;
+}
+
+.sprite-rig-status {
+  margin: 0;
+  padding: 14px;
+  min-height: 74px;
+  border-radius: 18px;
+  background: rgba(17, 11, 6, 0.44);
+  border: 1px solid rgba(255, 229, 188, 0.08);
+  color: var(--text-muted);
+  font-family: "Manrope", sans-serif;
+  white-space: pre-wrap;
+  line-height: 1.45;
+}
+
+@media (max-width: 980px) {
+  .sprite-rig-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .sprite-rig-fields {
+    grid-template-columns: 1fr;
   }
 }
 

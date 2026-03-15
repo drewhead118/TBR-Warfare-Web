@@ -74,6 +74,28 @@ const STATUS_BADGE_CANDIDATE_PATHS = [
   (statusId) => `${statusId}-status.png`,
   (statusId) => `${statusId}.png`,
 ];
+const UNIT_RIG_CANDIDATE_PATHS = [
+  (unitId) => `assets/unit-rigs/${unitId}.json`,
+  (unitId) => `output/unit-rigs/${unitId}.json`,
+  (unitId) => `assets/unit-sprites/${unitId}.json`,
+  (unitId) => `output/unit-sprites/${unitId}.json`,
+  (unitId) => `sprites/${unitId}.json`,
+  (unitId) => `art/${unitId}.json`,
+  (unitId) => `${unitId}.json`,
+];
+const RIG_PART_ORDER = ["legBack", "armBack", "body", "head", "legFront", "armFront", "weapon"];
+const RIG_PART_DEFINITIONS = [
+  { id: "body", label: "Body", optional: false, color: "#ffd483" },
+  { id: "head", label: "Head", optional: false, color: "#f7cdb0" },
+  { id: "armFront", label: "Front Arm", optional: false, color: "#9fe1a7" },
+  { id: "armBack", label: "Back Arm", optional: true, color: "#7cc6db" },
+  { id: "legFront", label: "Front Leg", optional: false, color: "#e7915d" },
+  { id: "legBack", label: "Back Leg", optional: true, color: "#d98cff" },
+  { id: "weapon", label: "Weapon", optional: true, color: "#f1efb0" },
+];
+const RIG_PART_IDS = RIG_PART_DEFINITIONS.map((part) => part.id);
+const DEFAULT_RIG_LAYOUT = { height: 42, anchorX: 0.5, anchorY: 0.88 };
+const RIG_EDITOR_CANVAS_SIZE = 640;
 const UNIT_SPRITE_LAYOUTS = {
   archer: { height: 38, anchorX: 0.5, anchorY: 0.88 },
   mage: { height: 39, anchorX: 0.5, anchorY: 0.88 },
@@ -805,6 +827,43 @@ function createAudioState() {
   };
 }
 
+function createEmptyRigPart(id) {
+  return {
+    id,
+    rect: null,
+    pivot: null,
+    mountOffset: { x: 0, y: 0 },
+    flipX: false,
+    flipY: false,
+  };
+}
+
+function createSpriteRigEditorState() {
+  return {
+    sourceImage: null,
+    sourceName: "",
+    sourceWidth: 0,
+    sourceHeight: 0,
+    zoom: 1,
+    fitZoom: 1,
+    offsetX: 0,
+    offsetY: 0,
+    activePartId: "body",
+    dragStart: null,
+    dragCurrent: null,
+    previewDrag: null,
+    previewScene: null,
+    previewReferenceImage: null,
+    previewBlend: 0.55,
+    unitId: Object.keys(UNIT_DEFINITIONS)[0] || "",
+    renderHeight: DEFAULT_RIG_LAYOUT.height,
+    anchorY: DEFAULT_RIG_LAYOUT.anchorY,
+    packedArtifact: null,
+    statusText: "Load a sprite to begin defining the rig.",
+    parts: Object.fromEntries(RIG_PART_IDS.map((id) => [id, createEmptyRigPart(id)])),
+  };
+}
+
 const state = {
   factions: [],
   battle: null,
@@ -812,6 +871,7 @@ const state = {
   tournamentResult: null,
   images: new Map(),
   unitSpriteSources: new Map(),
+  riggedUnitSpriteSources: new Map(),
   statusBadgeSources: new Map(),
   tintedUnitSprites: new Map(),
   running: false,
@@ -856,6 +916,7 @@ const state = {
   },
   lastBattleHighlightAt: -Infinity,
   lastTournamentViewSyncAt: -Infinity,
+  spriteRigEditor: createSpriteRigEditorState(),
 };
 
 const els = {
@@ -904,27 +965,74 @@ const els = {
   compositionResultsCount: document.getElementById("compositionResultsCount"),
   compositionSelectedCount: document.getElementById("compositionSelectedCount"),
   battleUnitTooltip: document.getElementById("battleUnitTooltip"),
+  spriteRigFileInput: document.getElementById("spriteRigFileInput"),
+  spriteRigUnitSelect: document.getElementById("spriteRigUnitSelect"),
+  spriteRigRenderHeight: document.getElementById("spriteRigRenderHeight"),
+  spriteRigAnchorY: document.getElementById("spriteRigAnchorY"),
+  spriteRigZoomOutBtn: document.getElementById("spriteRigZoomOutBtn"),
+  spriteRigZoomResetBtn: document.getElementById("spriteRigZoomResetBtn"),
+  spriteRigZoomInBtn: document.getElementById("spriteRigZoomInBtn"),
+  spriteRigZoomLabel: document.getElementById("spriteRigZoomLabel"),
+  spriteRigSourceCanvas: document.getElementById("spriteRigSourceCanvas"),
+  spriteRigPartPicker: document.getElementById("spriteRigPartPicker"),
+  spriteRigRegionX: document.getElementById("spriteRigRegionX"),
+  spriteRigRegionY: document.getElementById("spriteRigRegionY"),
+  spriteRigRegionW: document.getElementById("spriteRigRegionW"),
+  spriteRigRegionH: document.getElementById("spriteRigRegionH"),
+  spriteRigPivotX: document.getElementById("spriteRigPivotX"),
+  spriteRigPivotY: document.getElementById("spriteRigPivotY"),
+  spriteRigMountOffsetX: document.getElementById("spriteRigMountOffsetX"),
+  spriteRigMountOffsetY: document.getElementById("spriteRigMountOffsetY"),
+  spriteRigCopyFromBodyBtn: document.getElementById("spriteRigCopyFromBodyBtn"),
+  spriteRigResetMountOffsetBtn: document.getElementById("spriteRigResetMountOffsetBtn"),
+  spriteRigFlipXBtn: document.getElementById("spriteRigFlipXBtn"),
+  spriteRigFlipYBtn: document.getElementById("spriteRigFlipYBtn"),
+  spriteRigClearPartBtn: document.getElementById("spriteRigClearPartBtn"),
+  spriteRigPreviewCanvas: document.getElementById("spriteRigPreviewCanvas"),
+  spriteRigPreviewBlend: document.getElementById("spriteRigPreviewBlend"),
+  spriteRigPreviewLabel: document.getElementById("spriteRigPreviewLabel"),
+  spriteRigDownloadSheetBtn: document.getElementById("spriteRigDownloadSheetBtn"),
+  spriteRigDownloadManifestBtn: document.getElementById("spriteRigDownloadManifestBtn"),
+  spriteRigExportDirBtn: document.getElementById("spriteRigExportDirBtn"),
+  spriteRigStatus: document.getElementById("spriteRigStatus"),
 };
 
-const ctx = els.canvas.getContext("2d");
-const chartCtx = els.battleHealthChartCanvas.getContext("2d");
+const HAS_BATTLE_PAGE = Boolean(
+  els.canvas
+  && els.battleHealthChartCanvas
+  && els.runBattleBtn
+  && els.armyList
+);
+const HAS_SPRITE_RIG_PAGE = Boolean(
+  els.spriteRigSourceCanvas
+  && els.spriteRigPreviewCanvas
+  && els.spriteRigFileInput
+);
+const ctx = els.canvas ? els.canvas.getContext("2d") : null;
+const chartCtx = els.battleHealthChartCanvas ? els.battleHealthChartCanvas.getContext("2d") : null;
 let lastFrame = performance.now();
 
 bootstrap();
 
 function bootstrap() {
-  loadState();
-  if (!state.factions.length) {
-    state.factions = cloneData(SAMPLE_BOOKS).map(withFactionDefaults);
-    saveState();
+  if (HAS_BATTLE_PAGE) {
+    loadState();
+    if (!state.factions.length) {
+      state.factions = cloneData(SAMPLE_BOOKS).map(withFactionDefaults);
+      saveState();
+    }
+    bindUi();
+    initializeBattleAudio();
+    renderSpeedControls();
+    syncCsvInput();
+    renderArmyEditors();
+    resetBattle();
   }
-  bindUi();
-  initializeBattleAudio();
-  renderSpeedControls();
-  syncCsvInput();
-  renderArmyEditors();
-  resetBattle();
-  requestAnimationFrame(loop);
+  if (HAS_SPRITE_RIG_PAGE) {
+    initializeSpriteRigEditor();
+    bindSpriteRigEditorUi();
+  }
+  if (HAS_BATTLE_PAGE || HAS_SPRITE_RIG_PAGE) requestAnimationFrame(loop);
 }
 
 function bindUi() {
@@ -977,6 +1085,757 @@ function bindUi() {
   window.addEventListener("blur", onWindowBlur);
   els.canvas.addEventListener("wheel", onCanvasWheel, { passive: false });
   sizeCanvas();
+}
+
+function initializeSpriteRigEditor() {
+  if (!els.spriteRigSourceCanvas || !els.spriteRigPreviewCanvas) return;
+  populateSpriteRigUnitSelect();
+  els.spriteRigUnitSelect.value = state.spriteRigEditor.unitId;
+  els.spriteRigRenderHeight.value = `${state.spriteRigEditor.renderHeight}`;
+  els.spriteRigAnchorY.value = `${state.spriteRigEditor.anchorY}`;
+  els.spriteRigPreviewBlend.value = `${Math.round(state.spriteRigEditor.previewBlend * 100)}`;
+  renderSpriteRigPartPicker();
+  syncSpriteRigFields();
+  updateSpriteRigZoomLabel();
+  updateSpriteRigStatus();
+  renderSpriteRigSourceCanvas();
+  renderSpriteRigPreview();
+  ensureSpriteRigPreviewReferenceImage();
+}
+
+function bindSpriteRigEditorUi() {
+  if (!els.spriteRigFileInput) return;
+  els.spriteRigFileInput.addEventListener("change", onSpriteRigFileChange);
+  els.spriteRigUnitSelect.addEventListener("change", () => {
+    state.spriteRigEditor.unitId = els.spriteRigUnitSelect.value;
+    invalidateSpriteRigPackedArtifact();
+    updateSpriteRigStatus();
+  });
+  els.spriteRigRenderHeight.addEventListener("input", () => {
+    state.spriteRigEditor.renderHeight = clamp(Number(els.spriteRigRenderHeight.value) || DEFAULT_RIG_LAYOUT.height, 16, 256);
+    invalidateSpriteRigPackedArtifact();
+    renderSpriteRigPreview();
+    updateSpriteRigStatus();
+  });
+  els.spriteRigAnchorY.addEventListener("input", () => {
+    state.spriteRigEditor.anchorY = clamp(Number(els.spriteRigAnchorY.value) || DEFAULT_RIG_LAYOUT.anchorY, 0.5, 1.2);
+    invalidateSpriteRigPackedArtifact();
+    renderSpriteRigPreview();
+    updateSpriteRigStatus();
+  });
+  els.spriteRigPreviewBlend.addEventListener("input", () => {
+    state.spriteRigEditor.previewBlend = clamp((Number(els.spriteRigPreviewBlend.value) || 0) / 100, 0, 1);
+    renderSpriteRigPreview();
+  });
+  [
+    els.spriteRigRegionX,
+    els.spriteRigRegionY,
+    els.spriteRigRegionW,
+    els.spriteRigRegionH,
+    els.spriteRigPivotX,
+    els.spriteRigPivotY,
+    els.spriteRigMountOffsetX,
+    els.spriteRigMountOffsetY,
+  ].forEach((input) => input.addEventListener("input", onSpriteRigFieldInput));
+  els.spriteRigCopyFromBodyBtn.addEventListener("click", centerSpriteRigPivotInRegion);
+  els.spriteRigResetMountOffsetBtn.addEventListener("click", resetActiveSpriteRigMountOffset);
+  els.spriteRigFlipXBtn.addEventListener("click", () => toggleActiveSpriteRigReflection("x"));
+  els.spriteRigFlipYBtn.addEventListener("click", () => toggleActiveSpriteRigReflection("y"));
+  els.spriteRigClearPartBtn.addEventListener("click", clearActiveSpriteRigPart);
+  els.spriteRigDownloadSheetBtn.addEventListener("click", () => downloadSpriteRigArtifact("sheet"));
+  els.spriteRigDownloadManifestBtn.addEventListener("click", () => downloadSpriteRigArtifact("manifest"));
+  els.spriteRigExportDirBtn.addEventListener("click", exportSpriteRigToDirectory);
+  els.spriteRigZoomOutBtn.addEventListener("click", () => changeSpriteRigZoom(1 / 1.2));
+  els.spriteRigZoomResetBtn.addEventListener("click", resetSpriteRigZoom);
+  els.spriteRigZoomInBtn.addEventListener("click", () => changeSpriteRigZoom(1.2));
+  els.spriteRigSourceCanvas.addEventListener("pointerdown", onSpriteRigCanvasPointerDown);
+  els.spriteRigSourceCanvas.addEventListener("pointermove", onSpriteRigCanvasPointerMove);
+  els.spriteRigSourceCanvas.addEventListener("wheel", onSpriteRigCanvasWheel, { passive: false });
+  els.spriteRigPreviewCanvas.addEventListener("pointerdown", onSpriteRigPreviewPointerDown);
+  window.addEventListener("pointermove", onSpriteRigPreviewPointerMove);
+  window.addEventListener("pointerup", onSpriteRigCanvasPointerUp);
+  window.addEventListener("pointerup", onSpriteRigPreviewPointerUp);
+}
+
+function populateSpriteRigUnitSelect() {
+  if (!els.spriteRigUnitSelect) return;
+  els.spriteRigUnitSelect.innerHTML = "";
+  Object.values(UNIT_DEFINITIONS)
+    .slice()
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .forEach((unit) => {
+      const option = document.createElement("option");
+      option.value = unit.id;
+      option.textContent = `${unit.name} (${unit.id})`;
+      els.spriteRigUnitSelect.appendChild(option);
+    });
+}
+
+function sanitizeRigAssetName(value) {
+  return `${value || ""}`.trim().toLowerCase().replace(/[^a-z0-9-_]+/g, "-").replace(/^-+|-+$/g, "");
+}
+
+function ensureSpriteRigPreviewReferenceImage() {
+  if (state.spriteRigEditor.previewReferenceImage) return;
+  const image = new Image();
+  image.onload = () => {
+    state.spriteRigEditor.previewReferenceImage = image;
+    renderSpriteRigPreview();
+  };
+  image.src = "assets/unit-archer.svg";
+}
+
+function renderSpriteRigPartPicker() {
+  if (!els.spriteRigPartPicker) return;
+  els.spriteRigPartPicker.innerHTML = "";
+  RIG_PART_DEFINITIONS.forEach((partDef) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "sprite-rig-part-btn";
+    if (state.spriteRigEditor.activePartId === partDef.id) button.classList.add("active");
+    if (state.spriteRigEditor.parts[partDef.id]?.rect) button.classList.add("is-defined");
+    button.innerHTML = `<strong>${partDef.label}</strong><span>${partDef.optional ? "Optional" : "Required"}</span>`;
+    button.style.borderColor = state.spriteRigEditor.activePartId === partDef.id ? hexToRgba(partDef.color, 0.48) : "";
+    button.addEventListener("click", () => {
+      state.spriteRigEditor.activePartId = partDef.id;
+      renderSpriteRigPartPicker();
+      syncSpriteRigFields();
+      renderSpriteRigSourceCanvas();
+    });
+    els.spriteRigPartPicker.appendChild(button);
+  });
+}
+
+function getActiveSpriteRigPart() {
+  return state.spriteRigEditor.parts[state.spriteRigEditor.activePartId];
+}
+
+function syncSpriteRigFields() {
+  const part = getActiveSpriteRigPart();
+  const rect = part?.rect || { x: "", y: "", w: "", h: "" };
+  const pivot = part?.pivot || { x: "", y: "" };
+  const mountOffset = part?.mountOffset || { x: "", y: "" };
+  els.spriteRigRegionX.value = rect.x;
+  els.spriteRigRegionY.value = rect.y;
+  els.spriteRigRegionW.value = rect.w;
+  els.spriteRigRegionH.value = rect.h;
+  els.spriteRigPivotX.value = pivot.x;
+  els.spriteRigPivotY.value = pivot.y;
+  els.spriteRigMountOffsetX.value = mountOffset.x;
+  els.spriteRigMountOffsetY.value = mountOffset.y;
+}
+
+function onSpriteRigFieldInput() {
+  const part = getActiveSpriteRigPart();
+  const values = {
+    x: Math.round(Number(els.spriteRigRegionX.value) || 0),
+    y: Math.round(Number(els.spriteRigRegionY.value) || 0),
+    w: Math.max(1, Math.round(Number(els.spriteRigRegionW.value) || 1)),
+    h: Math.max(1, Math.round(Number(els.spriteRigRegionH.value) || 1)),
+    pivotX: Math.round(Number(els.spriteRigPivotX.value) || 0),
+    pivotY: Math.round(Number(els.spriteRigPivotY.value) || 0),
+    mountOffsetX: Math.round(Number(els.spriteRigMountOffsetX.value) || 0),
+    mountOffsetY: Math.round(Number(els.spriteRigMountOffsetY.value) || 0),
+  };
+  part.rect = { x: values.x, y: values.y, w: values.w, h: values.h };
+  part.pivot = { x: values.pivotX, y: values.pivotY };
+  part.mountOffset = { x: values.mountOffsetX, y: values.mountOffsetY };
+  clampSpriteRigPartToImage(part);
+  invalidateSpriteRigPackedArtifact();
+  syncSpriteRigFields();
+  renderSpriteRigPartPicker();
+  renderSpriteRigSourceCanvas();
+  renderSpriteRigPreview();
+  updateSpriteRigStatus();
+}
+
+function resetActiveSpriteRigMountOffset() {
+  const part = getActiveSpriteRigPart();
+  if (!part) return;
+  part.mountOffset = { x: 0, y: 0 };
+  invalidateSpriteRigPackedArtifact();
+  syncSpriteRigFields();
+  renderSpriteRigPreview();
+  updateSpriteRigStatus();
+}
+
+function toggleActiveSpriteRigReflection(axis) {
+  const part = getActiveSpriteRigPart();
+  if (!part) return;
+  if (axis === "x") part.flipX = !part.flipX;
+  if (axis === "y") part.flipY = !part.flipY;
+  invalidateSpriteRigPackedArtifact();
+  renderSpriteRigPreview();
+  updateSpriteRigStatus();
+}
+
+function centerSpriteRigPivotInRegion() {
+  const part = getActiveSpriteRigPart();
+  if (!part?.rect) return;
+  part.pivot = {
+    x: Math.round(part.rect.x + part.rect.w / 2),
+    y: Math.round(part.rect.y + part.rect.h / 2),
+  };
+  invalidateSpriteRigPackedArtifact();
+  syncSpriteRigFields();
+  renderSpriteRigSourceCanvas();
+  renderSpriteRigPreview();
+  updateSpriteRigStatus();
+}
+
+function clearActiveSpriteRigPart() {
+  state.spriteRigEditor.parts[state.spriteRigEditor.activePartId] = createEmptyRigPart(state.spriteRigEditor.activePartId);
+  invalidateSpriteRigPackedArtifact();
+  renderSpriteRigPartPicker();
+  syncSpriteRigFields();
+  renderSpriteRigSourceCanvas();
+  renderSpriteRigPreview();
+  updateSpriteRigStatus();
+}
+
+function onSpriteRigFileChange(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  const objectUrl = URL.createObjectURL(file);
+  const image = new Image();
+  image.onload = () => {
+    state.spriteRigEditor.sourceImage = image;
+    state.spriteRigEditor.sourceName = file.name.replace(/\.[^.]+$/, "");
+    state.spriteRigEditor.sourceWidth = image.naturalWidth || image.width;
+    state.spriteRigEditor.sourceHeight = image.naturalHeight || image.height;
+    state.spriteRigEditor.parts = Object.fromEntries(RIG_PART_IDS.map((id) => [id, createEmptyRigPart(id)]));
+    state.spriteRigEditor.activePartId = "body";
+    invalidateSpriteRigPackedArtifact();
+    state.spriteRigEditor.fitZoom = Math.min(
+      RIG_EDITOR_CANVAS_SIZE / Math.max(1, state.spriteRigEditor.sourceWidth),
+      RIG_EDITOR_CANVAS_SIZE / Math.max(1, state.spriteRigEditor.sourceHeight),
+    );
+    state.spriteRigEditor.zoom = state.spriteRigEditor.fitZoom * 0.8;
+    updateSpriteRigViewportOffsets();
+    if (els.spriteRigUnitSelect && !els.spriteRigUnitSelect.value) {
+      els.spriteRigUnitSelect.value = state.spriteRigEditor.unitId;
+    }
+    renderSpriteRigPartPicker();
+    syncSpriteRigFields();
+    updateSpriteRigZoomLabel();
+    updateSpriteRigStatus();
+    renderSpriteRigSourceCanvas();
+    renderSpriteRigPreview();
+  };
+  image.src = objectUrl;
+}
+
+function updateSpriteRigViewportOffsets() {
+  const editor = state.spriteRigEditor;
+  editor.offsetX = Math.round((RIG_EDITOR_CANVAS_SIZE - editor.sourceWidth * editor.zoom) / 2);
+  editor.offsetY = Math.round((RIG_EDITOR_CANVAS_SIZE - editor.sourceHeight * editor.zoom) / 2);
+}
+
+function updateSpriteRigZoomLabel() {
+  if (!els.spriteRigZoomLabel) return;
+  const fitZoom = Math.max(state.spriteRigEditor.fitZoom || 1, 0.0001);
+  const percent = Math.round((state.spriteRigEditor.zoom / fitZoom) * 100);
+  els.spriteRigZoomLabel.textContent = `${percent}%`;
+}
+
+function changeSpriteRigZoom(multiplier) {
+  if (!state.spriteRigEditor.sourceImage) return;
+  state.spriteRigEditor.zoom = clamp(state.spriteRigEditor.zoom * multiplier, state.spriteRigEditor.fitZoom * 0.2, state.spriteRigEditor.fitZoom * 8);
+  updateSpriteRigViewportOffsets();
+  updateSpriteRigZoomLabel();
+  renderSpriteRigSourceCanvas();
+}
+
+function resetSpriteRigZoom() {
+  if (!state.spriteRigEditor.sourceImage) return;
+  state.spriteRigEditor.zoom = state.spriteRigEditor.fitZoom;
+  updateSpriteRigViewportOffsets();
+  updateSpriteRigZoomLabel();
+  renderSpriteRigSourceCanvas();
+}
+
+function onSpriteRigCanvasWheel(event) {
+  if (!state.spriteRigEditor.sourceImage) return;
+  event.preventDefault();
+  changeSpriteRigZoom(event.deltaY > 0 ? 1 / 1.1 : 1.1);
+}
+
+function getSpriteRigPreviewCanvasPoint(event) {
+  const rect = els.spriteRigPreviewCanvas.getBoundingClientRect();
+  return {
+    x: (event.clientX - rect.left) * ((els.spriteRigPreviewCanvas.width || 1) / Math.max(rect.width, 1)),
+    y: (event.clientY - rect.top) * ((els.spriteRigPreviewCanvas.height || 1) / Math.max(rect.height, 1)),
+  };
+}
+
+function getSpriteRigCanvasPoint(event) {
+  const rect = els.spriteRigSourceCanvas.getBoundingClientRect();
+  const editor = state.spriteRigEditor;
+  const canvasX = (event.clientX - rect.left) * ((els.spriteRigSourceCanvas.width || 1) / Math.max(rect.width, 1));
+  const canvasY = (event.clientY - rect.top) * ((els.spriteRigSourceCanvas.height || 1) / Math.max(rect.height, 1));
+  return {
+    x: clamp(Math.round((canvasX - editor.offsetX) / Math.max(editor.zoom, 0.0001)), 0, editor.sourceWidth),
+    y: clamp(Math.round((canvasY - editor.offsetY) / Math.max(editor.zoom, 0.0001)), 0, editor.sourceHeight),
+  };
+}
+
+function onSpriteRigCanvasPointerDown(event) {
+  if (!state.spriteRigEditor.sourceImage) return;
+  const point = getSpriteRigCanvasPoint(event);
+  if (event.shiftKey) {
+    const part = getActiveSpriteRigPart();
+    part.pivot = point;
+    invalidateSpriteRigPackedArtifact();
+    syncSpriteRigFields();
+    renderSpriteRigSourceCanvas();
+    renderSpriteRigPreview();
+    updateSpriteRigStatus();
+    return;
+  }
+  state.spriteRigEditor.dragStart = point;
+  state.spriteRigEditor.dragCurrent = point;
+  renderSpriteRigSourceCanvas();
+}
+
+function onSpriteRigCanvasPointerMove(event) {
+  if (!state.spriteRigEditor.dragStart) return;
+  state.spriteRigEditor.dragCurrent = getSpriteRigCanvasPoint(event);
+  renderSpriteRigSourceCanvas();
+}
+
+function onSpriteRigCanvasPointerUp() {
+  const editor = state.spriteRigEditor;
+  if (!editor.dragStart || !editor.dragCurrent) return;
+  const x = Math.min(editor.dragStart.x, editor.dragCurrent.x);
+  const y = Math.min(editor.dragStart.y, editor.dragCurrent.y);
+  const w = Math.max(1, Math.abs(editor.dragCurrent.x - editor.dragStart.x));
+  const h = Math.max(1, Math.abs(editor.dragCurrent.y - editor.dragStart.y));
+  const part = getActiveSpriteRigPart();
+  part.rect = { x, y, w, h };
+  if (!part.pivot) {
+    part.pivot = { x: Math.round(x + w / 2), y: Math.round(y + h / 2) };
+  } else {
+    clampSpriteRigPartToImage(part);
+  }
+  invalidateSpriteRigPackedArtifact();
+  editor.dragStart = null;
+  editor.dragCurrent = null;
+  renderSpriteRigPartPicker();
+  syncSpriteRigFields();
+  renderSpriteRigSourceCanvas();
+  renderSpriteRigPreview();
+  updateSpriteRigStatus();
+}
+
+function onSpriteRigPreviewPointerDown(event) {
+  const editor = state.spriteRigEditor;
+  const activePartId = editor.activePartId;
+  const metrics = editor.previewScene?.partMetrics?.[activePartId];
+  if (!metrics) return;
+  const point = getSpriteRigPreviewCanvasPoint(event);
+  if (!isPointInsideBounds(point, metrics.bounds)) return;
+  const part = getActiveSpriteRigPart();
+  if (!part) return;
+  editor.previewDrag = {
+    pointerId: event.pointerId,
+    startPoint: point,
+    startMountOffset: {
+      x: part.mountOffset?.x || 0,
+      y: part.mountOffset?.y || 0,
+    },
+    sourceScale: editor.previewScene?.sourceScale || 1,
+  };
+  els.spriteRigPreviewCanvas.setPointerCapture?.(event.pointerId);
+  renderSpriteRigPreview();
+}
+
+function onSpriteRigPreviewPointerMove(event) {
+  const drag = state.spriteRigEditor.previewDrag;
+  if (!drag) return;
+  const point = getSpriteRigPreviewCanvasPoint(event);
+  const part = getActiveSpriteRigPart();
+  if (!part) return;
+  const dx = (point.x - drag.startPoint.x) / Math.max(drag.sourceScale || 1, 0.0001);
+  const dy = (point.y - drag.startPoint.y) / Math.max(drag.sourceScale || 1, 0.0001);
+  part.mountOffset = {
+    x: Math.round(drag.startMountOffset.x + dx),
+    y: Math.round(drag.startMountOffset.y + dy),
+  };
+  invalidateSpriteRigPackedArtifact();
+  syncSpriteRigFields();
+  renderSpriteRigPreview();
+  updateSpriteRigStatus();
+}
+
+function onSpriteRigPreviewPointerUp(event) {
+  const drag = state.spriteRigEditor.previewDrag;
+  if (!drag) return;
+  if (typeof drag.pointerId === "number" && typeof event.pointerId === "number" && drag.pointerId !== event.pointerId) return;
+  state.spriteRigEditor.previewDrag = null;
+  renderSpriteRigPreview();
+}
+
+function isPointInsideBounds(point, bounds) {
+  if (!bounds) return false;
+  return point.x >= bounds.minX
+    && point.x <= bounds.maxX
+    && point.y >= bounds.minY
+    && point.y <= bounds.maxY;
+}
+
+function clampSpriteRigPartToImage(part) {
+  const editor = state.spriteRigEditor;
+  if (!part?.rect || !editor.sourceImage) return;
+  part.rect.x = clamp(Math.round(part.rect.x), 0, Math.max(0, editor.sourceWidth - 1));
+  part.rect.y = clamp(Math.round(part.rect.y), 0, Math.max(0, editor.sourceHeight - 1));
+  part.rect.w = clamp(Math.round(part.rect.w), 1, Math.max(1, editor.sourceWidth - part.rect.x));
+  part.rect.h = clamp(Math.round(part.rect.h), 1, Math.max(1, editor.sourceHeight - part.rect.y));
+  if (part.pivot) {
+    part.pivot.x = clamp(Math.round(part.pivot.x), part.rect.x, part.rect.x + part.rect.w);
+    part.pivot.y = clamp(Math.round(part.pivot.y), part.rect.y, part.rect.y + part.rect.h);
+  }
+}
+
+function renderSpriteRigSourceCanvas() {
+  if (!els.spriteRigSourceCanvas) return;
+  const ctx2d = els.spriteRigSourceCanvas.getContext("2d");
+  const editor = state.spriteRigEditor;
+  ctx2d.clearRect(0, 0, els.spriteRigSourceCanvas.width, els.spriteRigSourceCanvas.height);
+  ctx2d.fillStyle = "#16100c";
+  ctx2d.fillRect(0, 0, els.spriteRigSourceCanvas.width, els.spriteRigSourceCanvas.height);
+  if (!editor.sourceImage) return;
+  ctx2d.drawImage(
+    editor.sourceImage,
+    editor.offsetX,
+    editor.offsetY,
+    editor.sourceWidth * editor.zoom,
+    editor.sourceHeight * editor.zoom,
+  );
+  RIG_PART_DEFINITIONS.forEach((partDef) => {
+    const part = editor.parts[partDef.id];
+    if (!part?.rect) return;
+    const x = editor.offsetX + part.rect.x * editor.zoom;
+    const y = editor.offsetY + part.rect.y * editor.zoom;
+    const w = part.rect.w * editor.zoom;
+    const h = part.rect.h * editor.zoom;
+    ctx2d.save();
+    ctx2d.fillStyle = hexToRgba(partDef.color, partDef.id === editor.activePartId ? 0.18 : 0.1);
+    ctx2d.strokeStyle = hexToRgba(partDef.color, partDef.id === editor.activePartId ? 0.95 : 0.6);
+    ctx2d.lineWidth = partDef.id === editor.activePartId ? 2.5 : 1.5;
+    ctx2d.fillRect(x, y, w, h);
+    ctx2d.strokeRect(x, y, w, h);
+    if (part.pivot) {
+      const px = editor.offsetX + part.pivot.x * editor.zoom;
+      const py = editor.offsetY + part.pivot.y * editor.zoom;
+      ctx2d.beginPath();
+      ctx2d.arc(px, py, 5, 0, Math.PI * 2);
+      ctx2d.fillStyle = partDef.color;
+      ctx2d.fill();
+      ctx2d.strokeStyle = "#110d0a";
+      ctx2d.lineWidth = 2;
+      ctx2d.stroke();
+    }
+    ctx2d.restore();
+  });
+  if (editor.dragStart && editor.dragCurrent) {
+    const x = Math.min(editor.dragStart.x, editor.dragCurrent.x) * editor.zoom + editor.offsetX;
+    const y = Math.min(editor.dragStart.y, editor.dragCurrent.y) * editor.zoom + editor.offsetY;
+    const w = Math.abs(editor.dragCurrent.x - editor.dragStart.x) * editor.zoom;
+    const h = Math.abs(editor.dragCurrent.y - editor.dragStart.y) * editor.zoom;
+    ctx2d.save();
+    ctx2d.strokeStyle = "#fff6d2";
+    ctx2d.setLineDash([7, 5]);
+    ctx2d.strokeRect(x, y, w, h);
+    ctx2d.restore();
+  }
+}
+
+function renderSpriteRigPreview() {
+  if (!els.spriteRigPreviewCanvas) return;
+  const previewCtx = els.spriteRigPreviewCanvas.getContext("2d");
+  const canvas = els.spriteRigPreviewCanvas;
+  previewCtx.clearRect(0, 0, canvas.width, canvas.height);
+  previewCtx.fillStyle = "#140d08";
+  previewCtx.fillRect(0, 0, canvas.width, canvas.height);
+  if (!state.spriteRigEditor.sourceImage) {
+    els.spriteRigPreviewLabel.textContent = "Idle";
+    return;
+  }
+  const artifact = buildSpriteRigSheetCanvas();
+  if (!artifact) return;
+  const blend = state.spriteRigEditor.previewBlend;
+  const now = performance.now() / 1000;
+  const previewUnit = {
+    type: state.spriteRigEditor.unitId || "archer",
+    stride: Math.sin(now * 4.2) * blend,
+    bob: (0.5 - Math.cos(now * 8.4) * 0.5) * blend,
+    attackSwing: Math.max(0, Math.sin(now * 2.8)) * (0.35 + blend * 0.65),
+    displayFacingX: 1,
+    walkTilt: Math.sin(now * 1.5) * 0.035 * blend,
+    rotation: 0,
+  };
+  els.spriteRigPreviewLabel.textContent = blend < 0.2 ? "Mostly Idle" : blend < 0.65 ? "Walk Blend" : "Attack Blend";
+  const scene = renderBattleAccurateSpriteRigPreview(previewCtx, canvas, artifact, previewUnit);
+  state.spriteRigEditor.previewScene = scene
+    ? { ...scene }
+    : null;
+}
+
+function renderBattleAccurateSpriteRigPreview(previewCtx, canvas, artifact, previewUnit) {
+  const pointScale = 5.3;
+  const renderScale = pointScale * getUnitRenderScale(previewUnit);
+  const groundX = canvas.width / 2;
+  const groundY = canvas.height * 0.7;
+  const gaitBob = previewUnit.bob * 5.5 * pointScale / 2.1;
+  const bodyY = groundY - gaitBob;
+  const strideOffset = previewUnit.stride * 2.8 * pointScale / 2.1;
+
+  drawBattleAccuratePreviewShadow(previewCtx, groundX, groundY, pointScale, renderScale, previewUnit);
+  drawBattleAccuratePreviewReference(previewCtx, bodyY, pointScale);
+
+  previewCtx.save();
+  previewCtx.translate(groundX + strideOffset * previewUnit.displayFacingX * 0.35, bodyY);
+  previewCtx.rotate((previewUnit.walkTilt || 0) + (previewUnit.rotation || 0));
+  previewCtx.scale(previewUnit.displayFacingX || 1, 1);
+  const scene = drawRiggedSpriteFromManifest(previewCtx, artifact.manifest, artifact.canvas, previewUnit, pointScale * getUnitRenderScale(previewUnit), {
+    collectPartMetrics: true,
+    highlightPartId: state.spriteRigEditor.activePartId,
+    dragPartId: state.spriteRigEditor.previewDrag ? state.spriteRigEditor.activePartId : null,
+  });
+  previewCtx.restore();
+
+  return scene
+    ? {
+      ...scene,
+      groundX,
+      groundY,
+      bodyY,
+      pointScale,
+      renderScale,
+    }
+    : null;
+}
+
+function drawBattleAccuratePreviewShadow(previewCtx, groundX, groundY, pointScale, renderScale, previewUnit) {
+  previewCtx.save();
+  previewCtx.fillStyle = "rgba(0,0,0,0.22)";
+  previewCtx.beginPath();
+  previewCtx.ellipse(
+    groundX,
+    groundY + 10 * pointScale / 2.1,
+    (10 + Math.abs(previewUnit.stride) * 1.6) * renderScale / 2.1,
+    (5 - previewUnit.bob * 0.9) * renderScale / 2.1,
+    0,
+    0,
+    Math.PI * 2,
+  );
+  previewCtx.fill();
+  previewCtx.strokeStyle = "rgba(255, 212, 131, 0.24)";
+  previewCtx.lineWidth = 1.5;
+  previewCtx.setLineDash([5, 4]);
+  previewCtx.stroke();
+  previewCtx.restore();
+}
+
+function drawBattleAccuratePreviewReference(previewCtx, bodyY, pointScale) {
+  const image = state.spriteRigEditor.previewReferenceImage;
+  if (!image?.complete) return;
+  const layout = UNIT_SPRITE_LAYOUTS.archer || DEFAULT_RIG_LAYOUT;
+  const targetHeight = layout.height * pointScale / 2.1;
+  const aspectRatio = (image.width || 1) / Math.max(image.height || 1, 1);
+  const targetWidth = targetHeight * aspectRatio;
+  previewCtx.save();
+  previewCtx.globalAlpha = 0.22;
+  previewCtx.drawImage(
+    image,
+    (previewCtx.canvas.width / 2) - targetWidth * layout.anchorX,
+    bodyY - targetHeight * layout.anchorY,
+    targetWidth,
+    targetHeight,
+  );
+  previewCtx.restore();
+}
+
+function updateSpriteRigStatus() {
+  if (!els.spriteRigStatus) return;
+  const definedParts = RIG_PART_DEFINITIONS.filter((partDef) => state.spriteRigEditor.parts[partDef.id]?.rect);
+  const missingRequired = RIG_PART_DEFINITIONS
+    .filter((partDef) => !partDef.optional && !state.spriteRigEditor.parts[partDef.id]?.rect)
+    .map((partDef) => partDef.label);
+  const lines = [
+    `Source: ${state.spriteRigEditor.sourceName || "none loaded"}`,
+    `Unit: ${getUnitDefinition(state.spriteRigEditor.unitId)?.name || "unset"} (${state.spriteRigEditor.unitId || "unset"})`,
+    `Defined parts: ${definedParts.length}/${RIG_PART_DEFINITIONS.length}`,
+    missingRequired.length ? `Missing required: ${missingRequired.join(", ")}` : "All required parts are defined.",
+  ];
+  state.spriteRigEditor.statusText = lines.join("\n");
+  els.spriteRigStatus.textContent = state.spriteRigEditor.statusText;
+}
+
+function invalidateSpriteRigPackedArtifact() {
+  state.spriteRigEditor.packedArtifact = null;
+}
+
+function buildSpriteRigManifestFromEditor() {
+  const editor = state.spriteRigEditor;
+  const body = editor.parts.body;
+  if (!body?.rect || !body?.pivot) return null;
+  const bodyPivot = body?.pivot || { x: 0, y: 0 };
+  const partRects = RIG_PART_IDS
+    .map((id) => editor.parts[id]?.rect)
+    .filter(Boolean);
+  const maxDimension = partRects.reduce((max, rect) => Math.max(max, rect.w, rect.h), 0);
+  const cellSize = Math.max(48, Math.ceil((maxDimension + 16) / 16) * 16 || 64);
+  const parts = {};
+  RIG_PART_IDS.forEach((id, index) => {
+    const part = editor.parts[id];
+    if (!part?.rect || !part.pivot) return;
+    const frameX = Math.round((cellSize - part.rect.w) / 2);
+    const frameY = Math.round((cellSize - part.rect.h) / 2);
+    parts[id] = {
+      cell: index,
+      frame: { x: frameX, y: frameY, w: part.rect.w, h: part.rect.h },
+      pivot: {
+        x: part.pivot.x - part.rect.x,
+        y: part.pivot.y - part.rect.y,
+      },
+      mount: {
+        x: part.pivot.x - bodyPivot.x + (part.mountOffset?.x || 0),
+        y: part.pivot.y - bodyPivot.y + (part.mountOffset?.y || 0),
+      },
+      mountOffset: {
+        x: part.mountOffset?.x || 0,
+        y: part.mountOffset?.y || 0,
+      },
+      flipX: Boolean(part.flipX),
+      flipY: Boolean(part.flipY),
+      sourceRect: { ...part.rect },
+      sourcePivot: { ...part.pivot },
+    };
+  });
+  return {
+    version: 1,
+    unitId: editor.unitId || sanitizeRigAssetName(editor.sourceName) || "unit-rig",
+    layout: {
+      height: editor.renderHeight,
+      anchorX: DEFAULT_RIG_LAYOUT.anchorX,
+      anchorY: editor.anchorY,
+    },
+    sourceSize: {
+      width: editor.sourceWidth,
+      height: editor.sourceHeight,
+    },
+    sheet: {
+      image: `${editor.unitId || sanitizeRigAssetName(editor.sourceName) || "unit-rig"}.png`,
+      cellSize,
+      columns: 4,
+      rows: Math.ceil(RIG_PART_IDS.length / 4),
+      order: [...RIG_PART_IDS],
+    },
+    parts,
+  };
+}
+
+function buildSpriteRigSheetCanvas() {
+  const editor = state.spriteRigEditor;
+  if (!editor.sourceImage) return null;
+  if (editor.packedArtifact) return editor.packedArtifact;
+  const manifest = buildSpriteRigManifestFromEditor();
+  if (!manifest) return null;
+  const sheetCanvas = document.createElement("canvas");
+  sheetCanvas.width = manifest.sheet.columns * manifest.sheet.cellSize;
+  sheetCanvas.height = manifest.sheet.rows * manifest.sheet.cellSize;
+  const sheetCtx = sheetCanvas.getContext("2d");
+  manifest.sheet.order.forEach((id) => {
+    const part = manifest.parts[id];
+    if (!part) return;
+    const cellX = (part.cell % manifest.sheet.columns) * manifest.sheet.cellSize;
+    const cellY = Math.floor(part.cell / manifest.sheet.columns) * manifest.sheet.cellSize;
+    sheetCtx.drawImage(
+      editor.sourceImage,
+      part.sourceRect.x,
+      part.sourceRect.y,
+      part.sourceRect.w,
+      part.sourceRect.h,
+      cellX + part.frame.x,
+      cellY + part.frame.y,
+      part.frame.w,
+      part.frame.h,
+    );
+  });
+  editor.packedArtifact = { canvas: sheetCanvas, manifest };
+  return editor.packedArtifact;
+}
+
+async function downloadSpriteRigArtifact(kind) {
+  const artifact = buildSpriteRigSheetCanvas();
+  if (!artifact) {
+    els.spriteRigStatus.textContent = "Define at least the body region and pivot before exporting.";
+    return;
+  }
+  const fileStem = artifact.manifest.unitId || "unit-rig";
+  if (kind === "sheet") {
+    const blob = await new Promise((resolve) => artifact.canvas.toBlob(resolve, "image/png"));
+    triggerBlobDownload(blob, `${fileStem}.png`);
+    return;
+  }
+  const jsonBlob = new Blob([JSON.stringify(stripEditorFieldsFromManifest(artifact.manifest), null, 2)], { type: "application/json" });
+  triggerBlobDownload(jsonBlob, `${fileStem}.json`);
+}
+
+async function exportSpriteRigToDirectory() {
+  const artifact = buildSpriteRigSheetCanvas();
+  if (!artifact) {
+    els.spriteRigStatus.textContent = "Define at least the body region and pivot before exporting.";
+    return;
+  }
+  if (!window.showDirectoryPicker) {
+    els.spriteRigStatus.textContent = "Directory export needs a Chromium browser with the File System Access API.";
+    return;
+  }
+  try {
+    const directoryHandle = await window.showDirectoryPicker();
+    const pngHandle = await directoryHandle.getFileHandle(`${artifact.manifest.unitId}.png`, { create: true });
+    const pngWritable = await pngHandle.createWritable();
+    const pngBlob = await new Promise((resolve) => artifact.canvas.toBlob(resolve, "image/png"));
+    await pngWritable.write(pngBlob);
+    await pngWritable.close();
+    const jsonHandle = await directoryHandle.getFileHandle(`${artifact.manifest.unitId}.json`, { create: true });
+    const jsonWritable = await jsonHandle.createWritable();
+    await jsonWritable.write(JSON.stringify(stripEditorFieldsFromManifest(artifact.manifest), null, 2));
+    await jsonWritable.close();
+    els.spriteRigStatus.textContent = `Exported ${artifact.manifest.unitId}.png and ${artifact.manifest.unitId}.json to the selected directory.`;
+  } catch (error) {
+    if (error?.name !== "AbortError") {
+      els.spriteRigStatus.textContent = `Directory export failed: ${error.message || error}`;
+    }
+  }
+}
+
+function triggerBlobDownload(blob, filename) {
+  if (!blob) return;
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function stripEditorFieldsFromManifest(manifest) {
+  return {
+    ...manifest,
+    parts: Object.fromEntries(Object.entries(manifest.parts).map(([id, part]) => [id, {
+      cell: part.cell,
+      frame: part.frame,
+      pivot: part.pivot,
+      mount: part.mount,
+      mountOffset: part.mountOffset,
+      flipX: part.flipX,
+      flipY: part.flipY,
+      sourcePivot: part.sourcePivot,
+    }])),
+  };
 }
 
 function renderSpeedControls() {
@@ -3032,6 +3891,7 @@ function makeUnit(factionId, type, x, y) {
     gaitPhase: Math.random() * Math.PI * 2,
     stride: 0,
     bob: 0,
+    attackSwing: 0,
     focusTargetId: null,
     guardTargetId: null,
     invisible: type === "assassin",
@@ -3103,6 +3963,24 @@ function getUnitSpriteSource(unitId) {
   return state.unitSpriteSources.get(unitId);
 }
 
+function getRiggedUnitSpriteSource(unitId) {
+  if (!unitId) return null;
+  if (!state.riggedUnitSpriteSources.has(unitId)) {
+    const entry = {
+      unitId,
+      candidates: UNIT_RIG_CANDIDATE_PATHS.map((buildPath) => buildPath(unitId)),
+      candidateIndex: 0,
+      status: "pending",
+      image: null,
+      url: null,
+      manifest: null,
+    };
+    state.riggedUnitSpriteSources.set(unitId, entry);
+    loadNextUnitRigCandidate(entry);
+  }
+  return state.riggedUnitSpriteSources.get(unitId);
+}
+
 function getStatusBadgeSource(statusId) {
   if (!statusId) return null;
   if (!state.statusBadgeSources.has(statusId)) {
@@ -3138,6 +4016,47 @@ function loadNextUnitSpriteCandidate(entry) {
     loadNextUnitSpriteCandidate(entry);
   };
   image.src = nextUrl;
+}
+
+async function loadNextUnitRigCandidate(entry) {
+  if (!entry || entry.status === "loaded") return;
+  const nextUrl = entry.candidates[entry.candidateIndex];
+  if (!nextUrl) {
+    entry.status = "missing";
+    return;
+  }
+  try {
+    const response = await fetch(nextUrl);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const manifest = await response.json();
+    const imageUrl = resolveRigImageUrl(nextUrl, manifest?.sheet?.image || `${entry.unitId}.png`);
+    const image = await loadImageAsset(imageUrl);
+    entry.status = "loaded";
+    entry.url = nextUrl;
+    entry.manifest = manifest;
+    entry.image = image;
+  } catch (error) {
+    entry.candidateIndex += 1;
+    loadNextUnitRigCandidate(entry);
+  }
+}
+
+function resolveRigImageUrl(manifestUrl, imageName) {
+  try {
+    return new URL(imageName, new URL(manifestUrl, window.location.href)).toString();
+  } catch (error) {
+    const base = manifestUrl.split("/").slice(0, -1).join("/");
+    return `${base}/${imageName}`;
+  }
+}
+
+function loadImageAsset(url) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = reject;
+    image.src = url;
+  });
 }
 
 function loadNextStatusBadgeCandidate(entry) {
@@ -3179,6 +4098,7 @@ function getTintedUnitSprite(image, url, color) {
 }
 
 function drawUnitSprite(unit, color, scale) {
+  if (drawRiggedUnitSprite(unit, color, scale)) return true;
   const source = getUnitSpriteSource(unit.type);
   if (!source || source.status !== "loaded" || !source.image?.complete) return false;
   const layout = UNIT_SPRITE_LAYOUTS[unit.type] || { height: 39, anchorX: 0.5, anchorY: 0.88 };
@@ -3197,6 +4117,144 @@ function drawUnitSprite(unit, color, scale) {
   return true;
 }
 
+function drawRiggedUnitSprite(unit, color, scale) {
+  const source = getRiggedUnitSpriteSource(unit.type);
+  if (!source || source.status !== "loaded" || !source.image?.complete || !source.manifest) return false;
+  const image = getTintedUnitSprite(source.image, `${source.url}|rig`, color) || source.image;
+  drawRiggedSpriteFromManifest(ctx, source.manifest, image, unit, scale * getUnitRenderScale(unit));
+  return true;
+}
+
+function drawRiggedSpriteFromManifest(targetCtx, manifest, image, unit, scale, options = {}) {
+  if (!manifest?.parts || !image) return false;
+  const layout = manifest.layout || UNIT_SPRITE_LAYOUTS[manifest.unitId] || DEFAULT_RIG_LAYOUT;
+  const targetHeight = (layout.height || DEFAULT_RIG_LAYOUT.height) * scale / 2.1;
+  const body = manifest.parts.body;
+  if (!body) return false;
+  const animation = buildRigAnimationState(unit);
+  const sourceHeight = Math.max(1, manifest.sourceSize?.height || layout.height || DEFAULT_RIG_LAYOUT.height);
+  const sourceWidth = Math.max(1, manifest.sourceSize?.width || layout.height || DEFAULT_RIG_LAYOUT.height);
+  const sourceScale = targetHeight / sourceHeight;
+  const anchorPoint = {
+    x: sourceWidth * (layout.anchorX ?? DEFAULT_RIG_LAYOUT.anchorX),
+    y: sourceHeight * (layout.anchorY ?? DEFAULT_RIG_LAYOUT.anchorY),
+  };
+  const bodyPivotSource = body.sourcePivot || anchorPoint;
+  const partMetrics = {};
+  targetCtx.save();
+  targetCtx.translate(
+    (bodyPivotSource.x - anchorPoint.x) * sourceScale,
+    (bodyPivotSource.y - anchorPoint.y) * sourceScale,
+  );
+  RIG_PART_ORDER.forEach((id) => {
+    const part = manifest.parts[id];
+    if (!part) return;
+    const transform = getRigPartTransform(id, animation, unit);
+    const cellSize = manifest.sheet?.cellSize || 64;
+    const columns = manifest.sheet?.columns || 4;
+    const cellX = (part.cell % columns) * cellSize;
+    const cellY = Math.floor(part.cell / columns) * cellSize;
+    const mountX = (part.mount?.x || 0) * sourceScale;
+    const mountY = (part.mount?.y || 0) * sourceScale;
+    const partScaleX = (part.flipX ? -1 : 1) * (1 + (transform.scaleX || 0));
+    const partScaleY = (part.flipY ? -1 : 1) * (1 + (transform.scaleY || 0));
+    targetCtx.save();
+    targetCtx.translate(mountX + (transform.x || 0) * targetHeight, mountY + (transform.y || 0) * targetHeight);
+    targetCtx.rotate(transform.rotation || 0);
+    targetCtx.scale(partScaleX, partScaleY);
+    if (options.collectPartMetrics) {
+      const matrix = targetCtx.getTransform();
+      const bounds = getTransformedRectBounds(
+        matrix,
+        -part.pivot.x * sourceScale,
+        -part.pivot.y * sourceScale,
+        part.frame.w * sourceScale,
+        part.frame.h * sourceScale,
+      );
+      partMetrics[id] = {
+        bounds,
+        matrix,
+      };
+    }
+    targetCtx.drawImage(
+      image,
+      cellX + part.frame.x,
+      cellY + part.frame.y,
+      part.frame.w,
+      part.frame.h,
+      -part.pivot.x * sourceScale,
+      -part.pivot.y * sourceScale,
+      part.frame.w * sourceScale,
+      part.frame.h * sourceScale,
+    );
+    targetCtx.restore();
+  });
+  targetCtx.restore();
+  if (options.highlightPartId && partMetrics[options.highlightPartId]) {
+    const { bounds } = partMetrics[options.highlightPartId];
+    targetCtx.save();
+    targetCtx.strokeStyle = options.dragPartId === options.highlightPartId ? "#c5f0af" : "#ffd483";
+    targetCtx.lineWidth = options.dragPartId === options.highlightPartId ? 3 : 2;
+    targetCtx.setLineDash(options.dragPartId === options.highlightPartId ? [8, 4] : [6, 4]);
+    targetCtx.strokeRect(bounds.minX, bounds.minY, bounds.maxX - bounds.minX, bounds.maxY - bounds.minY);
+    targetCtx.restore();
+  }
+  return options.collectPartMetrics
+    ? { partMetrics, sourceScale, targetHeight }
+    : true;
+}
+
+function getTransformedRectBounds(matrix, x, y, width, height) {
+  const points = [
+    transformMatrixPoint(matrix, x, y),
+    transformMatrixPoint(matrix, x + width, y),
+    transformMatrixPoint(matrix, x + width, y + height),
+    transformMatrixPoint(matrix, x, y + height),
+  ];
+  return {
+    minX: Math.min(...points.map((point) => point.x)),
+    maxX: Math.max(...points.map((point) => point.x)),
+    minY: Math.min(...points.map((point) => point.y)),
+    maxY: Math.max(...points.map((point) => point.y)),
+  };
+}
+
+function transformMatrixPoint(matrix, x, y) {
+  return {
+    x: matrix.a * x + matrix.c * y + matrix.e,
+    y: matrix.b * x + matrix.d * y + matrix.f,
+  };
+}
+
+function buildRigAnimationState(unit) {
+  const stride = unit?.stride || 0;
+  const bob = unit?.bob || 0;
+  const attack = clamp(unit?.attackSwing || 0, 0, 1);
+  const idle = Math.sin(((state.battle?.time || performance.now() / 1000) * 2.1) + (unit?.statusVisualSeed || 0)) * 0.02;
+  return {
+    stride,
+    bob,
+    attack,
+    idle,
+  };
+}
+
+function getRigPartTransform(partId, animation, unit) {
+  const stride = animation.stride;
+  const bob = animation.bob;
+  const attack = animation.attack;
+  const idle = animation.idle;
+  const torsoBobY = -bob * 0.2;
+  if (partId === "body") return { y: torsoBobY, rotation: idle * 0.7 + attack * -0.05 };
+  if (partId === "head") return { y: -bob * 0.26 - attack * 0.04, rotation: idle + attack * -0.08 };
+  if (partId === "armFront") return { rotation: (-stride * 0.38) + attack * 1.05 + idle * 0.4, y: torsoBobY + bob * 0.04 };
+  if (partId === "armBack") return { rotation: (stride * 0.28) - attack * 0.18 - idle * 0.22, y: torsoBobY + bob * 0.02 };
+  if (partId === "legFront") return { rotation: stride * 0.62 - attack * 0.05, y: torsoBobY + bob * 0.03 };
+  if (partId === "legBack") return { rotation: -stride * 0.62 + attack * 0.03, y: -bob * 0.02 };
+  if (partId === "weapon") return { rotation: (-stride * 0.16) + attack * 0.92 + idle * 0.35, y: attack * -0.04 };
+  return { rotation: 0 };
+}
+
 function drawStatusBadgeSprite(statusId, scale) {
   const source = getStatusBadgeSource(statusId);
   if (!source || source.status !== "loaded" || !source.image?.complete) return false;
@@ -3209,12 +4267,15 @@ function loop(timestamp) {
   const dt = Math.min(0.033, (timestamp - lastFrame) / 1000);
   lastFrame = timestamp;
   const simDt = dt * getBattleSpeedMultiplier();
-  if (state.running && state.battle) stepBattle(state.battle, simDt);
-  if (state.tournament || state.running || state.battle?.completed) syncTournamentViewState();
-  updateAudioFades(dt);
-  updateCamera(dt);
-  render();
-  requestAnimationFrame(loop);
+  if (HAS_BATTLE_PAGE) {
+    if (state.running && state.battle) stepBattle(state.battle, simDt);
+    if (state.tournament || state.running || state.battle?.completed) syncTournamentViewState();
+    updateAudioFades(dt);
+    updateCamera(dt);
+    render();
+  }
+  if (HAS_SPRITE_RIG_PAGE) renderSpriteRigPreview();
+  if (HAS_BATTLE_PAGE || HAS_SPRITE_RIG_PAGE) requestAnimationFrame(loop);
 }
 
 function stepBattle(battle, dt) {
@@ -3638,6 +4699,7 @@ function spreadIgniteStatus(unit, status, battle, dt) {
 }
 function updateUnit(unit, faction, battle, dt) {
   if (unit.dead || unit.fled) return;
+  unit.attackSwing = Math.max(0, (unit.attackSwing || 0) - dt * 2.8);
   const unitDef = getUnitDefinition(unit);
   const stats = getUnitStats(unit, unitDef);
   const graves = battle.graves || [];
@@ -3719,6 +4781,7 @@ function updateUnit(unit, faction, battle, dt) {
     }
     if (unitDef.managesOwnCooldown || unit.cooldown <= 0) {
       unitDef.performAttack?.({ unit, target, battle, unitDef });
+      unit.attackSwing = 1;
       if (!unitDef.managesOwnCooldown) {
         unit.cooldown = stats.cooldown * (0.8 + Math.random() * 0.5);
       }
