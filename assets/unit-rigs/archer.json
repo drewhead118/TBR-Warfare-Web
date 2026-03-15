@@ -4,7 +4,9 @@
   "layout": {
     "height": 60,
     "anchorX": 0.5,
-    "anchorY": 0.88
+    "anchorY": 0.88,
+    "healthBarOffsetX": 0,
+    "healthBarOffsetY": -5
   },
   "sourceSize": {
     "width": 1024,

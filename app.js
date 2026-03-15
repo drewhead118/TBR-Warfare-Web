@@ -94,7 +94,7 @@ const RIG_PART_DEFINITIONS = [
   { id: "weapon", label: "Weapon", optional: true, color: "#f1efb0" },
 ];
 const RIG_PART_IDS = RIG_PART_DEFINITIONS.map((part) => part.id);
-const DEFAULT_RIG_LAYOUT = { height: 42, anchorX: 0.5, anchorY: 0.88 };
+const DEFAULT_RIG_LAYOUT = { height: 42, anchorX: 0.5, anchorY: 0.88, healthBarOffsetX: 0, healthBarOffsetY: 0 };
 const RIG_EDITOR_CANVAS_SIZE = 640;
 const UNIT_SPRITE_LAYOUTS = {
   archer: { height: 38, anchorX: 0.5, anchorY: 0.88 },
@@ -118,7 +118,7 @@ const UNIT_SPRITE_LAYOUTS = {
   phantom: { height: 44, anchorX: 0.5, anchorY: 0.88 },
   spiderswarm: { height: 26, anchorX: 0.5, anchorY: 0.92 },
 };
-const UNIT_SPRITE_TINT_ALPHA = 0.56;
+const UNIT_SPRITE_TINT_ALPHA = 0.28;
 const VETERAN_BONUSES = {
   spriteScale: 1.2,
   maxHealth: 1.2,
@@ -838,6 +838,15 @@ function createEmptyRigPart(id) {
   };
 }
 
+function createEmptyRigWeaponAttachment() {
+  return {
+    enabled: false,
+    sourceX: null,
+    sourceY: null,
+    angleDeg: 0,
+  };
+}
+
 function createSpriteRigEditorState() {
   return {
     sourceImage: null,
@@ -858,6 +867,9 @@ function createSpriteRigEditorState() {
     unitId: Object.keys(UNIT_DEFINITIONS)[0] || "",
     renderHeight: DEFAULT_RIG_LAYOUT.height,
     anchorY: DEFAULT_RIG_LAYOUT.anchorY,
+    healthBarOffsetX: DEFAULT_RIG_LAYOUT.healthBarOffsetX,
+    healthBarOffsetY: DEFAULT_RIG_LAYOUT.healthBarOffsetY,
+    weaponAttachment: createEmptyRigWeaponAttachment(),
     packedArtifact: null,
     statusText: "Load a sprite to begin defining the rig.",
     parts: Object.fromEntries(RIG_PART_IDS.map((id) => [id, createEmptyRigPart(id)])),
@@ -969,6 +981,8 @@ const els = {
   spriteRigUnitSelect: document.getElementById("spriteRigUnitSelect"),
   spriteRigRenderHeight: document.getElementById("spriteRigRenderHeight"),
   spriteRigAnchorY: document.getElementById("spriteRigAnchorY"),
+  spriteRigHealthBarOffsetX: document.getElementById("spriteRigHealthBarOffsetX"),
+  spriteRigHealthBarOffsetY: document.getElementById("spriteRigHealthBarOffsetY"),
   spriteRigZoomOutBtn: document.getElementById("spriteRigZoomOutBtn"),
   spriteRigZoomResetBtn: document.getElementById("spriteRigZoomResetBtn"),
   spriteRigZoomInBtn: document.getElementById("spriteRigZoomInBtn"),
@@ -983,6 +997,12 @@ const els = {
   spriteRigPivotY: document.getElementById("spriteRigPivotY"),
   spriteRigMountOffsetX: document.getElementById("spriteRigMountOffsetX"),
   spriteRigMountOffsetY: document.getElementById("spriteRigMountOffsetY"),
+  spriteRigWeaponAttachEnabled: document.getElementById("spriteRigWeaponAttachEnabled"),
+  spriteRigWeaponAttachX: document.getElementById("spriteRigWeaponAttachX"),
+  spriteRigWeaponAttachY: document.getElementById("spriteRigWeaponAttachY"),
+  spriteRigWeaponAttachAngle: document.getElementById("spriteRigWeaponAttachAngle"),
+  spriteRigWeaponUseArmPivotBtn: document.getElementById("spriteRigWeaponUseArmPivotBtn"),
+  spriteRigWeaponClearAttachBtn: document.getElementById("spriteRigWeaponClearAttachBtn"),
   spriteRigCopyFromBodyBtn: document.getElementById("spriteRigCopyFromBodyBtn"),
   spriteRigResetMountOffsetBtn: document.getElementById("spriteRigResetMountOffsetBtn"),
   spriteRigFlipXBtn: document.getElementById("spriteRigFlipXBtn"),
@@ -1093,9 +1113,12 @@ function initializeSpriteRigEditor() {
   els.spriteRigUnitSelect.value = state.spriteRigEditor.unitId;
   els.spriteRigRenderHeight.value = `${state.spriteRigEditor.renderHeight}`;
   els.spriteRigAnchorY.value = `${state.spriteRigEditor.anchorY}`;
+  els.spriteRigHealthBarOffsetX.value = `${state.spriteRigEditor.healthBarOffsetX}`;
+  els.spriteRigHealthBarOffsetY.value = `${state.spriteRigEditor.healthBarOffsetY}`;
   els.spriteRigPreviewBlend.value = `${Math.round(state.spriteRigEditor.previewBlend * 100)}`;
   renderSpriteRigPartPicker();
   syncSpriteRigFields();
+  syncSpriteRigWeaponFields();
   updateSpriteRigZoomLabel();
   updateSpriteRigStatus();
   renderSpriteRigSourceCanvas();
@@ -1123,6 +1146,10 @@ function bindSpriteRigEditorUi() {
     renderSpriteRigPreview();
     updateSpriteRigStatus();
   });
+  [
+    els.spriteRigHealthBarOffsetX,
+    els.spriteRigHealthBarOffsetY,
+  ].forEach((input) => input.addEventListener("input", onSpriteRigHealthBarFieldInput));
   els.spriteRigPreviewBlend.addEventListener("input", () => {
     state.spriteRigEditor.previewBlend = clamp((Number(els.spriteRigPreviewBlend.value) || 0) / 100, 0, 1);
     renderSpriteRigPreview();
@@ -1137,6 +1164,14 @@ function bindSpriteRigEditorUi() {
     els.spriteRigMountOffsetX,
     els.spriteRigMountOffsetY,
   ].forEach((input) => input.addEventListener("input", onSpriteRigFieldInput));
+  els.spriteRigWeaponAttachEnabled.addEventListener("change", onSpriteRigWeaponFieldInput);
+  [
+    els.spriteRigWeaponAttachX,
+    els.spriteRigWeaponAttachY,
+    els.spriteRigWeaponAttachAngle,
+  ].forEach((input) => input.addEventListener("input", onSpriteRigWeaponFieldInput));
+  els.spriteRigWeaponUseArmPivotBtn.addEventListener("click", useFrontArmPivotForWeaponAttachment);
+  els.spriteRigWeaponClearAttachBtn.addEventListener("click", resetSpriteRigWeaponAttachment);
   els.spriteRigCopyFromBodyBtn.addEventListener("click", centerSpriteRigPivotInRegion);
   els.spriteRigResetMountOffsetBtn.addEventListener("click", resetActiveSpriteRigMountOffset);
   els.spriteRigFlipXBtn.addEventListener("click", () => toggleActiveSpriteRigReflection("x"));
@@ -1225,6 +1260,23 @@ function syncSpriteRigFields() {
   els.spriteRigMountOffsetY.value = mountOffset.y;
 }
 
+function syncSpriteRigWeaponFields() {
+  const attachment = state.spriteRigEditor.weaponAttachment || createEmptyRigWeaponAttachment();
+  const armFront = state.spriteRigEditor.parts.armFront;
+  const fallbackX = armFront?.pivot?.x ?? "";
+  const fallbackY = armFront?.pivot?.y ?? "";
+  els.spriteRigWeaponAttachEnabled.checked = Boolean(attachment.enabled);
+  els.spriteRigWeaponAttachX.value = attachment.sourceX ?? fallbackX;
+  els.spriteRigWeaponAttachY.value = attachment.sourceY ?? fallbackY;
+  els.spriteRigWeaponAttachAngle.value = attachment.angleDeg ?? 0;
+  const disabled = !attachment.enabled;
+  els.spriteRigWeaponAttachX.disabled = disabled;
+  els.spriteRigWeaponAttachY.disabled = disabled;
+  els.spriteRigWeaponAttachAngle.disabled = disabled;
+  els.spriteRigWeaponUseArmPivotBtn.disabled = !armFront?.pivot;
+  els.spriteRigWeaponClearAttachBtn.disabled = !attachment.enabled && attachment.sourceX == null && attachment.sourceY == null && !attachment.angleDeg;
+}
+
 function onSpriteRigFieldInput() {
   const part = getActiveSpriteRigPart();
   const values = {
@@ -1241,9 +1293,55 @@ function onSpriteRigFieldInput() {
   part.pivot = { x: values.pivotX, y: values.pivotY };
   part.mountOffset = { x: values.mountOffsetX, y: values.mountOffsetY };
   clampSpriteRigPartToImage(part);
+  clampSpriteRigWeaponAttachmentToImage();
   invalidateSpriteRigPackedArtifact();
   syncSpriteRigFields();
+  syncSpriteRigWeaponFields();
   renderSpriteRigPartPicker();
+  renderSpriteRigSourceCanvas();
+  renderSpriteRigPreview();
+  updateSpriteRigStatus();
+}
+
+function onSpriteRigWeaponFieldInput() {
+  const attachment = state.spriteRigEditor.weaponAttachment;
+  attachment.enabled = els.spriteRigWeaponAttachEnabled.checked;
+  attachment.sourceX = els.spriteRigWeaponAttachX.value === "" ? null : Math.round(Number(els.spriteRigWeaponAttachX.value) || 0);
+  attachment.sourceY = els.spriteRigWeaponAttachY.value === "" ? null : Math.round(Number(els.spriteRigWeaponAttachY.value) || 0);
+  attachment.angleDeg = Math.round(Number(els.spriteRigWeaponAttachAngle.value) || 0);
+  clampSpriteRigWeaponAttachmentToImage();
+  invalidateSpriteRigPackedArtifact();
+  syncSpriteRigWeaponFields();
+  renderSpriteRigSourceCanvas();
+  renderSpriteRigPreview();
+  updateSpriteRigStatus();
+}
+
+function onSpriteRigHealthBarFieldInput() {
+  state.spriteRigEditor.healthBarOffsetX = Math.round(Number(els.spriteRigHealthBarOffsetX.value) || 0);
+  state.spriteRigEditor.healthBarOffsetY = Math.round(Number(els.spriteRigHealthBarOffsetY.value) || 0);
+  invalidateSpriteRigPackedArtifact();
+  renderSpriteRigPreview();
+  updateSpriteRigStatus();
+}
+
+function useFrontArmPivotForWeaponAttachment() {
+  const armFront = state.spriteRigEditor.parts.armFront;
+  if (!armFront?.pivot) return;
+  state.spriteRigEditor.weaponAttachment.enabled = true;
+  state.spriteRigEditor.weaponAttachment.sourceX = armFront.pivot.x;
+  state.spriteRigEditor.weaponAttachment.sourceY = armFront.pivot.y;
+  invalidateSpriteRigPackedArtifact();
+  syncSpriteRigWeaponFields();
+  renderSpriteRigSourceCanvas();
+  renderSpriteRigPreview();
+  updateSpriteRigStatus();
+}
+
+function resetSpriteRigWeaponAttachment() {
+  state.spriteRigEditor.weaponAttachment = createEmptyRigWeaponAttachment();
+  invalidateSpriteRigPackedArtifact();
+  syncSpriteRigWeaponFields();
   renderSpriteRigSourceCanvas();
   renderSpriteRigPreview();
   updateSpriteRigStatus();
@@ -1278,6 +1376,7 @@ function centerSpriteRigPivotInRegion() {
   };
   invalidateSpriteRigPackedArtifact();
   syncSpriteRigFields();
+  syncSpriteRigWeaponFields();
   renderSpriteRigSourceCanvas();
   renderSpriteRigPreview();
   updateSpriteRigStatus();
@@ -1285,9 +1384,11 @@ function centerSpriteRigPivotInRegion() {
 
 function clearActiveSpriteRigPart() {
   state.spriteRigEditor.parts[state.spriteRigEditor.activePartId] = createEmptyRigPart(state.spriteRigEditor.activePartId);
+  clampSpriteRigWeaponAttachmentToImage();
   invalidateSpriteRigPackedArtifact();
   renderSpriteRigPartPicker();
   syncSpriteRigFields();
+  syncSpriteRigWeaponFields();
   renderSpriteRigSourceCanvas();
   renderSpriteRigPreview();
   updateSpriteRigStatus();
@@ -1304,6 +1405,9 @@ function onSpriteRigFileChange(event) {
     state.spriteRigEditor.sourceWidth = image.naturalWidth || image.width;
     state.spriteRigEditor.sourceHeight = image.naturalHeight || image.height;
     state.spriteRigEditor.parts = Object.fromEntries(RIG_PART_IDS.map((id) => [id, createEmptyRigPart(id)]));
+    state.spriteRigEditor.healthBarOffsetX = DEFAULT_RIG_LAYOUT.healthBarOffsetX;
+    state.spriteRigEditor.healthBarOffsetY = DEFAULT_RIG_LAYOUT.healthBarOffsetY;
+    state.spriteRigEditor.weaponAttachment = createEmptyRigWeaponAttachment();
     state.spriteRigEditor.activePartId = "body";
     invalidateSpriteRigPackedArtifact();
     state.spriteRigEditor.fitZoom = Math.min(
@@ -1317,6 +1421,9 @@ function onSpriteRigFileChange(event) {
     }
     renderSpriteRigPartPicker();
     syncSpriteRigFields();
+    syncSpriteRigWeaponFields();
+    els.spriteRigHealthBarOffsetX.value = `${state.spriteRigEditor.healthBarOffsetX}`;
+    els.spriteRigHealthBarOffsetY.value = `${state.spriteRigEditor.healthBarOffsetY}`;
     updateSpriteRigZoomLabel();
     updateSpriteRigStatus();
     renderSpriteRigSourceCanvas();
@@ -1382,11 +1489,25 @@ function getSpriteRigCanvasPoint(event) {
 function onSpriteRigCanvasPointerDown(event) {
   if (!state.spriteRigEditor.sourceImage) return;
   const point = getSpriteRigCanvasPoint(event);
+  if (event.altKey) {
+    state.spriteRigEditor.weaponAttachment.enabled = true;
+    state.spriteRigEditor.weaponAttachment.sourceX = point.x;
+    state.spriteRigEditor.weaponAttachment.sourceY = point.y;
+    clampSpriteRigWeaponAttachmentToImage();
+    invalidateSpriteRigPackedArtifact();
+    syncSpriteRigWeaponFields();
+    renderSpriteRigSourceCanvas();
+    renderSpriteRigPreview();
+    updateSpriteRigStatus();
+    return;
+  }
   if (event.shiftKey) {
     const part = getActiveSpriteRigPart();
     part.pivot = point;
+    clampSpriteRigWeaponAttachmentToImage();
     invalidateSpriteRigPackedArtifact();
     syncSpriteRigFields();
+    syncSpriteRigWeaponFields();
     renderSpriteRigSourceCanvas();
     renderSpriteRigPreview();
     updateSpriteRigStatus();
@@ -1417,11 +1538,13 @@ function onSpriteRigCanvasPointerUp() {
   } else {
     clampSpriteRigPartToImage(part);
   }
+  clampSpriteRigWeaponAttachmentToImage();
   invalidateSpriteRigPackedArtifact();
   editor.dragStart = null;
   editor.dragCurrent = null;
   renderSpriteRigPartPicker();
   syncSpriteRigFields();
+  syncSpriteRigWeaponFields();
   renderSpriteRigSourceCanvas();
   renderSpriteRigPreview();
   updateSpriteRigStatus();
@@ -1496,6 +1619,21 @@ function clampSpriteRigPartToImage(part) {
   }
 }
 
+function clampSpriteRigWeaponAttachmentToImage() {
+  const editor = state.spriteRigEditor;
+  const attachment = editor.weaponAttachment;
+  if (!editor.sourceImage || !attachment) return;
+  if (attachment.sourceX == null || attachment.sourceY == null) return;
+  const armFront = editor.parts.armFront;
+  if (armFront?.rect) {
+    attachment.sourceX = clamp(Math.round(attachment.sourceX), armFront.rect.x, armFront.rect.x + armFront.rect.w);
+    attachment.sourceY = clamp(Math.round(attachment.sourceY), armFront.rect.y, armFront.rect.y + armFront.rect.h);
+    return;
+  }
+  attachment.sourceX = clamp(Math.round(attachment.sourceX), 0, editor.sourceWidth);
+  attachment.sourceY = clamp(Math.round(attachment.sourceY), 0, editor.sourceHeight);
+}
+
 function renderSpriteRigSourceCanvas() {
   if (!els.spriteRigSourceCanvas) return;
   const ctx2d = els.spriteRigSourceCanvas.getContext("2d");
@@ -1537,6 +1675,7 @@ function renderSpriteRigSourceCanvas() {
     }
     ctx2d.restore();
   });
+  renderSpriteRigWeaponAttachmentOverlay(ctx2d, editor);
   if (editor.dragStart && editor.dragCurrent) {
     const x = Math.min(editor.dragStart.x, editor.dragCurrent.x) * editor.zoom + editor.offsetX;
     const y = Math.min(editor.dragStart.y, editor.dragCurrent.y) * editor.zoom + editor.offsetY;
@@ -1548,6 +1687,45 @@ function renderSpriteRigSourceCanvas() {
     ctx2d.strokeRect(x, y, w, h);
     ctx2d.restore();
   }
+}
+
+function renderSpriteRigWeaponAttachmentOverlay(ctx2d, editor) {
+  const attachment = editor.weaponAttachment;
+  if (!attachment?.enabled || attachment.sourceX == null || attachment.sourceY == null) return;
+  const armFront = editor.parts.armFront;
+  const x = editor.offsetX + attachment.sourceX * editor.zoom;
+  const y = editor.offsetY + attachment.sourceY * editor.zoom;
+  const angle = (attachment.angleDeg || 0) * (Math.PI / 180);
+  const radius = 6;
+  const length = 26;
+  ctx2d.save();
+  if (armFront?.rect) {
+    const rx = editor.offsetX + armFront.rect.x * editor.zoom;
+    const ry = editor.offsetY + armFront.rect.y * editor.zoom;
+    ctx2d.strokeStyle = "rgba(241, 239, 176, 0.42)";
+    ctx2d.lineWidth = 2;
+    ctx2d.setLineDash([5, 4]);
+    ctx2d.strokeRect(rx, ry, armFront.rect.w * editor.zoom, armFront.rect.h * editor.zoom);
+  }
+  ctx2d.setLineDash([]);
+  ctx2d.strokeStyle = "#f1efb0";
+  ctx2d.lineWidth = 2;
+  ctx2d.beginPath();
+  ctx2d.arc(x, y, radius, 0, Math.PI * 2);
+  ctx2d.stroke();
+  ctx2d.beginPath();
+  ctx2d.moveTo(x - radius - 4, y);
+  ctx2d.lineTo(x + radius + 4, y);
+  ctx2d.moveTo(x, y - radius - 4);
+  ctx2d.lineTo(x, y + radius + 4);
+  ctx2d.stroke();
+  ctx2d.strokeStyle = "#ffe7a3";
+  ctx2d.lineWidth = 3;
+  ctx2d.beginPath();
+  ctx2d.moveTo(x, y);
+  ctx2d.lineTo(x + Math.cos(angle) * length, y + Math.sin(angle) * length);
+  ctx2d.stroke();
+  ctx2d.restore();
 }
 
 function renderSpriteRigPreview() {
@@ -1603,6 +1781,7 @@ function renderBattleAccurateSpriteRigPreview(previewCtx, canvas, artifact, prev
     dragPartId: state.spriteRigEditor.previewDrag ? state.spriteRigEditor.activePartId : null,
   });
   previewCtx.restore();
+  drawSpriteRigPreviewHealthBar(previewCtx, previewUnit, artifact.manifest, groundX, bodyY, pointScale, renderScale);
 
   return scene
     ? {
@@ -1614,6 +1793,25 @@ function renderBattleAccurateSpriteRigPreview(previewCtx, canvas, artifact, prev
       renderScale,
     }
     : null;
+}
+
+function drawSpriteRigPreviewHealthBar(previewCtx, previewUnit, manifest, pointX, bodyY, pointScale, renderScale) {
+  const unitDef = getUnitDefinition(previewUnit);
+  const hpWidth = (unitDef.healthBarWidth || 20) * renderScale / 2.1;
+  const base = getHealthBarMetricsForPose(previewUnit, { point: { x: pointX }, bodyY, scale: pointScale }, renderScale, manifest?.layout);
+  previewCtx.save();
+  previewCtx.fillStyle = "rgba(255, 248, 220, 0.18)";
+  previewCtx.strokeStyle = "rgba(255, 220, 145, 0.5)";
+  previewCtx.lineWidth = 1.5;
+  previewCtx.setLineDash([5, 4]);
+  previewCtx.fillRect(base.defaultX - hpWidth / 2, base.defaultY, hpWidth, 4 * pointScale / 2.1);
+  previewCtx.strokeRect(base.defaultX - hpWidth / 2, base.defaultY, hpWidth, 4 * pointScale / 2.1);
+  previewCtx.setLineDash([]);
+  previewCtx.fillStyle = "rgba(37,24,16,0.62)";
+  previewCtx.fillRect(base.x - hpWidth / 2, base.y, hpWidth, 4 * pointScale / 2.1);
+  previewCtx.fillStyle = "#9ae085";
+  previewCtx.fillRect(base.x - hpWidth / 2, base.y, hpWidth * 0.82, 4 * pointScale / 2.1);
+  previewCtx.restore();
 }
 
 function drawBattleAccuratePreviewShadow(previewCtx, groundX, groundY, pointScale, renderScale, previewUnit) {
@@ -1667,7 +1865,14 @@ function updateSpriteRigStatus() {
     `Unit: ${getUnitDefinition(state.spriteRigEditor.unitId)?.name || "unset"} (${state.spriteRigEditor.unitId || "unset"})`,
     `Defined parts: ${definedParts.length}/${RIG_PART_DEFINITIONS.length}`,
     missingRequired.length ? `Missing required: ${missingRequired.join(", ")}` : "All required parts are defined.",
+    `Health bar offset: (${state.spriteRigEditor.healthBarOffsetX}, ${state.spriteRigEditor.healthBarOffsetY})`,
   ];
+  const weaponAttachment = state.spriteRigEditor.weaponAttachment;
+  if (weaponAttachment?.enabled && weaponAttachment.sourceX != null && weaponAttachment.sourceY != null) {
+    lines.push(`Weapon pin: front arm @ (${weaponAttachment.sourceX}, ${weaponAttachment.sourceY}) angle ${weaponAttachment.angleDeg || 0}deg`);
+  } else {
+    lines.push("Weapon pin: disabled.");
+  }
   state.spriteRigEditor.statusText = lines.join("\n");
   els.spriteRigStatus.textContent = state.spriteRigEditor.statusText;
 }
@@ -1680,6 +1885,7 @@ function buildSpriteRigManifestFromEditor() {
   const editor = state.spriteRigEditor;
   const body = editor.parts.body;
   if (!body?.rect || !body?.pivot) return null;
+  const armFront = editor.parts.armFront;
   const bodyPivot = body?.pivot || { x: 0, y: 0 };
   const partRects = RIG_PART_IDS
     .map((id) => editor.parts[id]?.rect)
@@ -1713,13 +1919,15 @@ function buildSpriteRigManifestFromEditor() {
       sourcePivot: { ...part.pivot },
     };
   });
-  return {
+  const manifest = {
     version: 1,
     unitId: editor.unitId || sanitizeRigAssetName(editor.sourceName) || "unit-rig",
     layout: {
       height: editor.renderHeight,
       anchorX: DEFAULT_RIG_LAYOUT.anchorX,
       anchorY: editor.anchorY,
+      healthBarOffsetX: editor.healthBarOffsetX,
+      healthBarOffsetY: editor.healthBarOffsetY,
     },
     sourceSize: {
       width: editor.sourceWidth,
@@ -1734,6 +1942,20 @@ function buildSpriteRigManifestFromEditor() {
     },
     parts,
   };
+  if (
+    editor.weaponAttachment?.enabled
+    && armFront?.rect
+    && typeof editor.weaponAttachment.sourceX === "number"
+    && typeof editor.weaponAttachment.sourceY === "number"
+  ) {
+    manifest.weaponAttachment = {
+      partId: "armFront",
+      x: Math.round(editor.weaponAttachment.sourceX - armFront.rect.x),
+      y: Math.round(editor.weaponAttachment.sourceY - armFront.rect.y),
+      angleDeg: Math.round(editor.weaponAttachment.angleDeg || 0),
+    };
+  }
+  return manifest;
 }
 
 function buildSpriteRigSheetCanvas() {
@@ -4141,6 +4363,7 @@ function drawRiggedSpriteFromManifest(targetCtx, manifest, image, unit, scale, o
   };
   const bodyPivotSource = body.sourcePivot || anchorPoint;
   const partMetrics = {};
+  const partMatrices = {};
   targetCtx.save();
   targetCtx.translate(
     (bodyPivotSource.x - anchorPoint.x) * sourceScale,
@@ -4159,11 +4382,28 @@ function drawRiggedSpriteFromManifest(targetCtx, manifest, image, unit, scale, o
     const partScaleX = (part.flipX ? -1 : 1) * (1 + (transform.scaleX || 0));
     const partScaleY = (part.flipY ? -1 : 1) * (1 + (transform.scaleY || 0));
     targetCtx.save();
-    targetCtx.translate(mountX + (transform.x || 0) * targetHeight, mountY + (transform.y || 0) * targetHeight);
-    targetCtx.rotate(transform.rotation || 0);
-    targetCtx.scale(partScaleX, partScaleY);
+    if (id === "weapon" && manifest.weaponAttachment?.partId && partMatrices[manifest.weaponAttachment.partId]) {
+      const parentPart = manifest.parts[manifest.weaponAttachment.partId];
+      const attachment = manifest.weaponAttachment;
+      const attachmentAngle = (attachment.angleDeg || 0) * (Math.PI / 180);
+      const parentMatrix = partMatrices[manifest.weaponAttachment.partId];
+      const attachmentX = ((attachment.x || 0) - (parentPart?.pivot?.x || 0)) * sourceScale;
+      const attachmentY = ((attachment.y || 0) - (parentPart?.pivot?.y || 0)) * sourceScale;
+      targetCtx.setTransform(parentMatrix);
+      targetCtx.translate(
+        attachmentX + mountX + (transform.x || 0) * targetHeight,
+        attachmentY + mountY + (transform.y || 0) * targetHeight,
+      );
+      targetCtx.rotate(attachmentAngle + (transform.rotation || 0));
+      targetCtx.scale(partScaleX, partScaleY);
+    } else {
+      targetCtx.translate(mountX + (transform.x || 0) * targetHeight, mountY + (transform.y || 0) * targetHeight);
+      targetCtx.rotate(transform.rotation || 0);
+      targetCtx.scale(partScaleX, partScaleY);
+    }
+    partMatrices[id] = targetCtx.getTransform();
     if (options.collectPartMetrics) {
-      const matrix = targetCtx.getTransform();
+      const matrix = partMatrices[id];
       const bounds = getTransformedRectBounds(
         matrix,
         -part.pivot.x * sourceScale,
@@ -4247,11 +4487,11 @@ function getRigPartTransform(partId, animation, unit) {
   const torsoBobY = -bob * 0.2;
   if (partId === "body") return { y: torsoBobY, rotation: idle * 0.7 + attack * -0.05 };
   if (partId === "head") return { y: -bob * 0.26 - attack * 0.04, rotation: idle + attack * -0.08 };
-  if (partId === "armFront") return { rotation: (-stride * 0.38) + attack * 1.05 + idle * 0.4, y: torsoBobY + bob * 0.04 };
+  if (partId === "armFront") return { rotation: (-stride * 0.38) + attack * 1.28 + idle * 0.4, y: torsoBobY + bob * 0.04 };
   if (partId === "armBack") return { rotation: (stride * 0.28) - attack * 0.18 - idle * 0.22, y: torsoBobY + bob * 0.02 };
   if (partId === "legFront") return { rotation: stride * 0.62 - attack * 0.05, y: torsoBobY + bob * 0.03 };
   if (partId === "legBack") return { rotation: -stride * 0.62 + attack * 0.03, y: -bob * 0.02 };
-  if (partId === "weapon") return { rotation: (-stride * 0.16) + attack * 0.92 + idle * 0.35, y: attack * -0.04 };
+  if (partId === "weapon") return { rotation: (-stride * 0.16) + attack * 1.12 + idle * 0.35, y: attack * -0.04 };
   return { rotation: 0 };
 }
 
@@ -4780,8 +5020,10 @@ function updateUnit(unit, faction, battle, dt) {
       unit.cooldown -= dt;
     }
     if (unitDef.managesOwnCooldown || unit.cooldown <= 0) {
-      unitDef.performAttack?.({ unit, target, battle, unitDef });
-      unit.attackSwing = 1;
+      const attackPerformed = unitDef.performAttack?.({ unit, target, battle, unitDef }) !== false;
+      if (attackPerformed) {
+        unit.attackSwing = 1;
+      }
       if (!unitDef.managesOwnCooldown) {
         unit.cooldown = stats.cooldown * (0.8 + Math.random() * 0.5);
       }
@@ -6028,9 +6270,9 @@ function getPhantomDestination({ unit, target, distance, battle, destination, un
 function performPhantomAttack({ unit, target, battle, unitDef }) {
   const stats = getUnitStats(unit, unitDef);
   if ((unit.gravesToConsume || 0) > 0) {
-    if (!target || unit.currentTargetKind !== "grave") return;
+    if (!target || unit.currentTargetKind !== "grave") return false;
     const grave = findGraveById(battle, target.id || unit.currentGraveId);
-    if (!grave || Math.hypot(grave.x - unit.x, grave.y - unit.y) > stats.graveRange + 4) return;
+    if (!grave || Math.hypot(grave.x - unit.x, grave.y - unit.y) > stats.graveRange + 4) return false;
     updateUnitActivity(unit, "Feeding on a gravestone to restore its haunt.");
     removeGrave(battle, grave.id);
     unit.gravesToConsume = Math.max(0, (unit.gravesToConsume || 0) - 1);
@@ -6042,14 +6284,16 @@ function performPhantomAttack({ unit, target, battle, unitDef }) {
       setHighlight(`${findFaction(battle, unit.factionId)?.title || "A faction"}'s phantom regains its strength`);
     }
     unit.cooldown = stats.cooldown * 0.5;
-    return;
+    return true;
   }
-  if (!target || target.type === "inklord" || target.type === "phantom" || getPossessionStatus(target, battle)) return;
-  if (Math.hypot(target.x - unit.x, target.y - unit.y) > stats.range + 12) return;
+  if (!target || target.type === "inklord" || target.type === "phantom" || getPossessionStatus(target, battle)) return false;
+  if (Math.hypot(target.x - unit.x, target.y - unit.y) > stats.range + 12) return false;
   if (possessUnit(unit, target, battle)) {
     updateUnitActivity(unit, `Possessing ${getUnitActivityTargetLabel(target, battle)}.`);
     unit.cooldown = stats.cooldown;
+    return true;
   }
+  return false;
 }
 
 function updateInkLordPresence({ unit, battle, enemies, dt }) {
@@ -6454,7 +6698,7 @@ function performPoisonerAttack({ unit, target, battle, unitDef }) {
 
 function performHuntsmanAttack({ unit, target, battle, unitDef }) {
   const stats = getUnitStats(unit, unitDef);
-  if (!target) return;
+  if (!target) return false;
   const distance = Math.hypot(target.x - unit.x, target.y - unit.y);
   const targetImmobilized = getUnitStatus(target, "immobilized");
   const canThrowNet = (unit.huntsmanNetCooldown || 0) <= 0;
@@ -6475,10 +6719,10 @@ function performHuntsmanAttack({ unit, target, battle, unitDef }) {
       netDuration: stats.netDuration,
     });
     unit.huntsmanNetCooldown = 4;
-    return;
+    return true;
   }
 
-  if (!canThrowKnife) return;
+  if (!canThrowKnife) return false;
 
   const aimX = target.x;
   const aimY = target.y;
@@ -6500,6 +6744,7 @@ function performHuntsmanAttack({ unit, target, battle, unitDef }) {
   });
   updateUnitActivity(unit, `Throwing a hunting knife at ${getUnitActivityTargetLabel(target, battle)}.`);
   unit.huntsmanKnifeCooldown = 1;
+  return true;
 }
 
 function performMageAttack({ unit, target, battle, unitDef }) {
@@ -7783,9 +8028,7 @@ function getUnitHoverMetrics(unit, viewport) {
   const radiusX = Math.max(14, (unit.type === "inklord" ? 34 : 16) * renderScale / 2.1);
   const radiusY = Math.max(18, (unit.type === "inklord" ? 54 : 24) * renderScale / 2.1);
   const centerY = pose.bodyY - (unit.type === "inklord" ? 42 : 10) * renderScale / 2.1;
-  const healthBarY = unit.type === "inklord"
-    ? pose.bodyY - 156 * pose.scale / 2.1
-    : pose.bodyY - 24 * pose.scale / 2.1;
+  const healthBarMetrics = getHealthBarMetricsForPose(unit, pose, renderScale);
   const hpWidth = (unitDef.healthBarWidth || 20) * renderScale / 2.1;
   return {
     pose,
@@ -7794,8 +8037,30 @@ function getUnitHoverMetrics(unit, viewport) {
     hoverCenterY: centerY,
     hoverRadiusX: radiusX,
     hoverRadiusY: radiusY,
-    healthBarY,
+    healthBarY: healthBarMetrics.y,
+    healthBarX: healthBarMetrics.x,
     hpWidth,
+  };
+}
+
+function getRigLayoutForUnit(unit) {
+  const source = getRiggedUnitSpriteSource(unit?.type);
+  return source?.status === "loaded" ? source.manifest?.layout : null;
+}
+
+function getHealthBarMetricsForPose(unit, pose, renderScale, layoutOverride = null) {
+  const layout = layoutOverride || getRigLayoutForUnit(unit) || null;
+  const defaultX = pose.point.x;
+  const defaultY = unit.type === "inklord"
+    ? pose.bodyY - 156 * pose.scale / 2.1
+    : pose.bodyY - 24 * pose.scale / 2.1;
+  const offsetX = (layout?.healthBarOffsetX || 0) * renderScale / 2.1;
+  const offsetY = (layout?.healthBarOffsetY || 0) * renderScale / 2.1;
+  return {
+    x: defaultX + offsetX,
+    y: defaultY + offsetY,
+    defaultX,
+    defaultY,
   };
 }
 
@@ -7809,8 +8074,8 @@ function findHoveredBattleUnit(battle, viewport, canvasX, canvasY) {
     const dx = (canvasX - metrics.hoverCenterX) / Math.max(metrics.hoverRadiusX, 1);
     const dy = (canvasY - metrics.hoverCenterY) / Math.max(metrics.hoverRadiusY, 1);
     if ((dx * dx) + (dy * dy) <= 1.18) return unit;
-    const withinBar = canvasX >= metrics.pose.point.x - metrics.hpWidth / 2
-      && canvasX <= metrics.pose.point.x + metrics.hpWidth / 2
+    const withinBar = canvasX >= metrics.healthBarX - metrics.hpWidth / 2
+      && canvasX <= metrics.healthBarX + metrics.hpWidth / 2
       && canvasY >= metrics.healthBarY - 12
       && canvasY <= metrics.healthBarY + 14;
     if (withinBar) return unit;
@@ -9225,7 +9490,7 @@ function drawUnits(viewport, factions) {
   units.forEach((unit) => {
     if (unit.type === "phantom" && unit.possessedUnitId) return;
     const unitDef = getUnitDefinition(unit);
-    const { pose, renderScale, healthBarY, hpWidth } = getUnitHoverMetrics(unit, viewport);
+    const { pose, renderScale, healthBarY, healthBarX, hpWidth } = getUnitHoverMetrics(unit, viewport);
     const { point, scale, bodyY } = pose;
     const strideOffset = unit.stride * 2.8 * scale / 2.1;
     const main = unit.factionColor;
@@ -9255,10 +9520,10 @@ function drawUnits(viewport, factions) {
     ctx.restore();
     drawUnitStatusBadges(unit, point.x + 16 * renderScale / 2.1, bodyY - 30 * renderScale / 2.1, scale);
     ctx.fillStyle = "rgba(37,24,16,0.5)";
-    ctx.fillRect(point.x - hpWidth / 2, healthBarY, hpWidth, 4 * scale / 2.1);
+    ctx.fillRect(healthBarX - hpWidth / 2, healthBarY, hpWidth, 4 * scale / 2.1);
     ctx.fillStyle = unit.health / unit.maxHealth > 0.4 ? "#9ae085" : "#e7915d";
-    ctx.fillRect(point.x - hpWidth / 2, healthBarY, hpWidth * (unit.health / unit.maxHealth), 4 * scale / 2.1);
-    if (isHovered) drawHoveredUnitLabels(unit, pose, renderScale, healthBarY, hpWidth);
+    ctx.fillRect(healthBarX - hpWidth / 2, healthBarY, hpWidth * (unit.health / unit.maxHealth), 4 * scale / 2.1);
+    if (isHovered) drawHoveredUnitLabels(unit, pose, renderScale, healthBarX, healthBarY, hpWidth);
   });
 }
 
@@ -9307,7 +9572,7 @@ function drawHoveredUnitGlow(unit, pose, renderScale, glowColor) {
   ctx.restore();
 }
 
-function drawHoveredUnitLabels(unit, pose, renderScale, healthBarY, hpWidth) {
+function drawHoveredUnitLabels(unit, pose, renderScale, healthBarX, healthBarY, hpWidth) {
   const name = `${getUnitDefinition(unit).name}${unit.veteran ? " Veteran" : ""}`;
   const healthText = `${formatHoverStatNumber(unit.health)} / ${formatHoverStatNumber(unit.maxHealth)}`;
   const paddingX = 8 * pose.scale / 2.1;
@@ -9325,14 +9590,14 @@ function drawHoveredUnitLabels(unit, pose, renderScale, healthBarY, hpWidth) {
   ctx.stroke();
   ctx.fillStyle = "#fff6e6";
   ctx.fillText(name, pose.point.x, healthBarY - 20 * pose.scale / 2.1);
-  roundRect(ctx, pose.point.x - hpWidth / 2, healthBarY - 13 * pose.scale / 2.1, hpWidth, pillHeight, 999);
+  roundRect(ctx, healthBarX - hpWidth / 2, healthBarY - 13 * pose.scale / 2.1, hpWidth, pillHeight, 999);
   ctx.fillStyle = "rgba(22, 18, 14, 0.9)";
   ctx.fill();
   ctx.strokeStyle = "rgba(255, 236, 196, 0.16)";
   ctx.stroke();
   ctx.fillStyle = "#fff0dc";
   ctx.font = `700 ${Math.max(9, 10 * pose.scale / 2.1)}px Manrope`;
-  ctx.fillText(healthText, pose.point.x, healthBarY - 5 * pose.scale / 2.1);
+  ctx.fillText(healthText, healthBarX, healthBarY - 5 * pose.scale / 2.1);
   ctx.restore();
 }
 
@@ -9957,7 +10222,27 @@ function drawStepLegs(dark, scale, unit, spread = 7, back = 10) {
   ctx.stroke();
 }
 
+function getUnitAttackSwing(unit, multiplier = 1) {
+  return clamp(unit?.attackSwing || 0, 0, 1) * multiplier;
+}
+
+function drawSwingArm(scale, shoulderX, shoulderY, handX, handY, attackSwing, swingRange, drawFn) {
+  const scaled = scale / 2.1;
+  const originX = shoulderX * scaled;
+  const originY = shoulderY * scaled;
+  const reachX = (handX - shoulderX) * scaled;
+  const reachY = (handY - shoulderY) * scaled;
+  const length = Math.hypot(reachX, reachY);
+  const baseAngle = Math.atan2(reachY, reachX);
+  ctx.save();
+  ctx.translate(originX, originY);
+  ctx.rotate(baseAngle + attackSwing * swingRange);
+  drawFn({ scaled, length });
+  ctx.restore();
+}
+
 function drawArcher(main, dark, light, scale, unit) {
+  const attack = getUnitAttackSwing(unit, 0.9);
   drawStepLegs(dark, scale, unit, 6.4, 10);
   ctx.fillStyle = main;
   ctx.beginPath();
@@ -9974,12 +10259,19 @@ function drawArcher(main, dark, light, scale, unit) {
   ctx.fill();
   ctx.strokeStyle = dark;
   ctx.lineWidth = 2 * scale / 2.1;
-  ctx.beginPath();
-  ctx.arc(10 * scale / 2.1, -1 * scale / 2.1, 8 * scale / 2.1, -1.2, 1.2);
-  ctx.stroke();
+  drawSwingArm(scale, 6.5, -3, 12, -1, attack, -0.95, ({ scaled, length }) => {
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(length * 0.42, length * 0.08);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(length + 1.5 * scaled, 1 * scaled, 8 * scaled, -1.2, 1.2);
+    ctx.stroke();
+  });
 }
 
 function drawMage(main, dark, light, scale, unit) {
+  const attack = getUnitAttackSwing(unit, 0.95);
   drawStepLegs(dark, scale, unit, 5.5, 9);
   ctx.fillStyle = main;
   ctx.beginPath();
@@ -9994,14 +10286,16 @@ function drawMage(main, dark, light, scale, unit) {
   ctx.fill();
   ctx.strokeStyle = dark;
   ctx.lineWidth = 2 * scale / 2.1;
-  ctx.beginPath();
-  ctx.moveTo(8 * scale / 2.1, -4 * scale / 2.1);
-  ctx.lineTo(15 * scale / 2.1, -16 * scale / 2.1);
-  ctx.stroke();
-  ctx.fillStyle = "#c4f2ff";
-  ctx.beginPath();
-  ctx.arc(16 * scale / 2.1, -18 * scale / 2.1, 3.2 * scale / 2.1, 0, Math.PI * 2);
-  ctx.fill();
+  drawSwingArm(scale, 8, -4, 15, -16, attack, -1.05, ({ scaled, length }) => {
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(length, 0);
+    ctx.stroke();
+    ctx.fillStyle = "#c4f2ff";
+    ctx.beginPath();
+    ctx.arc(length + 1.2 * scaled, -2.4 * scaled, 3.2 * scaled, 0, Math.PI * 2);
+    ctx.fill();
+  });
 }
 
 function drawShieldedBadgeIcon(scale, color) {
@@ -10209,6 +10503,7 @@ function drawPossessedBadgeIcon(scale, color) {
 }
 
 function drawMedic(main, dark, light, scale, unit) {
+  const attack = getUnitAttackSwing(unit, 0.88);
   drawStepLegs(dark, scale, unit, 5.8, 9.5);
   ctx.fillStyle = main;
   ctx.beginPath();
@@ -10234,9 +10529,13 @@ function drawMedic(main, dark, light, scale, unit) {
   ctx.lineTo(0, 5.5 * scale / 2.1);
   ctx.moveTo(-3.5 * scale / 2.1, 2 * scale / 2.1);
   ctx.lineTo(3.5 * scale / 2.1, 2 * scale / 2.1);
-  ctx.moveTo(8 * scale / 2.1, -1 * scale / 2.1);
-  ctx.lineTo(14 * scale / 2.1, -10 * scale / 2.1);
   ctx.stroke();
+  drawSwingArm(scale, 8, -1, 14, -10, attack, -0.92, ({ length }) => {
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(length, 0);
+    ctx.stroke();
+  });
   ctx.fillStyle = shadeColor(main, -0.12);
   ctx.fillRect(-9 * scale / 2.1, 1 * scale / 2.1, 3 * scale / 2.1, 8 * scale / 2.1);
 }
@@ -10284,6 +10583,7 @@ function drawBard(main, dark, light, scale, unit) {
 }
 
 function drawBomber(main, dark, light, scale, unit) {
+  const attack = getUnitAttackSwing(unit, 0.9);
   drawStepLegs(dark, scale, unit, 6.1, 11);
   ctx.fillStyle = main;
   ctx.beginPath();
@@ -10303,15 +10603,26 @@ function drawBomber(main, dark, light, scale, unit) {
   ctx.fillStyle = shadeColor(main, -0.18);
   ctx.fillRect(-6 * scale / 2.1, -1 * scale / 2.1, 12 * scale / 2.1, 3 * scale / 2.1);
   ctx.fillRect(-6 * scale / 2.1, 5 * scale / 2.1, 12 * scale / 2.1, 3 * scale / 2.1);
-  ctx.fillStyle = "#2c2217";
-  ctx.beginPath();
-  ctx.arc(12 * scale / 2.1, 4 * scale / 2.1, 5.6 * scale / 2.1, 0, Math.PI * 2);
-  ctx.fill();
+  drawSwingArm(scale, 7, -2, 12, 0, attack, -1.0, ({ scaled, length }) => {
+    ctx.strokeStyle = "#f0ad62";
+    ctx.lineWidth = 2 * scaled;
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(length, 0);
+    ctx.stroke();
+    ctx.fillStyle = "#2c2217";
+    ctx.beginPath();
+    ctx.arc(length + 0.6 * scaled, 4 * scaled, 5.6 * scaled, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#f0ad62";
+    ctx.beginPath();
+    ctx.moveTo(length + 0.6 * scaled, 0);
+    ctx.lineTo(length + 4.6 * scaled, -7 * scaled);
+    ctx.stroke();
+  });
   ctx.strokeStyle = "#f0ad62";
   ctx.lineWidth = 2 * scale / 2.1;
   ctx.beginPath();
-  ctx.moveTo(12 * scale / 2.1, 0);
-  ctx.lineTo(16 * scale / 2.1, -7 * scale / 2.1);
   ctx.moveTo(-7 * scale / 2.1, -2 * scale / 2.1);
   ctx.lineTo(-14 * scale / 2.1, -10 * scale / 2.1);
   ctx.stroke();
@@ -10320,6 +10631,7 @@ function drawBomber(main, dark, light, scale, unit) {
 }
 
 function drawAssassin(main, dark, light, scale, unit) {
+  const attack = getUnitAttackSwing(unit, 1.18);
   drawStepLegs(dark, scale, unit, 6.1, 10);
   ctx.fillStyle = dark;
   ctx.beginPath();
@@ -10345,15 +10657,22 @@ function drawAssassin(main, dark, light, scale, unit) {
   ctx.fill();
   ctx.strokeStyle = "rgba(236,236,255,0.72)";
   ctx.lineWidth = 1.8 * scale / 2.1;
-  ctx.beginPath();
-  ctx.moveTo(-12 * scale / 2.1, 4 * scale / 2.1);
-  ctx.lineTo(-18 * scale / 2.1, 12 * scale / 2.1);
-  ctx.moveTo(12 * scale / 2.1, 4 * scale / 2.1);
-  ctx.lineTo(18 * scale / 2.1, 12 * scale / 2.1);
-  ctx.stroke();
+  drawSwingArm(scale, -12, 4, -18, 12, attack * 0.55, 0.7, ({ length }) => {
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(length, 0);
+    ctx.stroke();
+  });
+  drawSwingArm(scale, 12, 4, 18, 12, attack, -1.2, ({ length }) => {
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(length, 0);
+    ctx.stroke();
+  });
 }
 
 function drawKnight(main, dark, light, scale, unit) {
+  const attack = getUnitAttackSwing(unit, 1.05);
   drawStepLegs(dark, scale, unit, 7.5, 12);
   ctx.fillStyle = main;
   ctx.beginPath();
@@ -10365,13 +10684,16 @@ function drawKnight(main, dark, light, scale, unit) {
   ctx.fill();
   ctx.strokeStyle = dark;
   ctx.lineWidth = 2.4 * scale / 2.1;
-  ctx.beginPath();
-  ctx.moveTo(9 * scale / 2.1, -3 * scale / 2.1);
-  ctx.lineTo(16 * scale / 2.1, -17 * scale / 2.1);
-  ctx.stroke();
+  drawSwingArm(scale, 9, -3, 16, -17, attack, -1.15, ({ length }) => {
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(length, 0);
+    ctx.stroke();
+  });
 }
 
 function drawBodyguard(main, dark, light, scale, unit) {
+  const attack = getUnitAttackSwing(unit, 1);
   drawStepLegs(dark, scale, unit, 7.1, 11.6);
   ctx.fillStyle = shadeColor(main, -0.16);
   ctx.beginPath();
@@ -10406,10 +10728,12 @@ function drawBodyguard(main, dark, light, scale, unit) {
   ctx.stroke();
   ctx.strokeStyle = dark;
   ctx.lineWidth = 2.2 * scale / 2.1;
-  ctx.beginPath();
-  ctx.moveTo(10 * scale / 2.1, -2 * scale / 2.1);
-  ctx.lineTo(16 * scale / 2.1, -16 * scale / 2.1);
-  ctx.stroke();
+  drawSwingArm(scale, 10, -2, 16, -16, attack, -1.08, ({ length }) => {
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(length, 0);
+    ctx.stroke();
+  });
 }
 
 function drawKrieger(main, dark, light, scale, unit) {
@@ -10460,6 +10784,7 @@ function drawKrieger(main, dark, light, scale, unit) {
 }
 
 function drawHuntsman(main, dark, light, scale, unit) {
+  const attack = getUnitAttackSwing(unit, 1.08);
   drawStepLegs(dark, scale, unit, 6.3, 10.4);
   ctx.fillStyle = shadeColor(main, -0.24);
   ctx.beginPath();
@@ -10496,18 +10821,19 @@ function drawHuntsman(main, dark, light, scale, unit) {
   ctx.lineWidth = 2 * scale / 2.1;
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
-  ctx.beginPath();
-  ctx.moveTo(6.2 * scale / 2.1, -1.5 * scale / 2.1);
-  ctx.lineTo(14.8 * scale / 2.1, -7.2 * scale / 2.1);
-  ctx.stroke();
-
-  ctx.fillStyle = "#d7d0c6";
-  ctx.beginPath();
-  ctx.moveTo(15.2 * scale / 2.1, -8.3 * scale / 2.1);
-  ctx.lineTo(20.2 * scale / 2.1, -5.2 * scale / 2.1);
-  ctx.lineTo(12.6 * scale / 2.1, -1.8 * scale / 2.1);
-  ctx.closePath();
-  ctx.fill();
+  drawSwingArm(scale, 6.2, -1.5, 14.8, -7.2, attack, -1.15, ({ scaled, length }) => {
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(length, 0);
+    ctx.stroke();
+    ctx.fillStyle = "#d7d0c6";
+    ctx.beginPath();
+    ctx.moveTo(length + 0.4 * scaled, -1.1 * scaled);
+    ctx.lineTo(length + 5.4 * scaled, 2 * scaled);
+    ctx.lineTo(length - 2.2 * scaled, 5.4 * scaled);
+    ctx.closePath();
+    ctx.fill();
+  });
 
   ctx.strokeStyle = "rgba(191, 224, 232, 0.94)";
   ctx.lineWidth = 1.45 * scale / 2.1;
@@ -10637,6 +10963,7 @@ function drawPhantom(main, dark, light, scale, unit) {
 }
 
 function drawPaladin(main, dark, light, scale, unit) {
+  const attack = getUnitAttackSwing(unit, 1.12);
   drawStepLegs(dark, scale, unit, 7.1, 11.4);
   ctx.fillStyle = shadeColor(main, -0.15);
   ctx.beginPath();
@@ -10671,18 +10998,20 @@ function drawPaladin(main, dark, light, scale, unit) {
   ctx.stroke();
   ctx.strokeStyle = dark;
   ctx.lineWidth = 2.2 * scale / 2.1;
-  ctx.beginPath();
-  ctx.moveTo(9.5 * scale / 2.1, -3 * scale / 2.1);
-  ctx.lineTo(15.5 * scale / 2.1, -17 * scale / 2.1);
-  ctx.stroke();
-  ctx.fillStyle = "#d9d9dc";
-  ctx.beginPath();
-  ctx.moveTo(12.5 * scale / 2.1, -14.5 * scale / 2.1);
-  ctx.lineTo(18 * scale / 2.1, -10 * scale / 2.1);
-  ctx.lineTo(14 * scale / 2.1, -4.5 * scale / 2.1);
-  ctx.lineTo(9 * scale / 2.1, -8 * scale / 2.1);
-  ctx.closePath();
-  ctx.fill();
+  drawSwingArm(scale, 9.5, -3, 15.5, -17, attack, -1.2, ({ scaled, length }) => {
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(length, 0);
+    ctx.stroke();
+    ctx.fillStyle = "#d9d9dc";
+    ctx.beginPath();
+    ctx.moveTo(length - 3 * scaled, -2.5 * scaled);
+    ctx.lineTo(length + 2.5 * scaled, 2 * scaled);
+    ctx.lineTo(length - 1.5 * scaled, 7.5 * scaled);
+    ctx.lineTo(length - 6.5 * scaled, 4 * scaled);
+    ctx.closePath();
+    ctx.fill();
+  });
 }
 
 function drawTurret(main, dark, light, scale, unit) {
@@ -10743,6 +11072,7 @@ function drawTurret(main, dark, light, scale, unit) {
 }
 
 function drawMountainMan(main, dark, light, scale, unit) {
+  const attack = getUnitAttackSwing(unit, 0.98);
   drawStepLegs(dark, scale, unit, 5.9, 10);
   ctx.fillStyle = shadeColor(main, -0.22);
   ctx.beginPath();
@@ -10768,14 +11098,16 @@ function drawMountainMan(main, dark, light, scale, unit) {
   ctx.fill();
   ctx.strokeStyle = "#4f3924";
   ctx.lineWidth = 2 * scale / 2.1;
-  ctx.beginPath();
-  ctx.moveTo(9 * scale / 2.1, -4 * scale / 2.1);
-  ctx.lineTo(15 * scale / 2.1, -17 * scale / 2.1);
-  ctx.stroke();
-  ctx.fillStyle = "#9ff0a1";
-  ctx.beginPath();
-  ctx.arc(16 * scale / 2.1, -18 * scale / 2.1, 3.1 * scale / 2.1, 0, Math.PI * 2);
-  ctx.fill();
+  drawSwingArm(scale, 9, -4, 15, -17, attack, -1.05, ({ scaled, length }) => {
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(length, 0);
+    ctx.stroke();
+    ctx.fillStyle = "#9ff0a1";
+    ctx.beginPath();
+    ctx.arc(length + 1.2 * scaled, -1.2 * scaled, 3.1 * scaled, 0, Math.PI * 2);
+    ctx.fill();
+  });
   if (unit.activeSpellId) {
     ctx.strokeStyle = "rgba(192,255,189,0.6)";
     ctx.lineWidth = 1.6 * scale / 2.1;
@@ -10786,6 +11118,7 @@ function drawMountainMan(main, dark, light, scale, unit) {
 }
 
 function drawPoisoner(main, dark, light, scale, unit) {
+  const attack = getUnitAttackSwing(unit, 1.02);
   drawStepLegs(dark, scale, unit, 5.8, 10);
   ctx.fillStyle = shadeColor(main, -0.18);
   ctx.beginPath();
@@ -10809,17 +11142,19 @@ function drawPoisoner(main, dark, light, scale, unit) {
   ctx.beginPath();
   ctx.arc(0, -14 * scale / 2.1, 4.8 * scale / 2.1, 0, Math.PI * 2);
   ctx.fill();
-  ctx.fillStyle = "#6fe17a";
-  ctx.beginPath();
-  ctx.moveTo(8 * scale / 2.1, -5 * scale / 2.1);
-  ctx.lineTo(13 * scale / 2.1, 0);
-  ctx.lineTo(12 * scale / 2.1, 10 * scale / 2.1);
-  ctx.lineTo(4 * scale / 2.1, 10 * scale / 2.1);
-  ctx.lineTo(5 * scale / 2.1, 0);
-  ctx.closePath();
-  ctx.fill();
-  ctx.fillStyle = "rgba(240,255,242,0.72)";
-  ctx.fillRect(7 * scale / 2.1, -8 * scale / 2.1, 3 * scale / 2.1, 3 * scale / 2.1);
+  drawSwingArm(scale, 6, -4, 11, 2, attack, -1.0, ({ scaled, length }) => {
+    ctx.fillStyle = "#6fe17a";
+    ctx.beginPath();
+    ctx.moveTo(length - 3 * scaled, -7 * scaled);
+    ctx.lineTo(length + 2 * scaled, -2 * scaled);
+    ctx.lineTo(length + 1 * scaled, 8 * scaled);
+    ctx.lineTo(length - 7 * scaled, 8 * scaled);
+    ctx.lineTo(length - 6 * scaled, -2 * scaled);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "rgba(240,255,242,0.72)";
+    ctx.fillRect(length - 4 * scaled, -10 * scaled, 3 * scaled, 3 * scaled);
+  });
 }
 
 function drawFirebreather(main, dark, light, scale, unit) {
@@ -10869,6 +11204,7 @@ function drawFirebreather(main, dark, light, scale, unit) {
 }
 
 function drawNecromancer(main, dark, light, scale, unit) {
+  const attack = getUnitAttackSwing(unit, 1.02);
   drawStepLegs(dark, scale, unit, 6.3, 11);
   ctx.fillStyle = "rgba(20, 12, 27, 0.95)";
   ctx.beginPath();
@@ -10958,22 +11294,25 @@ function drawNecromancer(main, dark, light, scale, unit) {
 
   ctx.strokeStyle = "#402456";
   ctx.lineWidth = 2.1 * scale / 2.1;
-  ctx.beginPath();
-  ctx.moveTo(8 * scale / 2.1, -3 * scale / 2.1);
-  ctx.lineTo(17 * scale / 2.1, -17 * scale / 2.1);
-  ctx.stroke();
-  ctx.fillStyle = "#a47ae0";
-  ctx.beginPath();
-  ctx.moveTo(15 * scale / 2.1, -18 * scale / 2.1);
-  ctx.lineTo(19 * scale / 2.1, -13 * scale / 2.1);
-  ctx.lineTo(17 * scale / 2.1, -6 * scale / 2.1);
-  ctx.lineTo(12 * scale / 2.1, -9 * scale / 2.1);
-  ctx.lineTo(12 * scale / 2.1, -15 * scale / 2.1);
-  ctx.closePath();
-  ctx.fill();
+  drawSwingArm(scale, 8, -3, 17, -17, attack, -1.08, ({ scaled, length }) => {
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(length, 0);
+    ctx.stroke();
+    ctx.fillStyle = "#a47ae0";
+    ctx.beginPath();
+    ctx.moveTo(length - 2 * scaled, -1 * scaled);
+    ctx.lineTo(length + 2 * scaled, 4 * scaled);
+    ctx.lineTo(length, 11 * scaled);
+    ctx.lineTo(length - 5 * scaled, 8 * scaled);
+    ctx.lineTo(length - 5 * scaled, 2 * scaled);
+    ctx.closePath();
+    ctx.fill();
+  });
 }
 
 function drawGraverobber(main, dark, light, scale, unit) {
+  const attack = getUnitAttackSwing(unit, 1.08);
   drawStepLegs(dark, scale, unit, 6.1, 10.2);
   ctx.fillStyle = main;
   ctx.beginPath();
@@ -10990,17 +11329,19 @@ function drawGraverobber(main, dark, light, scale, unit) {
   ctx.fill();
   ctx.strokeStyle = "#6b4c2b";
   ctx.lineWidth = 2.2 * scale / 2.1;
-  ctx.beginPath();
-  ctx.moveTo(8 * scale / 2.1, -4 * scale / 2.1);
-  ctx.lineTo(16 * scale / 2.1, -14 * scale / 2.1);
-  ctx.stroke();
-  ctx.fillStyle = "#bbb7af";
-  ctx.beginPath();
-  ctx.moveTo(12 * scale / 2.1, -16 * scale / 2.1);
-  ctx.quadraticCurveTo(18 * scale / 2.1, -14 * scale / 2.1, 16 * scale / 2.1, -8 * scale / 2.1);
-  ctx.lineTo(11 * scale / 2.1, -10 * scale / 2.1);
-  ctx.quadraticCurveTo(12 * scale / 2.1, -14 * scale / 2.1, 12 * scale / 2.1, -16 * scale / 2.1);
-  ctx.fill();
+  drawSwingArm(scale, 8, -4, 16, -14, attack, -1.15, ({ scaled, length }) => {
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(length, 0);
+    ctx.stroke();
+    ctx.fillStyle = "#bbb7af";
+    ctx.beginPath();
+    ctx.moveTo(length - 4 * scaled, -2 * scaled);
+    ctx.quadraticCurveTo(length + 2 * scaled, 0, length, 6 * scaled);
+    ctx.lineTo(length - 5 * scaled, 4 * scaled);
+    ctx.quadraticCurveTo(length - 4 * scaled, 0, length - 4 * scaled, -2 * scaled);
+    ctx.fill();
+  });
 }
 
 function drawArachnomist(main, dark, light, scale, unit) {

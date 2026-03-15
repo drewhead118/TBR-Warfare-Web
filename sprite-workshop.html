@@ -32,12 +32,20 @@
               <select id="spriteRigUnitSelect"></select>
             </label>
             <label>
-              <span>Render Height</span>
-              <input id="spriteRigRenderHeight" type="number" min="16" max="256" step="1" value="42">
+              <span>Render Height (60 default)</span>
+              <input id="spriteRigRenderHeight" type="number" min="16" max="256" step="1" value="60">
             </label>
             <label>
               <span>Anchor Y</span>
               <input id="spriteRigAnchorY" type="number" min="0.5" max="1.2" step="0.01" value="0.88">
+            </label>
+            <label>
+              <span>Health Bar X</span>
+              <input id="spriteRigHealthBarOffsetX" type="number" step="1" value="0">
+            </label>
+            <label>
+              <span>Health Bar Y</span>
+              <input id="spriteRigHealthBarOffsetY" type="number" step="1" value="0">
             </label>
           </div>
           <div class="button-row sprite-rig-zoom-row">
@@ -48,7 +56,7 @@
           </div>
           <div class="sprite-rig-source-frame">
             <canvas id="spriteRigSourceCanvas" width="640" height="640"></canvas>
-            <div class="sprite-rig-source-hint">Drag to define a part rectangle. Hold <code>Shift</code> while clicking to place that part's pivot. Use the zoom controls or mouse wheel to work more precisely.</div>
+            <div class="sprite-rig-source-hint">Drag to define a part rectangle. Hold <code>Shift</code> while clicking to place that part's pivot. Hold <code>Alt</code> while clicking to place the optional weapon pin on the front arm. Use the zoom controls or mouse wheel to work more precisely.</div>
           </div>
         </section>
 
@@ -88,6 +96,35 @@
               <input id="spriteRigMountOffsetY" type="number" step="1">
             </label>
           </div>
+          <div class="sprite-rig-preview-card">
+            <div class="section-heading">
+              <h3>Weapon Attach</h3>
+              <span>Optional</span>
+            </div>
+            <p class="hint">Pin the weapon layer to a point on the front arm, then tune its resting angle so attack motion pivots from the hand instead of the torso.</p>
+            <label class="checkbox-row">
+              <input id="spriteRigWeaponAttachEnabled" type="checkbox">
+              <span>Attach weapon to front arm</span>
+            </label>
+            <div class="sprite-rig-fields">
+              <label>
+                <span>Hand Pin X</span>
+                <input id="spriteRigWeaponAttachX" type="number" step="1">
+              </label>
+              <label>
+                <span>Hand Pin Y</span>
+                <input id="spriteRigWeaponAttachY" type="number" step="1">
+              </label>
+              <label>
+                <span>Angle</span>
+                <input id="spriteRigWeaponAttachAngle" type="number" step="1" value="0">
+              </label>
+            </div>
+            <div class="button-row">
+              <button id="spriteRigWeaponUseArmPivotBtn" class="ghost small" type="button">Use Front Arm Pivot</button>
+              <button id="spriteRigWeaponClearAttachBtn" class="ghost small" type="button">Clear Weapon Pin</button>
+            </div>
+          </div>
           <div class="button-row">
             <button id="spriteRigCopyFromBodyBtn" class="ghost small" type="button">Center Pivot In Region</button>
             <button id="spriteRigResetMountOffsetBtn" class="ghost small" type="button">Reset Mount Offset</button>
@@ -102,7 +139,7 @@
             </div>
             <canvas id="spriteRigPreviewCanvas" width="280" height="280"></canvas>
             <input id="spriteRigPreviewBlend" type="range" min="0" max="100" step="1" value="55">
-            <p class="hint">The preview blends walk and attack motion so we can tune the sheet for both without leaving the browser. The currently selected part is outlined here and can be dragged directly to correct its placement.</p>
+            <p class="hint">The preview blends walk and attack motion so we can tune the sheet for both without leaving the browser. The currently selected part is outlined here and can be dragged directly to correct its placement. The dashed health bar shows the default placement, while the solid bar uses your configured offset.</p>
           </div>
           <div class="button-row">
             <button id="spriteRigDownloadSheetBtn" class="secondary" type="button">Download Rig Sheet</button>

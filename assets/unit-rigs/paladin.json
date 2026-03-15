@@ -1,0 +1,227 @@
+{
+  "version": 1,
+  "unitId": "paladin",
+  "layout": {
+    "height": 60,
+    "anchorX": 0.5,
+    "anchorY": 0.88,
+    "healthBarOffsetX": 0,
+    "healthBarOffsetY": -10
+  },
+  "sourceSize": {
+    "width": 1024,
+    "height": 1024
+  },
+  "sheet": {
+    "image": "paladin.png",
+    "cellSize": 592,
+    "columns": 4,
+    "rows": 2,
+    "order": [
+      "body",
+      "head",
+      "armFront",
+      "armBack",
+      "legFront",
+      "legBack",
+      "weapon"
+    ]
+  },
+  "parts": {
+    "body": {
+      "cell": 0,
+      "frame": {
+        "x": 73,
+        "y": 81,
+        "w": 447,
+        "h": 431
+      },
+      "pivot": {
+        "x": 160,
+        "y": 338
+      },
+      "mount": {
+        "x": 332,
+        "y": 377
+      },
+      "mountOffset": {
+        "x": 332,
+        "y": 377
+      },
+      "flipX": true,
+      "flipY": false,
+      "sourcePivot": {
+        "x": 237,
+        "y": 564
+      }
+    },
+    "head": {
+      "cell": 1,
+      "frame": {
+        "x": 205,
+        "y": 168,
+        "w": 182,
+        "h": 256
+      },
+      "pivot": {
+        "x": 68,
+        "y": 204
+      },
+      "mount": {
+        "x": 320,
+        "y": 138
+      },
+      "mountOffset": {
+        "x": -75,
+        "y": 427
+      },
+      "flipX": true,
+      "flipY": false,
+      "sourcePivot": {
+        "x": 632,
+        "y": 275
+      }
+    },
+    "armFront": {
+      "cell": 2,
+      "frame": {
+        "x": 182,
+        "y": 163,
+        "w": 228,
+        "h": 266
+      },
+      "pivot": {
+        "x": 107,
+        "y": 52
+      },
+      "mount": {
+        "x": 207,
+        "y": 128
+      },
+      "mountOffset": {
+        "x": -447,
+        "y": 542
+      },
+      "flipX": true,
+      "flipY": false,
+      "sourcePivot": {
+        "x": 891,
+        "y": 150
+      }
+    },
+    "armBack": {
+      "cell": 3,
+      "frame": {
+        "x": 180,
+        "y": 164,
+        "w": 232,
+        "h": 265
+      },
+      "pivot": {
+        "x": 110,
+        "y": 50
+      },
+      "mount": {
+        "x": 402,
+        "y": 148
+      },
+      "mountOffset": {
+        "x": -252,
+        "y": 562
+      },
+      "flipX": true,
+      "flipY": false,
+      "sourcePivot": {
+        "x": 891,
+        "y": 150
+      }
+    },
+    "legFront": {
+      "cell": 4,
+      "frame": {
+        "x": 219,
+        "y": 168,
+        "w": 155,
+        "h": 256
+      },
+      "pivot": {
+        "x": 79,
+        "y": 19
+      },
+      "mount": {
+        "x": 385,
+        "y": 414
+      },
+      "mountOffset": {
+        "x": -32,
+        "y": 545
+      },
+      "flipX": true,
+      "flipY": false,
+      "sourcePivot": {
+        "x": 654,
+        "y": 433
+      }
+    },
+    "legBack": {
+      "cell": 5,
+      "frame": {
+        "x": 206,
+        "y": 160,
+        "w": 180,
+        "h": 272
+      },
+      "pivot": {
+        "x": 86,
+        "y": 25
+      },
+      "mount": {
+        "x": 234,
+        "y": 370
+      },
+      "mountOffset": {
+        "x": -407,
+        "y": 504
+      },
+      "flipX": true,
+      "flipY": false,
+      "sourcePivot": {
+        "x": 878,
+        "y": 430
+      }
+    },
+    "weapon": {
+      "cell": 6,
+      "frame": {
+        "x": 9,
+        "y": 209,
+        "w": 575,
+        "h": 174
+      },
+      "pivot": {
+        "x": 534,
+        "y": 83
+      },
+      "mount": {
+        "x": -32,
+        "y": 176
+      },
+      "mountOffset": {
+        "x": -579,
+        "y": -117
+      },
+      "flipX": false,
+      "flipY": false,
+      "sourcePivot": {
+        "x": 784,
+        "y": 857
+      }
+    }
+  },
+  "weaponAttachment": {
+    "partId": "armFront",
+    "x": 107,
+    "y": 52,
+    "angleDeg": 30
+  }
+}
