@@ -4,6 +4,7 @@ const TOURNAMENT_VIEW_STORAGE_KEY = "tbr-warfare-tournament-view-v1";
 const FIELD = { width: 1180, height: 760 };
 const SPEED_OPTIONS = [0.35, 0.65, 1, 1.4, 1.85];
 const SHIFT_INSPECT_SPEED = 0.12;
+const POST_BATTLE_REVIEW_SPEED = 0.5;
 const AUDIO_DEFAULT_FADE_SECONDS = 1.8;
 const AUDIO_END_FADE_SECONDS = 0.4;
 const AUDIO_PAUSE_DUCK_FACTOR = 0.24;
@@ -587,7 +588,7 @@ const UNIT_DEFINITIONS = {
     name: "Phantom",
     keywords: ["ghost", "possession", "haunt", "grave", "spirit"],
     description: "Phantoms drift through the field in a cold arc, hijack enemy bodies, and turn them on their own line. When struck loose they become impotent wraiths, forced to tear through graves before they can possess again.",
-    stats: { maxHealth: 38, speed: 78, range: 18, hauntRange: 260, graveRange: 24, cooldown: 1.2, diveSpeedMultiplier: 1.9 },
+    stats: { maxHealth: 38, speed: 60, range: 18, hauntRange: 260, graveRange: 24, cooldown: 1.2, diveSpeedMultiplier: 2 },
     healthBarWidth: 18,
     iconPaths: getPhantomIconSvgPaths,
     leavesGrave: false,
@@ -981,18 +982,23 @@ function bindUi() {
 function renderSpeedControls() {
   els.speedControls.innerHTML = "";
   const pauseButton = document.createElement("button");
-  const canResume = state.battle && !state.battle.completed && state.battle.time > 0;
+  const canResume = state.battle && state.battle.time > 0;
   pauseButton.className = `speed-btn${!state.running && canResume ? " active" : ""}`;
   pauseButton.textContent = "Pause";
-  pauseButton.title = state.running ? "Pause the current battle" : "Resume the current battle";
-  pauseButton.disabled = !state.battle || state.battle.completed || (!state.running && !canResume);
+  pauseButton.title = state.running
+    ? (state.battle?.completed ? "Pause the battlefield aftermath review" : "Pause the current battle")
+    : (state.battle?.completed ? "Resume the battlefield aftermath review" : "Resume the current battle");
+  pauseButton.disabled = !state.battle || (!state.running && !canResume);
   pauseButton.addEventListener("click", togglePauseBattle);
   els.speedControls.appendChild(pauseButton);
   SPEED_OPTIONS.forEach((speed, index) => {
     const button = document.createElement("button");
-    button.className = `speed-btn${index === state.speedIndex && !state.hover.inspectSlowActive ? " active" : ""}`;
+    button.className = `speed-btn${index === state.speedIndex && !state.hover.inspectSlowActive && !state.battle?.completed ? " active" : ""}`;
     button.textContent = `${index + 1}`;
-    button.title = `${speed.toFixed(2)}x simulation speed`;
+    button.title = state.battle?.completed
+      ? `${POST_BATTLE_REVIEW_SPEED.toFixed(2)}x aftermath review speed is locked while the battle result is on screen`
+      : `${speed.toFixed(2)}x simulation speed`;
+    button.disabled = Boolean(state.battle?.completed);
     button.addEventListener("click", () => {
       state.speedIndex = index;
       renderSpeedControls();
@@ -1019,6 +1025,7 @@ function cloneData(value) {
 }
 
 function getBattleSpeedMultiplier() {
+  if (state.battle?.completed) return POST_BATTLE_REVIEW_SPEED;
   if (state.hover.inspectSlowActive) return SHIFT_INSPECT_SPEED;
   return SPEED_OPTIONS[state.speedIndex];
 }
@@ -2834,6 +2841,10 @@ function isFinalLivingUnitForFaction(unit, battle) {
   return faction.units.filter((entry) => !entry.dead && !entry.fled).length <= 1;
 }
 
+function getPhantomGraveRequirement(phantom) {
+  return Math.max(3, 2 + (phantom?.possessionCount || 0));
+}
+
 function ejectPhantomFromHost(phantom, host, battle, options = {}) {
   if (!phantom || phantom.type !== "phantom") return false;
   const activeHost = host || (phantom.possessedUnitId ? findUnitById(battle, phantom.possessedUnitId) : null);
@@ -2845,7 +2856,7 @@ function ejectPhantomFromHost(phantom, host, battle, options = {}) {
     }
   }
   phantom.possessedUnitId = null;
-  phantom.gravesToConsume = Math.max(phantom.gravesToConsume || 0, options.gravesToConsume ?? 3);
+  phantom.gravesToConsume = Math.max(phantom.gravesToConsume || 0, options.gravesToConsume ?? getPhantomGraveRequirement(phantom));
   phantom.focusTargetId = null;
   phantom.currentTargetKind = null;
   phantom.cooldown = Math.max(phantom.cooldown || 0, 0.75);
@@ -2866,6 +2877,7 @@ function ejectPhantomFromHost(phantom, host, battle, options = {}) {
 function possessUnit(phantom, target, battle) {
   if (!phantom || phantom.type !== "phantom" || !target || target.dead || target.fled) return false;
   if (target.type === "inklord" || target.type === "phantom" || getPossessionStatus(target, battle)) return false;
+  phantom.possessionCount = (phantom.possessionCount || 0) + 1;
   phantom.possessedUnitId = target.id;
   phantom.focusTargetId = target.id;
   phantom.currentTargetKind = "enemy";
@@ -3027,6 +3039,7 @@ function makeUnit(factionId, type, x, y) {
     summonOwnerId: null,
     possessedUnitId: null,
     gravesToConsume: 0,
+    possessionCount: 0,
     retargetTimer: 0,
     invulnerableUntil: 0,
     turretAimAngle: 0,
@@ -3208,7 +3221,6 @@ function stepBattle(battle, dt) {
     const winner = contenders[0];
     battle.pendingWinner = winner ? winner.id : null;
     battle.completed = true;
-    state.running = false;
     endBattleAudio();
     els.battleState.textContent = state.tournament ? `${getCurrentMatchLabel(state.tournament)} complete` : "Complete";
     els.winnerLabel.textContent = winner.title;
@@ -3223,7 +3235,6 @@ function stepBattle(battle, dt) {
     const winner = contenders[0];
     battle.pendingWinner = winner ? winner.id : null;
     battle.completed = true;
-    state.running = false;
     endBattleAudio();
     els.battleState.textContent = state.tournament ? `${getCurrentMatchLabel(state.tournament)} complete` : "Complete";
     if (winner) {
@@ -3432,16 +3443,18 @@ function updateUnitStatuses(unit, battle, dt) {
 }
 
 function togglePauseBattle() {
-  if (!state.battle || state.battle.completed || (!state.running && state.battle.time <= 0)) return;
+  if (!state.battle || (!state.running && state.battle.time <= 0)) return;
   state.running = !state.running;
-  if (state.running) {
+  if (state.running && !state.battle.completed) {
     resumeBattleAudio();
   } else {
     pauseBattleAudio();
   }
   els.battleState.textContent = state.running
-    ? (state.tournament ? `${getCurrentMatchLabel(state.tournament)} in progress` : "Battling")
-    : "Paused";
+    ? (state.battle.completed
+      ? (state.tournament ? `${getCurrentMatchLabel(state.tournament)} complete` : "Complete")
+      : (state.tournament ? `${getCurrentMatchLabel(state.tournament)} in progress` : "Battling"))
+    : (state.battle.completed ? "Aftermath paused" : "Paused");
   renderSpeedControls();
 }
 
@@ -3631,9 +3644,10 @@ function updateUnit(unit, faction, battle, dt) {
   const target = selectUnitTarget(unit, unitDef, enemies, allies, graves, battle);
   const distance = target ? Math.hypot(target.x - unit.x, target.y - unit.y) : 9999;
   const panicThreshold = unit.maxHealth * (0.28 + (1 - unit.bravery) * 0.3);
+  const shouldStartFleeing = forcedPossessedFlee || (!possessed && unit.health < panicThreshold && Math.random() > unit.bravery * 0.86);
   unit.fleeing = unit.type === "phantom"
     ? false
-    : (forcedPossessedFlee || (!possessed && unit.health < panicThreshold && Math.random() > unit.bravery * 0.86));
+    : (!possessed && (unit.fleeing || shouldStartFleeing));
 
   let destination = getDesiredDestination(unit, unitDef, target, distance, battle, allies, enemies, graves);
   if (unit.fleeing) {
@@ -3721,6 +3735,29 @@ function getUnitMoveSpeed(unit, unitDef = getUnitDefinition(unit)) {
   if (getUnitStatus(unit, "immobilized")) return 0;
   if (unitDef.getMoveSpeed) return unitDef.getMoveSpeed(unit, unitDef);
   return stats.speed * (0.42 + 0.58 * (unit.health / unit.maxHealth));
+}
+
+function refreshUnitFleeingState(unit, battle, options = {}) {
+  if (!unit || unit.dead || unit.fled) return;
+  if (unit.type === "phantom") {
+    unit.fleeing = false;
+    return;
+  }
+  const possessed = Boolean(getPossessionStatus(unit, battle));
+  const forcedPossessedFlee = possessed && isFinalLivingUnitForFaction(unit, battle);
+  if (forcedPossessedFlee) {
+    unit.fleeing = true;
+    return;
+  }
+  if (possessed) {
+    unit.fleeing = false;
+    return;
+  }
+  const recoveryMultiplier = options.recoveryMultiplier ?? 1.2;
+  const panicThreshold = unit.maxHealth * (0.28 + (1 - unit.bravery) * 0.3);
+  if (unit.health >= panicThreshold * recoveryMultiplier) {
+    unit.fleeing = false;
+  }
 }
 
 function getDesiredDestination(unit, unitDef, target, distance, battle, allies = [], enemies = [], graves = []) {
@@ -4128,6 +4165,7 @@ function updateKriegerState({ unit, battle, dt }) {
   if (unit.dead || unit.fled) return;
   if (unit.health < unit.maxHealth) {
     unit.health = Math.min(unit.maxHealth, unit.health + stats.regenPerSecond * dt);
+    refreshUnitFleeingState(unit, battle);
   }
   if (getUnitStatus(unit, "bloodfrenzy") && Math.random() > 0.992) {
     setHighlight(`${findFaction(battle, unit.factionId)?.title || "A faction"}'s krieger is in a blood frenzy`);
@@ -5450,6 +5488,7 @@ function applyHealing(target, amount, battle, source = null, options = {}) {
   }
   const previousHealth = target.health;
   target.health = Math.min(target.maxHealth, target.health + amount);
+  if (target.health > previousHealth) refreshUnitFleeingState(target, battle);
   return Math.max(0, target.health - previousHealth);
 }
 
@@ -6618,6 +6657,85 @@ function formatHoverDuration(duration) {
   return `${duration.toFixed(1)}s`;
 }
 
+function getUnitActivityTargetLabel(target, battle) {
+  if (!target) return "a target";
+  const unitLabel = getUnitDefinition(target).name.toLowerCase();
+  const faction = findFaction(battle, target.factionId);
+  if (!faction || faction.excludeFromResults) return `${/^[aeiou]/i.test(unitLabel) ? "an" : "a"} ${unitLabel}`;
+  return `${/^[aeiou]/i.test(unitLabel) ? "an" : "a"} ${unitLabel} belonging to ${faction.title}`;
+}
+
+function getUnitCurrentActivity(unit, battle) {
+  if (!unit || !battle) return "";
+  const unitDef = getUnitDefinition(unit);
+  const stats = getUnitStats(unit, unitDef);
+  const focusedTarget = unit.focusTargetId ? findUnitById(battle, unit.focusTargetId) : null;
+  const enemies = getTargetableEnemies(battle, unit.factionId, unit);
+  const livingGrave = unit.currentGraveId ? findGraveById(battle, unit.currentGraveId) : null;
+  const activeSpell = unit.activeSpellId ? battle.spells.find((spell) => spell.id === unit.activeSpellId) : null;
+  const targetLabel = focusedTarget ? getUnitActivityTargetLabel(focusedTarget, battle) : "its target";
+  const hasAttackTarget = focusedTarget && !focusedTarget.dead && !focusedTarget.fled;
+
+  if (unit.fleeing) return "routing away from the battlefield";
+  if (unit.possessedUnitId) {
+    const host = findUnitById(battle, unit.possessedUnitId);
+    return host ? `possessing ${getUnitActivityTargetLabel(host, battle)}` : "possessing an enemy host";
+  }
+  if (activeSpell) {
+    if (activeSpell.kind === "flame-breath") return `breathing fire over ${targetLabel}`;
+    if (activeSpell.kind === "mountain-hold") return `holding ${targetLabel} in place with mountain magic`;
+    if (activeSpell.kind === "mountain-impulse") return `blasting ${targetLabel} backward`;
+    if (activeSpell.kind === "inklord-throw") return `flinging ${targetLabel} through the air`;
+  }
+  if (unit.type === "bard" && unit.activeSongKind && (unit.songTimer || 0) > 0) {
+    const songName = getStatusDefinition(unit.activeSongKind)?.name.toLowerCase() || "a battle song";
+    return `playing ${songName} for nearby allies`;
+  }
+  if (unit.type === "artificer" && unit.constructedTurretId) {
+    return "maintaining its deployed turret";
+  }
+  if (unit.currentTargetKind === "grave" && livingGrave) {
+    if (unit.type === "phantom" && (unit.gravesToConsume || 0) > 0) return "seeking gravestones to recharge its haunt attack";
+    if (unit.type === "necromancer") return "seeking a gravestone to raise a thrall";
+    if (unit.type === "graverobber") return "seeking a gravestone to rob";
+    if (unit.type === "arachnomist") return "seeking a gravestone to hatch a spider swarm";
+    return "moving toward a nearby gravestone";
+  }
+  if (unit.type === "medic" && hasAttackTarget && areUnitsAllied(unit, focusedTarget, battle)) {
+    return `moving to heal ${targetLabel}`;
+  }
+  if (unit.type === "bard" && hasAttackTarget && areUnitsAllied(unit, focusedTarget, battle)) {
+    return `shadowing ${targetLabel}`;
+  }
+  if (hasAttackTarget) {
+    const distance = Math.hypot(focusedTarget.x - unit.x, focusedTarget.y - unit.y);
+    const attackRange = getAttackRange(unit, unitDef);
+    if (unit.type === "phantom" && (unit.gravesToConsume || 0) <= 0) return `haunting ${targetLabel}`;
+    if (unit.type === "medic") return `moving to aid ${targetLabel}`;
+    if (unit.type === "firebreather") return distance <= attackRange ? `breathing fire at ${targetLabel}` : `closing in to torch ${targetLabel}`;
+    if (unit.type === "mountainman") return distance <= attackRange ? `casting at ${targetLabel}` : `closing in on ${targetLabel}`;
+    if (unit.type === "bodyguard") return distance <= attackRange ? `guarding the line against ${targetLabel}` : `moving to intercept ${targetLabel}`;
+    if (unit.type === "huntsman") {
+      if (!getUnitStatus(focusedTarget, "immobilized") && distance <= (stats.netRange || attackRange) && (unit.huntsmanNetCooldown || 0) <= 0) return `lining up a net throw on ${targetLabel}`;
+      return distance <= attackRange ? `throwing a knife at ${targetLabel}` : `tracking ${targetLabel}`;
+    }
+    if (stats.range > 40 || ["archer", "mage", "poisoner", "catapult", "bomber", "turret", "artificer"].includes(unit.type)) {
+      return distance <= attackRange ? `firing on ${targetLabel}` : `tracking ${targetLabel}`;
+    }
+    return distance <= attackRange ? `engaging ${targetLabel}` : `closing on ${targetLabel}`;
+  }
+  if (battle.completed) return "holding position in the aftermath";
+  if (unit.type === "phantom") return (unit.gravesToConsume || 0) > 0 ? "seeking gravestones to recharge its haunt attack" : "seeking a host to possess";
+  if (unit.type === "medic") return "seeking a wounded ally to heal";
+  if (unit.type === "bard") return "seeking allies to support";
+  if (unit.type === "artificer") return "seeking a place to build a turret";
+  if (unit.type === "turret") return "scanning for targets";
+  if (unit.type === "spiderswarm") return "skittering in search of prey";
+  if (unit.currentTargetKind === "grave") return "seeking a gravestone";
+  if (!enemies.length) return "holding position";
+  return stats.range > 40 ? "seeking a target to shoot" : "seeking someone to engage";
+}
+
 function getStatusTooltipCopy(unit, status, battle) {
   const definition = getStatusDefinition(status.kind);
   if (!definition) return "";
@@ -6674,6 +6792,7 @@ function renderBattleUnitTooltip(unit, battle, viewport) {
     return;
   }
   const faction = findFaction(battle, unit.factionId);
+  const currentActivity = getUnitCurrentActivity(unit, battle);
   const statuses = (unit.statuses || [])
     .map((status) => {
       const definition = getStatusDefinition(status.kind);
@@ -6692,6 +6811,7 @@ function renderBattleUnitTooltip(unit, battle, viewport) {
       <span class="battle-unit-tooltip-faction">${escapeHtml(faction?.title || "Neutral")}</span>
       <h3>${escapeHtml(`${getUnitDefinition(unit).name}${unit.veteran ? " Veteran" : ""}`)}</h3>
       <p class="battle-unit-tooltip-health">Health ${formatHoverStatNumber(unit.health)} / ${formatHoverStatNumber(unit.maxHealth)}</p>
+      <p class="battle-unit-tooltip-copy">Currently ${escapeHtml(currentActivity)}.</p>
     </div>
     ${statuses ? `<ul>${statuses}</ul>` : '<p class="battle-unit-tooltip-empty">No active status effects.</p>'}
   `;
