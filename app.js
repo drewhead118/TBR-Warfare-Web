@@ -2974,6 +2974,32 @@ function isUndeadOrThrall(unit) {
   return Boolean(unit && (getUnitStatus(unit, "zombie") || unit.raisedThrall || unit.thrallOwnerId));
 }
 
+function createUnitNarration(initialText = "") {
+  return {
+    text: initialText,
+    update(nextText) {
+      if (typeof nextText === "string" && nextText.trim()) this.text = nextText.trim();
+      return this.text;
+    },
+  };
+}
+
+function getDefaultUnitActivity(unitOrType) {
+  const type = typeof unitOrType === "string" ? unitOrType : unitOrType?.type;
+  if (type === "phantom") return "Seeking a host to possess.";
+  if (type === "medic") return "Seeking a wounded ally to heal.";
+  if (type === "bard") return "Seeking allies to support.";
+  if (type === "artificer") return "Seeking a place to build a turret.";
+  if (type === "turret") return "Scanning for targets.";
+  if (type === "spiderswarm") return "Skittering in search of prey.";
+  return getUnitStats(type).range > 40 ? "Seeking a target to shoot." : "Seeking an enemy to engage.";
+}
+
+function updateUnitActivity(unit, text) {
+  if (!unit?.Status) return text;
+  return unit.Status.update(text);
+}
+
 function makeUnit(factionId, type, x, y) {
   const stats = getUnitStats(type);
   const unitDef = getUnitDefinition(type);
@@ -3045,6 +3071,7 @@ function makeUnit(factionId, type, x, y) {
     turretAimAngle: 0,
     activeSongKind: null,
     songTimer: 0,
+    Status: createUnitNarration(getDefaultUnitActivity(type)),
   };
 }
 
@@ -3615,6 +3642,7 @@ function updateUnit(unit, faction, battle, dt) {
   const stats = getUnitStats(unit, unitDef);
   const graves = battle.graves || [];
   if (unit.liftedBySpellId) {
+    updateUnitActivity(unit, "Suspended by hostile magic.");
     unit.vx = 0;
     unit.vy = 0;
     unit.walkTilt += (0 - unit.walkTilt) * 0.24;
@@ -3623,6 +3651,7 @@ function updateUnit(unit, faction, battle, dt) {
     return;
   }
   if (unit.displacedBySpellId) {
+    updateUnitActivity(unit, "Being hurled by hostile magic.");
     unit.vx = 0;
     unit.vy = 0;
     unit.walkTilt += (0 - unit.walkTilt) * 0.24;
@@ -3640,7 +3669,10 @@ function updateUnit(unit, faction, battle, dt) {
   const forcedPossessedFlee = possessed && isFinalLivingUnitForFaction(unit, battle);
   unitDef.beforeStep?.({ unit, faction, battle, allies, enemies, graves, unitDef, dt });
   if (unit.dead || unit.fled) return;
-  if (!enemies.length && !graves.length && !unitDef.canActWithoutEnemies && !forcedPossessedFlee) return;
+  if (!enemies.length && !graves.length && !unitDef.canActWithoutEnemies && !forcedPossessedFlee) {
+    updateUnitActivity(unit, battle.completed ? "Holding position in the aftermath." : "Holding position and awaiting a new opening.");
+    return;
+  }
   const target = selectUnitTarget(unit, unitDef, enemies, allies, graves, battle);
   const distance = target ? Math.hypot(target.x - unit.x, target.y - unit.y) : 9999;
   const panicThreshold = unit.maxHealth * (0.28 + (1 - unit.bravery) * 0.3);
@@ -3648,6 +3680,9 @@ function updateUnit(unit, faction, battle, dt) {
   unit.fleeing = unit.type === "phantom"
     ? false
     : (!possessed && (unit.fleeing || shouldStartFleeing));
+  if (unit.fleeing) {
+    updateUnitActivity(unit, "Routing away from the battlefield.");
+  }
 
   let destination = getDesiredDestination(unit, unitDef, target, distance, battle, allies, enemies, graves);
   if (unit.fleeing) {
@@ -3688,6 +3723,9 @@ function updateUnit(unit, faction, battle, dt) {
         unit.cooldown = stats.cooldown * (0.8 + Math.random() * 0.5);
       }
     }
+  }
+  if (!unit.fleeing && !target && !battle.completed && !unit.Status?.text) {
+    updateUnitActivity(unit, getDefaultUnitActivity(unit));
   }
 
   unit.x += unit.vx * dt;
@@ -3741,22 +3779,26 @@ function refreshUnitFleeingState(unit, battle, options = {}) {
   if (!unit || unit.dead || unit.fled) return;
   if (unit.type === "phantom") {
     unit.fleeing = false;
+    updateUnitActivity(unit, getDefaultUnitActivity(unit));
     return;
   }
   const possessed = Boolean(getPossessionStatus(unit, battle));
   const forcedPossessedFlee = possessed && isFinalLivingUnitForFaction(unit, battle);
   if (forcedPossessedFlee) {
     unit.fleeing = true;
+    updateUnitActivity(unit, "Routing away from the battlefield.");
     return;
   }
   if (possessed) {
     unit.fleeing = false;
+    updateUnitActivity(unit, "Fighting under a phantom's control.");
     return;
   }
   const recoveryMultiplier = options.recoveryMultiplier ?? 1.2;
   const panicThreshold = unit.maxHealth * (0.28 + (1 - unit.bravery) * 0.3);
   if (unit.health >= panicThreshold * recoveryMultiplier) {
     unit.fleeing = false;
+    updateUnitActivity(unit, "Recovered enough to rejoin the fight.");
   }
 }
 
@@ -3785,7 +3827,10 @@ function getHoldPositionDestination(threshold) {
 
 function selectMedicTarget({ unit, allies }) {
   const locked = allies.find((ally) => ally.id === unit.focusTargetId && (ally.health < ally.maxHealth || hasNegativeStatuses(ally)) && !ally.liftedBySpellId);
-  if (locked) return locked;
+  if (locked) {
+    updateUnitActivity(unit, `Moving to heal ${getUnitActivityTargetLabel(locked, state.battle)}.`);
+    return locked;
+  }
   const wounded = allies.filter((ally) => ally.id !== unit.id && (ally.health < ally.maxHealth || hasNegativeStatuses(ally)) && !ally.liftedBySpellId);
   if (wounded.length) {
     const target = wounded.sort((a, b) => {
@@ -3794,9 +3839,11 @@ function selectMedicTarget({ unit, allies }) {
       return bUrgency - aUrgency;
     })[0];
     unit.focusTargetId = target?.id || null;
+    updateUnitActivity(unit, `Moving to heal ${getUnitActivityTargetLabel(target, state.battle)}.`);
     return target;
   }
   unit.focusTargetId = null;
+  updateUnitActivity(unit, "Seeking a wounded ally to heal.");
   return allies.find((ally) => ally.id !== unit.id && !ally.liftedBySpellId) || null;
 }
 
@@ -3806,6 +3853,7 @@ function updateBardState({ unit, faction, allies, enemies, battle, unitDef, dt }
   if (factionSongState?.kind && battle.time < (factionSongState.endsAt || 0)) {
     unit.activeSongKind = factionSongState.kind;
     unit.songTimer = Math.max(0, factionSongState.endsAt - battle.time);
+    updateUnitActivity(unit, `Playing ${getStatusDefinition(unit.activeSongKind)?.name.toLowerCase() || "a battle song"} for nearby allies.`);
     return;
   }
 
@@ -3818,6 +3866,7 @@ function updateBardState({ unit, faction, allies, enemies, battle, unitDef, dt }
   };
   unit.activeSongKind = nextSong;
   unit.songTimer = duration;
+  updateUnitActivity(unit, `Playing ${getStatusDefinition(nextSong)?.name.toLowerCase() || "a battle song"} for nearby allies.`);
   if (battle && Math.random() > 0.45) {
     setHighlight(`${findFaction(battle, unit.factionId)?.title || "A faction"}'s bards strike up ${getStatusDefinition(unit.activeSongKind)?.name.toLowerCase() || "a new song"}`);
   }
@@ -3842,16 +3891,19 @@ function selectBardTarget({ unit, enemies, allies, battle }) {
   const nonBardAllies = allies.filter((ally) => ally.id !== unit.id && ally.type !== "bard");
   const escort = unit.focusTargetId ? findUnitById(battle, unit.focusTargetId) : null;
   if (escort && !escort.dead && !escort.fled && areUnitsAllied(unit, escort, battle) && escort.type !== "bard") {
+    updateUnitActivity(unit, `Shadowing ${getUnitActivityTargetLabel(escort, battle)}.`);
     return escort;
   }
   if (!nonBardAllies.length) {
     unit.focusTargetId = null;
+    updateUnitActivity(unit, "Seeking allies to support.");
     return enemies
       .slice()
       .sort((a, b) => Math.hypot(a.x - unit.x, a.y - unit.y) - Math.hypot(b.x - unit.x, b.y - unit.y))[0] || null;
   }
   const selectedEscort = nonBardAllies[Math.floor(Math.random() * nonBardAllies.length)] || null;
   unit.focusTargetId = selectedEscort?.id || null;
+  if (selectedEscort) updateUnitActivity(unit, `Shadowing ${getUnitActivityTargetLabel(selectedEscort, battle)}.`);
   return selectedEscort;
 }
 
@@ -3902,6 +3954,7 @@ function selectBodyguardTarget({ unit, enemies, battle, unitDef }) {
   if (locked && !locked.dead && !locked.fled && canUnitBeTargeted(locked, unit)) {
     unit.currentTargetKind = "enemy";
     unit.currentGraveId = null;
+    updateUnitActivity(unit, `Guarding the line against ${getUnitActivityTargetLabel(locked, battle)}.`);
     return locked;
   }
   unit.guardTargetId = null;
@@ -3917,6 +3970,7 @@ function selectBodyguardTarget({ unit, enemies, battle, unitDef }) {
   unit.guardTargetId = best?.id || null;
   unit.currentTargetKind = best ? "enemy" : null;
   unit.currentGraveId = null;
+  updateUnitActivity(unit, best ? `Moving to intercept ${getUnitActivityTargetLabel(best, battle)}.` : "Holding the line near the banner.");
   return best;
 }
 
@@ -3937,6 +3991,7 @@ function updateAssassinState({ unit, faction, battle, enemies }) {
   }
   if (unit.behaviorState === "retreat") {
     unit.invisible = false;
+    updateUnitActivity(unit, "Retreating to vanish and reset.");
     const homeBase = findFaction(battle, faction.id)?.homeBase || { x: unit.x, y: unit.y };
     if (Math.hypot(unit.x - homeBase.x, unit.y - homeBase.y) <= stats.resetRadius) {
       unit.behaviorState = "stalking";
@@ -3944,6 +3999,7 @@ function updateAssassinState({ unit, faction, battle, enemies }) {
       unit.focusTargetId = null;
       unit.slashCooldown = 0;
       unit.cooldown = Math.max(unit.cooldown, 0.3);
+      updateUnitActivity(unit, "Reset and stalking for another backstab.");
     }
   }
   if (unit.focusTargetId && !enemies.some((enemy) => enemy.id === unit.focusTargetId)) {
@@ -3952,9 +4008,15 @@ function updateAssassinState({ unit, faction, battle, enemies }) {
 }
 
 function selectAssassinTarget({ unit, enemies }) {
-  if (unit.behaviorState === "retreat") return null;
+  if (unit.behaviorState === "retreat") {
+    updateUnitActivity(unit, "Retreating to vanish and reset.");
+    return null;
+  }
   const locked = enemies.find((enemy) => enemy.id === unit.focusTargetId);
-  if (locked) return locked;
+  if (locked) {
+    updateUnitActivity(unit, `Stalking ${getUnitActivityTargetLabel(locked, state.battle)}.`);
+    return locked;
+  }
   const target = enemies
     .slice()
     .sort((a, b) => {
@@ -3963,6 +4025,7 @@ function selectAssassinTarget({ unit, enemies }) {
       return scoreA - scoreB;
     })[0] || null;
   unit.focusTargetId = target?.id || null;
+  updateUnitActivity(unit, target ? `Stalking ${getUnitActivityTargetLabel(target, state.battle)}.` : "Seeking an exposed target.");
   return target;
 }
 
@@ -4157,6 +4220,7 @@ function selectDefaultTarget({ unit, enemies }) {
       best = enemy;
     }
   });
+  updateUnitActivity(unit, best ? `Tracking ${getUnitActivityTargetLabel(best, state.battle)}.` : getDefaultUnitActivity(unit));
   return best;
 }
 
@@ -4168,6 +4232,7 @@ function updateKriegerState({ unit, battle, dt }) {
     refreshUnitFleeingState(unit, battle);
   }
   if (getUnitStatus(unit, "bloodfrenzy") && Math.random() > 0.992) {
+    updateUnitActivity(unit, "In a blood frenzy and charging the nearest body.");
     setHighlight(`${findFaction(battle, unit.factionId)?.title || "A faction"}'s krieger is in a blood frenzy`);
   }
 }
@@ -4197,6 +4262,9 @@ function selectKriegerTarget({ unit, enemies, battle }) {
       bestDistance = tieBreaker;
     }
   });
+  updateUnitActivity(unit, best
+    ? `${frenzy ? "Rushing" : "Closing on"} ${getUnitActivityTargetLabel(best, battle)}.`
+    : (frenzy ? "Searching wildly for anything to kill." : getDefaultUnitActivity(unit)));
   return best;
 }
 
@@ -4225,19 +4293,33 @@ function selectHuntsmanTarget({ unit, enemies, unitDef }) {
   unit.focusTargetId = best?.id || null;
   unit.currentTargetKind = best ? "enemy" : null;
   unit.currentGraveId = null;
+  if (best) {
+    const bestLabel = getUnitActivityTargetLabel(best, state.battle);
+    updateUnitActivity(unit, !getUnitStatus(best, "immobilized") && Math.hypot(best.x - unit.x, best.y - unit.y) <= stats.netRange
+      ? `Lining up a net throw on ${bestLabel}.`
+      : `Tracking ${bestLabel}.`);
+  } else {
+    updateUnitActivity(unit, "Seeking a target to snare.");
+  }
   return best;
 }
 
 function updateHuntsmanState({ unit, dt }) {
   unit.huntsmanKnifeCooldown = Math.max(0, (unit.huntsmanKnifeCooldown || 0) - dt);
   unit.huntsmanNetCooldown = Math.max(0, (unit.huntsmanNetCooldown || 0) - dt);
+  if ((unit.huntsmanKnifeCooldown || 0) > 0 && (unit.huntsmanNetCooldown || 0) > 0 && !unit.focusTargetId) {
+    updateUnitActivity(unit, "Resetting after a volley.");
+  }
 }
 
 function updateArtificerState({ unit, battle }) {
   const turret = unit.constructedTurretId ? findUnitById(battle, unit.constructedTurretId) : null;
   if (!turret || turret.dead || turret.fled || turret.type !== "turret" || turret.builderId !== unit.id) {
     unit.constructedTurretId = null;
+    updateUnitActivity(unit, "Seeking a place to build a turret.");
+    return;
   }
+  updateUnitActivity(unit, "Maintaining its deployed turret.");
 }
 
 function selectArtificerTarget({ unit, enemies }) {
@@ -4245,6 +4327,7 @@ function selectArtificerTarget({ unit, enemies }) {
     unit.focusTargetId = null;
     unit.currentTargetKind = null;
     unit.currentGraveId = null;
+    updateUnitActivity(unit, "Maintaining its deployed turret.");
     return null;
   }
   unit.currentTargetKind = enemies.length ? "enemy" : null;
@@ -4265,6 +4348,7 @@ function selectArtificerTarget({ unit, enemies }) {
     }
   });
   unit.focusTargetId = best?.id || null;
+  updateUnitActivity(unit, best ? `Searching for a strong turret position against ${getUnitActivityTargetLabel(best, state.battle)}.` : "Seeking a place to build a turret.");
   return best;
 }
 
@@ -4339,6 +4423,7 @@ function performArtificerAttack({ unit, target, battle, unitDef }) {
   destroyConstructedTurret(unit, battle);
   const turret = createArtificerTurret(unit, target, battle);
   if (!turret) return;
+  updateUnitActivity(unit, `Deploying a turret to cover ${getUnitActivityTargetLabel(target, battle)}.`);
   spawnBurst(battle, turret.x, turret.y - 8, "#ffe0a1", 14);
   battle.particles.push({ kind: "ring", x: turret.x, y: turret.y + 2, vx: 0, vy: 0, life: 0.34, age: 0, color: "#e7c071", size: 24, lineWidth: 3 });
   setHighlight(`${findFaction(battle, unit.factionId)?.title || "A faction"}'s artificer deploys a turret`);
@@ -4360,6 +4445,7 @@ function updateTurretState({ unit, battle, enemies, dt }) {
   if (builder && builder.dead) {
     unit.builderId = null;
   }
+  if (!target) updateUnitActivity(unit, "Scanning for targets.");
 }
 
 function getTurretDestination({ unit }) {
@@ -4389,12 +4475,14 @@ function selectTurretTarget({ unit, enemies, unitDef }) {
   unit.focusTargetId = best?.id || null;
   unit.currentTargetKind = best ? "enemy" : null;
   unit.currentGraveId = null;
+  updateUnitActivity(unit, best ? `Tracking ${getUnitActivityTargetLabel(best, state.battle)}.` : "Scanning for targets.");
   return best;
 }
 
 function performTurretAttack({ unit, target, battle, unitDef }) {
   const stats = getUnitStats(unit, unitDef);
   if (!target) return;
+  updateUnitActivity(unit, `Firing on ${getUnitActivityTargetLabel(target, battle)}.`);
   const angle = Math.atan2(target.y - unit.y, target.x - unit.x);
   unit.turretAimAngle = angle;
   const muzzleX = unit.x + Math.cos(angle) * 9;
@@ -4438,6 +4526,7 @@ function performTurretAttack({ unit, target, battle, unitDef }) {
 function updateNecromancerState({ unit, battle }) {
   if (unit.thrallOwnerId) {
     unit.thrallIds = [];
+    updateUnitActivity(unit, "Serving as a necromancer's thrall.");
     return;
   }
   unit.thrallIds = getLivingThrallIds(unit, battle);
@@ -4448,6 +4537,7 @@ function selectNecromancerTarget({ unit, enemies, graves, unitDef }) {
   if (unit.thrallOwnerId) {
     unit.currentTargetKind = "enemy";
     unit.currentGraveId = null;
+    updateUnitActivity(unit, "Fighting as a necromancer's thrall.");
     return selectDefaultTarget({ unit, enemies });
   }
   unit.thrallIds = unit.thrallIds || [];
@@ -4456,11 +4546,13 @@ function selectNecromancerTarget({ unit, enemies, graves, unitDef }) {
     if (grave) {
       unit.currentTargetKind = "grave";
       unit.currentGraveId = grave.id;
+      updateUnitActivity(unit, "Seeking a gravestone to raise a thrall.");
       return grave;
     }
   }
   unit.currentTargetKind = "enemy";
   unit.currentGraveId = null;
+  updateUnitActivity(unit, "Seeking a victim to drain.");
   return selectDefaultTarget({ unit, enemies });
 }
 
@@ -4507,6 +4599,7 @@ function performNecromancerAttack({ unit, target, battle, unitDef }) {
     if (!grave || unit.thrallIds.length >= stats.maxThralls || Math.hypot(grave.x - unit.x, grave.y - unit.y) > stats.raiseRange + 4) return;
     const thrall = createThrallFromGrave(unit, grave, battle);
     if (!thrall) return;
+    updateUnitActivity(unit, "Raising a thrall from a fresh gravestone.");
     removeGrave(battle, grave.id);
     spawnBurst(battle, grave.x, grave.y - 4, "#7d5ab8", 20);
     battle.particles.push({ kind: "ring", x: grave.x, y: grave.y, vx: 0, vy: 0, life: 0.55, age: 0, color: "#5e3f82", size: 18, lineWidth: 4 });
@@ -4514,6 +4607,7 @@ function performNecromancerAttack({ unit, target, battle, unitDef }) {
     return;
   }
   if (Math.hypot(target.x - unit.x, target.y - unit.y) > stats.range + 6) return;
+  updateUnitActivity(unit, `Draining ${getUnitActivityTargetLabel(target, battle)}.`);
   applyDamage(target, stats.biteDamage * (0.9 + Math.random() * 0.3), battle, unit);
   battle.swipes.push({ x: target.x, y: target.y - 10, angle: unit.facing, life: 0.24, maxLife: 0.24, color: "rgba(112, 72, 154, 0.86)" });
   spawnBurst(battle, target.x, target.y - 2, "#8f63c9", 9);
@@ -4534,10 +4628,12 @@ function selectGraverobberTarget({ unit, enemies, graves }) {
   if (grave) {
     unit.currentTargetKind = "grave";
     unit.currentGraveId = grave.id;
+    updateUnitActivity(unit, "Seeking a gravestone to rob.");
     return grave;
   }
   unit.currentTargetKind = "enemy";
   unit.currentGraveId = null;
+  updateUnitActivity(unit, "Seeking someone to shank with a shovel.");
   return selectDefaultTarget({ unit, enemies });
 }
 
@@ -4558,6 +4654,7 @@ function performGraverobberAttack({ unit, target, battle, unitDef }) {
     const grave = findGraveById(battle, target.id || unit.currentGraveId);
     if (!grave || Math.hypot(grave.x - unit.x, grave.y - unit.y) > stats.graveRange + 4) return;
     removeGrave(battle, grave.id);
+    updateUnitActivity(unit, "Plundering a gravestone for strength.");
     unit.gravesRobbed = (unit.gravesRobbed || 0) + 1;
     syncUnitMaxHealth(unit, true);
     spawnBurst(battle, grave.x, grave.y - 3, "#b59363", 16);
@@ -4565,6 +4662,7 @@ function performGraverobberAttack({ unit, target, battle, unitDef }) {
     return;
   }
   if (Math.hypot(target.x - unit.x, target.y - unit.y) > stats.range + 4) return;
+  updateUnitActivity(unit, `Slashing at ${getUnitActivityTargetLabel(target, battle)}.`);
   applyDamage(target, stats.damage * (0.92 + Math.random() * 0.36), battle, unit);
   battle.swipes.push({ x: target.x, y: target.y - 11, angle: unit.facing, life: 0.2, maxLife: 0.2, color: "rgba(178, 146, 104, 0.86)" });
   spawnBurst(battle, target.x, target.y - 1, "#e0c089", 8);
@@ -4581,6 +4679,7 @@ function selectArachnomistTarget({ unit, graves, unitDef }) {
   const target = validGrave || fallbackFar || fallbackNear || null;
   unit.currentTargetKind = target ? "grave" : null;
   unit.currentGraveId = target?.id || null;
+  updateUnitActivity(unit, target ? "Seeking a gravestone to hatch a spider swarm." : "Seeking graves to infest.");
   return target;
 }
 
@@ -4650,6 +4749,7 @@ function performArachnomistAttack({ unit, target, battle, unitDef }) {
   removeGrave(battle, grave.id);
   const spiders = createSpiderSwarm(unit, grave, battle);
   if (!spiders.length) return;
+  updateUnitActivity(unit, "Turning a gravestone into a spider swarm.");
   spawnBurst(battle, grave.x, grave.y - 4, "#96d55f", 18);
   battle.particles.push({ kind: "ring", x: grave.x, y: grave.y, vx: 0, vy: 0, life: 0.48, age: 0, color: "#7ab34b", size: 22, lineWidth: 4 });
   setHighlight(`${findFaction(battle, unit.factionId)?.title || "A faction"}'s arachnomist turns a grave into a spider swarm`);
@@ -4676,6 +4776,7 @@ function updateSpiderSwarmState({ unit, battle, dt, unitDef }) {
     unit.wanderTargetY = clamp(unit.y + Math.sin(angle) * radius, 16, battle.field.height - 16);
     unit.wanderTimer = 0.2 + Math.random() * 0.45;
   }
+  updateUnitActivity(unit, "Skittering in search of prey.");
   const encountered = [];
   battle.factions.forEach((faction) => {
     faction.units.forEach((candidate) => {
@@ -4696,6 +4797,7 @@ function selectSpiderSwarmTarget({ unit, battle }) {
     .flatMap((faction) => faction.units)
     .find((candidate) => candidate.id === unit.focusTargetId && !candidate.dead && !candidate.fled && candidate.type !== "spiderswarm");
   unit.currentTargetKind = target ? "enemy" : null;
+  updateUnitActivity(unit, target ? `Swarming ${getUnitActivityTargetLabel(target, battle)}.` : "Skittering in search of prey.");
   return target;
 }
 
@@ -4710,6 +4812,7 @@ function getSpiderSwarmDestination({ unit, target, destination }) {
 function performSpiderSwarmAttack({ unit, target, battle, unitDef }) {
   const stats = getUnitStats(unit, unitDef);
   if (!target || Math.hypot(target.x - unit.x, target.y - unit.y) > stats.range + 4) return;
+  updateUnitActivity(unit, `Biting ${getUnitActivityTargetLabel(target, battle)}.`);
   applyDamage(target, stats.biteDamage * (0.88 + Math.random() * 0.28), battle, unit);
   applyStatus(target, "poison", stats.poisonStacks, stats.poisonDuration, unit, battle);
   battle.swipes.push({ x: target.x, y: target.y - 4, angle: unit.facing, life: 0.14, maxLife: 0.14, color: "rgba(120, 173, 82, 0.9)" });
@@ -4724,6 +4827,7 @@ function updatePhantomState({ unit, battle, dt }) {
   unit.retargetTimer = Math.max(0, (unit.retargetTimer || 0) - dt);
   const host = unit.possessedUnitId ? findUnitById(battle, unit.possessedUnitId) : null;
   if (host && !host.dead && !host.fled && getPossessingPhantom(host, battle)?.id === unit.id) {
+    updateUnitActivity(unit, `Possessing ${getUnitActivityTargetLabel(host, battle)}.`);
     unit.x = host.x;
     unit.y = host.y - 16;
     unit.vx = 0;
@@ -4737,6 +4841,7 @@ function updatePhantomState({ unit, battle, dt }) {
   unit.z = 12 + Math.sin((battle.time || 0) * 4.8 + unit.statusVisualSeed) * 6;
   unit.rotation = Math.sin((battle.time || 0) * 2.2 + unit.statusVisualSeed * 0.8) * 0.08;
   const canPossess = (unit.gravesToConsume || 0) <= 0 && !unit.spawnInvulnerable;
+  updateUnitActivity(unit, canPossess ? "Seeking a host to possess." : "Seeking gravestones to recharge its haunt attack.");
   if (canPossess && Math.random() > 0.42) {
     battle.particles.push({
       x: unit.x + (Math.random() - 0.5) * 10,
@@ -4754,12 +4859,14 @@ function updatePhantomState({ unit, battle, dt }) {
 function selectPhantomTarget({ unit, enemies, graves, battle, unitDef }) {
   if (unit.possessedUnitId) {
     unit.currentTargetKind = null;
+    updateUnitActivity(unit, "Possessing an enemy host.");
     return null;
   }
   if ((unit.gravesToConsume || 0) > 0) {
     const grave = findNearestGrave(unit, graves);
     unit.currentTargetKind = grave ? "grave" : null;
     unit.currentGraveId = grave?.id || null;
+    updateUnitActivity(unit, grave ? "Seeking gravestones to recharge its haunt attack." : "Searching for gravestones to recharge its haunt attack.");
     return grave;
   }
   const stats = getUnitStats(unit, unitDef);
@@ -4775,11 +4882,13 @@ function selectPhantomTarget({ unit, enemies, graves, battle, unitDef }) {
     : enemies.filter((enemy) => enemy.type !== "inklord" && enemy.type !== "phantom" && !getPossessionStatus(enemy, battle) && !enemy.spawnInvulnerable);
   if (!pool.length) {
     unit.currentTargetKind = null;
+    updateUnitActivity(unit, "Seeking a host to possess.");
     return null;
   }
   const locked = pool.find((enemy) => enemy.id === unit.focusTargetId);
   if (locked && unit.retargetTimer > 0) {
     unit.currentTargetKind = "enemy";
+    updateUnitActivity(unit, `Haunting ${getUnitActivityTargetLabel(locked, battle)}.`);
     return locked;
   }
   let target = null;
@@ -4801,6 +4910,7 @@ function selectPhantomTarget({ unit, enemies, graves, battle, unitDef }) {
   unit.focusTargetId = target?.id || null;
   unit.retargetTimer = 2.8;
   unit.currentTargetKind = target ? "enemy" : null;
+  updateUnitActivity(unit, target ? `Haunting ${getUnitActivityTargetLabel(target, battle)}.` : "Seeking a host to possess.");
   return target;
 }
 
@@ -4858,6 +4968,7 @@ function performPhantomAttack({ unit, target, battle, unitDef }) {
     if (!target || unit.currentTargetKind !== "grave") return;
     const grave = findGraveById(battle, target.id || unit.currentGraveId);
     if (!grave || Math.hypot(grave.x - unit.x, grave.y - unit.y) > stats.graveRange + 4) return;
+    updateUnitActivity(unit, "Feeding on a gravestone to restore its haunt.");
     removeGrave(battle, grave.id);
     unit.gravesToConsume = Math.max(0, (unit.gravesToConsume || 0) - 1);
     spawnBurst(battle, grave.x, grave.y - 6, "#d2c8ff", 14);
@@ -4873,6 +4984,7 @@ function performPhantomAttack({ unit, target, battle, unitDef }) {
   if (!target || target.type === "inklord" || target.type === "phantom" || getPossessionStatus(target, battle)) return;
   if (Math.hypot(target.x - unit.x, target.y - unit.y) > stats.range + 12) return;
   if (possessUnit(unit, target, battle)) {
+    updateUnitActivity(unit, `Possessing ${getUnitActivityTargetLabel(target, battle)}.`);
     unit.cooldown = stats.cooldown;
   }
 }
@@ -5286,6 +5398,7 @@ function performHuntsmanAttack({ unit, target, battle, unitDef }) {
   const canThrowKnife = (unit.huntsmanKnifeCooldown || 0) <= 0;
 
   if (!targetImmobilized && canThrowNet && distance <= stats.netRange && Math.random() < 0.58) {
+    updateUnitActivity(unit, `Throwing a net at ${getUnitActivityTargetLabel(target, battle)}.`);
     battle.projectiles.push({
       kind: "net",
       sourceId: unit.id,
@@ -5322,6 +5435,7 @@ function performHuntsmanAttack({ unit, target, battle, unitDef }) {
     targetStartX: target.x,
     targetStartY: target.y,
   });
+  updateUnitActivity(unit, `Throwing a hunting knife at ${getUnitActivityTargetLabel(target, battle)}.`);
   unit.huntsmanKnifeCooldown = 1;
 }
 
@@ -5338,9 +5452,11 @@ function performMageAttack({ unit, target, battle, unitDef }) {
     battle.spells.push({ id: spellId, kind: "levitate", sourceId: unit.id, targetId: target.id, time: 0, duration: 1.15, startX: target.x, startY: target.y, endX, endY, color: findFaction(battle, unit.factionId).color });
     unit.activeSpellId = spellId;
     target.liftedBySpellId = spellId;
+    updateUnitActivity(unit, `Levitating ${getUnitActivityTargetLabel(target, battle)}.`);
     return;
   }
   if (distance <= stats.range) {
+    updateUnitActivity(unit, `Firing an orb at ${getUnitActivityTargetLabel(target, battle)}.`);
     battle.projectiles.push({ kind: "orb", sourceId: unit.id, progress: 0, duration: 0.44 + Math.random() * 0.24, startX: unit.x, startY: unit.y - 24, endX: target.x, endY: target.y, targetId: target.id, damage: stats.damage * (1.05 + Math.random() * 0.65), radius: 44 * (unit.veteran ? VETERAN_BONUSES.radius : 1) });
   }
 }
@@ -5348,6 +5464,7 @@ function performMageAttack({ unit, target, battle, unitDef }) {
 function performFirebreatherAttack({ unit, target, battle, unitDef }) {
   const stats = getUnitStats(unit, unitDef);
   if (!target) return;
+  updateUnitActivity(unit, `Breathing fire at ${getUnitActivityTargetLabel(target, battle)}.`);
   const spellId = `${unit.id}-flame-${Math.random().toString(36).slice(2, 7)}`;
   battle.spells.push({
     id: spellId,
@@ -5392,9 +5509,11 @@ function performMountainAttack({ unit, target, battle, unitDef }) {
   if (!abilities.length) return;
   const selected = abilities[Math.floor(Math.random() * abilities.length)];
   if (selected === "hold") {
+    updateUnitActivity(unit, `Seizing ${getUnitActivityTargetLabel(target, battle)} in mountain magic.`);
     castMountainHold(unit, target, battle, unitDef);
     return;
   }
+  updateUnitActivity(unit, `Blasting ${getUnitActivityTargetLabel(target, battle)} backward.`);
   castMountainImpulse(unit, target, battle, unitDef);
 }
 
@@ -5460,6 +5579,7 @@ function performCatapultAttack({ unit, target, battle, unitDef }) {
   if (!target) return;
   const distance = Math.hypot(target.x - unit.x, target.y - unit.y);
   if (distance > stats.range) return;
+  updateUnitActivity(unit, `Launching a stone at ${getUnitActivityTargetLabel(target, battle)}.`);
   const scatterScale = stats.variance * (0.8 + Math.random() * 0.8);
   const endX = clamp(target.x + (Math.random() - 0.5) * scatterScale * 2.1, 28, battle.field.width - 28);
   const endY = clamp(target.y + (Math.random() - 0.5) * scatterScale * 1.7, 28, battle.field.height - 28);
@@ -5509,12 +5629,14 @@ function performMedicHeal({ unit, target, battle, unitDef }) {
   if (!target || target.id === unit.id || (target.health >= target.maxHealth && !hasNegativeStatuses(target))) return;
   const amount = stats.heal * (0.9 + Math.random() * 0.35);
   if (getUnitStatus(target, "zombie")) {
+    updateUnitActivity(unit, `Burning ${getUnitActivityTargetLabel(target, battle)} with restorative energy.`);
     applyDamage(target, amount, battle, unit, { damageKind: "healing" });
     battle.particles.push({ x: target.x, y: target.y - 10, vx: 0, vy: -14, life: 0.5, age: 0, color: "#7f6a57", size: 6 });
     setHighlight(`${findFaction(battle, unit.factionId).title}'s medic burns a zombie thrall with restorative energy`);
     if (target.dead) unit.focusTargetId = null;
     return;
   }
+  updateUnitActivity(unit, `Healing ${getUnitActivityTargetLabel(target, battle)}.`);
   const amountHealed = applyHealing(target, Math.min(Math.max(0, target.maxHealth - target.health), amount), battle, unit);
   recordUnitContribution(unit, "healing", amountHealed, battle);
   const cleansed = clearNegativeStatuses(target);
@@ -5528,6 +5650,7 @@ function performMedicHeal({ unit, target, battle, unitDef }) {
 
 function performBomberAttack({ unit, target, battle, unitDef }) {
   const stats = getUnitStats(unit, unitDef);
+  updateUnitActivity(unit, `Throwing a bomb at ${getUnitActivityTargetLabel(target, battle)}.`);
   const endX = target.x + (Math.random() - 0.5) * 14;
   const endY = target.y + (Math.random() - 0.5) * 14;
   const throwDistance = Math.hypot(endX - unit.x, endY - unit.y);
@@ -5537,6 +5660,7 @@ function performBomberAttack({ unit, target, battle, unitDef }) {
 function performBodyguardAttack({ unit, target, battle, unitDef }) {
   const stats = getUnitStats(unit, unitDef);
   if (!target || Math.hypot(target.x - unit.x, target.y - unit.y) > stats.range + 4) return;
+  updateUnitActivity(unit, `Guarding the line against ${getUnitActivityTargetLabel(target, battle)}.`);
   applyDamage(target, stats.damage * (0.9 + Math.random() * 0.3), battle, unit);
   battle.swipes.push({ x: target.x, y: target.y - 10, angle: unit.facing, life: 0.2, maxLife: 0.2, color: "rgba(188, 233, 247, 0.82)" });
   spawnBurst(battle, target.x, target.y - 2, "#cdefff", 8);
@@ -5545,6 +5669,7 @@ function performBodyguardAttack({ unit, target, battle, unitDef }) {
 function performKnightAttack({ unit, target, battle, unitDef }) {
   const stats = getUnitStats(unit, unitDef);
   if (Math.hypot(target.x - unit.x, target.y - unit.y) > stats.range + 4) return;
+  updateUnitActivity(unit, `Engaging ${getUnitActivityTargetLabel(target, battle)} in melee.`);
   applyDamage(target, stats.damage * (0.92 + Math.random() * 0.46), battle, unit);
   battle.swipes.push({ x: target.x, y: target.y - 12, angle: unit.facing, life: 0.22, maxLife: 0.22, color: shadeColor(findFaction(battle, unit.factionId).color, 0.35) });
   spawnBurst(battle, target.x, target.y, "#ffd59b", 10);
@@ -5553,6 +5678,7 @@ function performKnightAttack({ unit, target, battle, unitDef }) {
 function performPaladinAttack({ unit, target, battle, unitDef }) {
   const stats = getUnitStats(unit, unitDef);
   if (Math.hypot(target.x - unit.x, target.y - unit.y) > stats.range + 4) return;
+  updateUnitActivity(unit, `Striking ${getUnitActivityTargetLabel(target, battle)} with a blessed blow.`);
   const baseDamage = stats.damage * (0.92 + Math.random() * 0.4);
   const damage = isUndeadOrThrall(target) ? baseDamage * (stats.undeadBonus ?? 1.75) : baseDamage;
   applyDamage(target, damage, battle, unit);
@@ -5566,6 +5692,7 @@ function performPaladinAttack({ unit, target, battle, unitDef }) {
 function performKriegerAttack({ unit, target, battle, unitDef }) {
   const stats = getUnitStats(unit, unitDef);
   if (Math.hypot(target.x - unit.x, target.y - unit.y) > stats.range + 5) return;
+  updateUnitActivity(unit, `Savaging ${getUnitActivityTargetLabel(target, battle)}.`);
   applyDamage(target, stats.damage * (0.94 + Math.random() * 0.34), battle, unit);
   battle.swipes.push({ x: target.x, y: target.y - 14, angle: unit.facing, life: 0.28, maxLife: 0.28, color: "rgba(255, 162, 120, 0.82)" });
   spawnBurst(battle, target.x, target.y + 2, "#d79b71", 18);
@@ -6666,74 +6793,8 @@ function getUnitActivityTargetLabel(target, battle) {
 }
 
 function getUnitCurrentActivity(unit, battle) {
-  if (!unit || !battle) return "";
-  const unitDef = getUnitDefinition(unit);
-  const stats = getUnitStats(unit, unitDef);
-  const focusedTarget = unit.focusTargetId ? findUnitById(battle, unit.focusTargetId) : null;
-  const enemies = getTargetableEnemies(battle, unit.factionId, unit);
-  const livingGrave = unit.currentGraveId ? findGraveById(battle, unit.currentGraveId) : null;
-  const activeSpell = unit.activeSpellId ? battle.spells.find((spell) => spell.id === unit.activeSpellId) : null;
-  const targetLabel = focusedTarget ? getUnitActivityTargetLabel(focusedTarget, battle) : "its target";
-  const hasAttackTarget = focusedTarget && !focusedTarget.dead && !focusedTarget.fled;
-
-  if (unit.fleeing) return "routing away from the battlefield";
-  if (unit.possessedUnitId) {
-    const host = findUnitById(battle, unit.possessedUnitId);
-    return host ? `possessing ${getUnitActivityTargetLabel(host, battle)}` : "possessing an enemy host";
-  }
-  if (activeSpell) {
-    if (activeSpell.kind === "flame-breath") return `breathing fire over ${targetLabel}`;
-    if (activeSpell.kind === "mountain-hold") return `holding ${targetLabel} in place with mountain magic`;
-    if (activeSpell.kind === "mountain-impulse") return `blasting ${targetLabel} backward`;
-    if (activeSpell.kind === "inklord-throw") return `flinging ${targetLabel} through the air`;
-  }
-  if (unit.type === "bard" && unit.activeSongKind && (unit.songTimer || 0) > 0) {
-    const songName = getStatusDefinition(unit.activeSongKind)?.name.toLowerCase() || "a battle song";
-    return `playing ${songName} for nearby allies`;
-  }
-  if (unit.type === "artificer" && unit.constructedTurretId) {
-    return "maintaining its deployed turret";
-  }
-  if (unit.currentTargetKind === "grave" && livingGrave) {
-    if (unit.type === "phantom" && (unit.gravesToConsume || 0) > 0) return "seeking gravestones to recharge its haunt attack";
-    if (unit.type === "necromancer") return "seeking a gravestone to raise a thrall";
-    if (unit.type === "graverobber") return "seeking a gravestone to rob";
-    if (unit.type === "arachnomist") return "seeking a gravestone to hatch a spider swarm";
-    return "moving toward a nearby gravestone";
-  }
-  if (unit.type === "medic" && hasAttackTarget && areUnitsAllied(unit, focusedTarget, battle)) {
-    return `moving to heal ${targetLabel}`;
-  }
-  if (unit.type === "bard" && hasAttackTarget && areUnitsAllied(unit, focusedTarget, battle)) {
-    return `shadowing ${targetLabel}`;
-  }
-  if (hasAttackTarget) {
-    const distance = Math.hypot(focusedTarget.x - unit.x, focusedTarget.y - unit.y);
-    const attackRange = getAttackRange(unit, unitDef);
-    if (unit.type === "phantom" && (unit.gravesToConsume || 0) <= 0) return `haunting ${targetLabel}`;
-    if (unit.type === "medic") return `moving to aid ${targetLabel}`;
-    if (unit.type === "firebreather") return distance <= attackRange ? `breathing fire at ${targetLabel}` : `closing in to torch ${targetLabel}`;
-    if (unit.type === "mountainman") return distance <= attackRange ? `casting at ${targetLabel}` : `closing in on ${targetLabel}`;
-    if (unit.type === "bodyguard") return distance <= attackRange ? `guarding the line against ${targetLabel}` : `moving to intercept ${targetLabel}`;
-    if (unit.type === "huntsman") {
-      if (!getUnitStatus(focusedTarget, "immobilized") && distance <= (stats.netRange || attackRange) && (unit.huntsmanNetCooldown || 0) <= 0) return `lining up a net throw on ${targetLabel}`;
-      return distance <= attackRange ? `throwing a knife at ${targetLabel}` : `tracking ${targetLabel}`;
-    }
-    if (stats.range > 40 || ["archer", "mage", "poisoner", "catapult", "bomber", "turret", "artificer"].includes(unit.type)) {
-      return distance <= attackRange ? `firing on ${targetLabel}` : `tracking ${targetLabel}`;
-    }
-    return distance <= attackRange ? `engaging ${targetLabel}` : `closing on ${targetLabel}`;
-  }
-  if (battle.completed) return "holding position in the aftermath";
-  if (unit.type === "phantom") return (unit.gravesToConsume || 0) > 0 ? "seeking gravestones to recharge its haunt attack" : "seeking a host to possess";
-  if (unit.type === "medic") return "seeking a wounded ally to heal";
-  if (unit.type === "bard") return "seeking allies to support";
-  if (unit.type === "artificer") return "seeking a place to build a turret";
-  if (unit.type === "turret") return "scanning for targets";
-  if (unit.type === "spiderswarm") return "skittering in search of prey";
-  if (unit.currentTargetKind === "grave") return "seeking a gravestone";
-  if (!enemies.length) return "holding position";
-  return stats.range > 40 ? "seeking a target to shoot" : "seeking someone to engage";
+  if (!unit) return "";
+  return unit.Status?.text || getDefaultUnitActivity(unit);
 }
 
 function getStatusTooltipCopy(unit, status, battle) {
