@@ -597,6 +597,7 @@ const UNIT_DEFINITIONS = {
     beforeStep: updatePhantomState,
     selectTarget: selectPhantomTarget,
     getAttackRange: getPhantomAttackRange,
+    managesOwnCooldown: true,
     getMoveSpeed: (unit, unitDef) => {
       const stats = getUnitStats(unit, unitDef);
       if (unit.currentTargetKind === "enemy" && !unit.possessedUnitId && (unit.gravesToConsume || 0) <= 0) {
@@ -2864,7 +2865,7 @@ function ejectPhantomFromHost(phantom, host, battle, options = {}) {
 
 function possessUnit(phantom, target, battle) {
   if (!phantom || phantom.type !== "phantom" || !target || target.dead || target.fled) return false;
-  if (target.type === "inklord" || getPossessionStatus(target, battle)) return false;
+  if (target.type === "inklord" || target.type === "phantom" || getPossessionStatus(target, battle)) return false;
   phantom.possessedUnitId = target.id;
   phantom.focusTargetId = target.id;
   phantom.currentTargetKind = "enemy";
@@ -4726,13 +4727,14 @@ function selectPhantomTarget({ unit, enemies, graves, battle, unitDef }) {
   const stats = getUnitStats(unit, unitDef);
   const validTargets = enemies.filter((enemy) => (
     enemy.type !== "inklord"
+    && enemy.type !== "phantom"
     && !getPossessionStatus(enemy, battle)
     && !enemy.spawnInvulnerable
     && Math.hypot(enemy.x - unit.x, enemy.y - unit.y) <= stats.hauntRange
   ));
   const pool = validTargets.length
     ? validTargets
-    : enemies.filter((enemy) => enemy.type !== "inklord" && !getPossessionStatus(enemy, battle) && !enemy.spawnInvulnerable);
+    : enemies.filter((enemy) => enemy.type !== "inklord" && enemy.type !== "phantom" && !getPossessionStatus(enemy, battle) && !enemy.spawnInvulnerable);
   if (!pool.length) {
     unit.currentTargetKind = null;
     return null;
@@ -4827,11 +4829,14 @@ function performPhantomAttack({ unit, target, battle, unitDef }) {
       battle.particles.push({ kind: "shockwave", x: unit.x, y: unit.y - 4, vx: 0, vy: 0, life: 0.34, age: 0, color: "rgba(182, 165, 255, 0.82)", size: 14, startSize: 14, maxSize: 44, lineWidth: 4 });
       setHighlight(`${findFaction(battle, unit.factionId)?.title || "A faction"}'s phantom regains its strength`);
     }
+    unit.cooldown = stats.cooldown * 0.5;
     return;
   }
-  if (!target || target.type === "inklord" || getPossessionStatus(target, battle)) return;
+  if (!target || target.type === "inklord" || target.type === "phantom" || getPossessionStatus(target, battle)) return;
   if (Math.hypot(target.x - unit.x, target.y - unit.y) > stats.range + 12) return;
-  possessUnit(unit, target, battle);
+  if (possessUnit(unit, target, battle)) {
+    unit.cooldown = stats.cooldown;
+  }
 }
 
 function updateInkLordPresence({ unit, battle, enemies, dt }) {
