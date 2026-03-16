@@ -6,7 +6,7 @@
     "anchorX": 0.5,
     "anchorY": 0.88,
     "healthBarOffsetX": 0,
-    "healthBarOffsetY": -13
+    "healthBarOffsetY": -17
   },
   "sourceSize": {
     "width": 1024,
@@ -99,7 +99,7 @@
         "rotation": {
           "stride": -21.772396214971284,
           "bob": 0,
-          "attack": 73.33859777674537,
+          "attack": -90.2385977767454,
           "idle": 22.918311805232932
         },
         "x": {
@@ -291,7 +291,7 @@
         "rotation": {
           "stride": -9.167324722093172,
           "bob": 0,
-          "attack": 64.1712730546522,
+          "attack": 0,
           "idle": 20.05352282957881
         },
         "x": {
@@ -303,7 +303,7 @@
         "y": {
           "stride": 0,
           "bob": 0,
-          "attack": -0.04,
+          "attack": 0,
           "idle": 0
         },
         "scaleX": {
@@ -352,7 +352,7 @@
         }
       },
       "attack": {
-        "speed": 1,
+        "speed": 2,
         "loop": false,
         "keyframes": {
           "body": [],
@@ -390,6 +390,8 @@
         "x": -233,
         "y": 241
       },
+      "scaleX": 1,
+      "scaleY": 1.4,
       "flipX": false,
       "flipY": false,
       "sourceRect": {
@@ -424,6 +426,8 @@
         "x": -53,
         "y": 118
       },
+      "scaleX": 1,
+      "scaleY": 0.75,
       "flipX": false,
       "flipY": false,
       "sourceRect": {
@@ -458,6 +462,8 @@
         "x": 449,
         "y": 266
       },
+      "scaleX": 1,
+      "scaleY": 0.9,
       "flipX": false,
       "flipY": false,
       "sourceRect": {
@@ -492,6 +498,8 @@
         "x": 437,
         "y": 286
       },
+      "scaleX": 1,
+      "scaleY": 1,
       "flipX": false,
       "flipY": false,
       "sourceRect": {
@@ -526,6 +534,8 @@
         "x": 433,
         "y": 110
       },
+      "scaleX": 0.85,
+      "scaleY": 0.75,
       "flipX": false,
       "flipY": false,
       "sourceRect": {
@@ -560,6 +570,8 @@
         "x": 0,
         "y": 0
       },
+      "scaleX": 1,
+      "scaleY": 1,
       "flipX": false,
       "flipY": false,
       "sourceRect": {
@@ -594,6 +606,8 @@
         "x": 454,
         "y": 131
       },
+      "scaleX": 0.9,
+      "scaleY": 0.75,
       "flipX": false,
       "flipY": false,
       "sourceRect": {
@@ -621,13 +635,15 @@
         "y": 69
       },
       "mount": {
-        "x": -40,
-        "y": 190
+        "x": -49,
+        "y": 178
       },
       "mountOffset": {
-        "x": 0,
-        "y": 0
+        "x": -9,
+        "y": -12
       },
+      "scaleX": 1,
+      "scaleY": 1,
       "flipX": false,
       "flipY": false,
       "sourceRect": {
@@ -662,6 +678,8 @@
         "x": 152,
         "y": -221
       },
+      "scaleX": 1,
+      "scaleY": 1,
       "flipX": false,
       "flipY": false,
       "sourceRect": {
@@ -752,7 +770,7 @@
         "rotation": {
           "stride": -21.772396214971284,
           "bob": 0,
-          "attack": 73.33859777674537,
+          "attack": -90.2385977767454,
           "idle": 22.918311805232932
         },
         "x": {
@@ -944,7 +962,7 @@
         "rotation": {
           "stride": -9.167324722093172,
           "bob": 0,
-          "attack": 64.1712730546522,
+          "attack": 0,
           "idle": 20.05352282957881
         },
         "x": {
@@ -956,7 +974,7 @@
         "y": {
           "stride": 0,
           "bob": 0,
-          "attack": -0.04,
+          "attack": 0,
           "idle": 0
         },
         "scaleX": {
@@ -1008,7 +1026,7 @@
       },
       "attack": {
         "id": "attack",
-        "speed": 1,
+        "speed": 2,
         "loop": false,
         "keyframes": {
           "body": [],
@@ -1036,9 +1054,9 @@
     "legBack": {
       "thighId": "legBackThigh",
       "shinId": "legBackShin",
-      "thighLength": 194.16487838947597,
+      "thighLength": 184.6212338816963,
       "shinLength": 244.8596536794088,
-      "thighRestAngle": 1.7782925532300993,
+      "thighRestAngle": 1.8394236683907814,
       "shinRestAngle": 1.6546158695849025
     }
   }

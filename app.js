@@ -1096,6 +1096,7 @@ const state = {
   running: false,
   roundsApplied: 0,
   speedIndex: 2,
+  useRiggedSprites: true,
   audio: createAudioState(),
   camera: {
     x: FIELD.width / 2,
@@ -1160,6 +1161,7 @@ const els = {
   battleTicker: document.getElementById("battleTicker"),
   battleHealthChart: document.getElementById("battleHealthChart"),
   battleHealthChartCanvas: document.getElementById("battleHealthChartCanvas"),
+  useRiggedSpritesToggle: document.getElementById("useRiggedSpritesToggle"),
   knockoutAnnouncement: document.getElementById("knockoutAnnouncement"),
   bossAnnouncement: document.getElementById("bossAnnouncement"),
   winnerCard: document.getElementById("winnerCard"),
@@ -1272,6 +1274,7 @@ function bootstrap() {
       saveState();
     }
     bindUi();
+    setUseRiggedSprites(state.useRiggedSprites);
     initializeBattleAudio();
     renderSpeedControls();
     syncCsvInput();
@@ -1309,6 +1312,9 @@ function bindUi() {
   els.closeTournamentStoryBtn.addEventListener("click", closeTournamentStoryModal);
   els.closeCompositionModalBtn.addEventListener("click", closeCompositionModal);
   els.cancelCompositionBtn.addEventListener("click", closeCompositionModal);
+  els.useRiggedSpritesToggle?.addEventListener("change", () => {
+    setUseRiggedSprites(Boolean(els.useRiggedSpritesToggle.checked));
+  });
   els.compositionSearch.addEventListener("input", () => {
     state.compositionModal.search = els.compositionSearch.value;
     renderCompositionModal();
@@ -3380,15 +3386,39 @@ function loadState() {
     if (!saved) return;
     state.factions = (saved.factions || []).map(withFactionDefaults);
     state.roundsApplied = saved.roundsApplied || 0;
+    state.useRiggedSprites = saved.useRiggedSprites !== false;
   } catch {
     state.factions = [];
   }
 }
 
 function saveState() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify({ factions: state.factions, roundsApplied: state.roundsApplied }));
+  localStorage.setItem(STORAGE_KEY, JSON.stringify({
+    factions: state.factions,
+    roundsApplied: state.roundsApplied,
+    useRiggedSprites: state.useRiggedSprites,
+  }));
   syncTournamentViewState(true);
 }
+
+function clearRiggedUnitCaches() {
+  state.riggedUnitSpriteSources.clear();
+  Array.from(state.tintedUnitSprites.keys()).forEach((cacheKey) => {
+    if (cacheKey.includes("|rig|")) state.tintedUnitSprites.delete(cacheKey);
+  });
+}
+
+function setUseRiggedSprites(enabled) {
+  state.useRiggedSprites = Boolean(enabled);
+  if (els.useRiggedSpritesToggle) {
+    els.useRiggedSpritesToggle.checked = state.useRiggedSprites;
+  }
+  if (!state.useRiggedSprites) {
+    clearRiggedUnitCaches();
+  }
+  saveState();
+}
+
 function syncCsvInput() {
   const rows = [
     ["title", "coverUrl", "armySize", "submissionType", "composition", "fledReserve"].join(","),
@@ -5135,7 +5165,7 @@ function getUnitSpriteSource(unitId) {
 }
 
 function getRiggedUnitSpriteSource(unitId) {
-  if (!unitId) return null;
+  if (!unitId || !state.useRiggedSprites) return null;
   if (!state.riggedUnitSpriteSources.has(unitId)) {
     const entry = {
       unitId,
@@ -5299,6 +5329,7 @@ function drawUnitSprite(unit, color, scale) {
 }
 
 function drawRiggedUnitSprite(unit, color, scale) {
+  if (!state.useRiggedSprites) return false;
   const source = getRiggedUnitSpriteSource(unit.type);
   if (!source || source.status !== "loaded" || !source.image?.complete || !source.manifest) return false;
   const image = getTintedUnitSprite(source.image, `${source.url}|rig`, color) || source.image;
