@@ -1,0 +1,1081 @@
+{
+  "version": 2,
+  "unitId": "mountainman",
+  "layout": {
+    "height": 45,
+    "anchorX": 0.5,
+    "anchorY": 0.88,
+    "healthBarOffsetX": 0,
+    "healthBarOffsetY": -15
+  },
+  "sourceSize": {
+    "width": 1024,
+    "height": 1024
+  },
+  "sheet": {
+    "image": "mountainman.png",
+    "cellSize": 672,
+    "columns": 4,
+    "rows": 3,
+    "order": [
+      "body",
+      "head",
+      "armFront",
+      "armBack",
+      "legFrontThigh",
+      "legFrontShin",
+      "legBackThigh",
+      "legBackShin",
+      "weapon"
+    ]
+  },
+  "animations": {
+    "tuning": {
+      "body": {
+        "rotation": {
+          "stride": 0,
+          "bob": 0,
+          "attack": -2.8647889756541165,
+          "idle": 40.10704565915762
+        },
+        "x": {
+          "stride": 0,
+          "bob": 0,
+          "attack": 0,
+          "idle": 0
+        },
+        "y": {
+          "stride": 0,
+          "bob": -0.02,
+          "attack": 0,
+          "idle": 0
+        },
+        "scaleX": {
+          "stride": 0,
+          "bob": 0,
+          "attack": 0,
+          "idle": 0
+        },
+        "scaleY": {
+          "stride": 0,
+          "bob": 0,
+          "attack": 0,
+          "idle": 0
+        }
+      },
+      "head": {
+        "rotation": {
+          "stride": 0,
+          "bob": 0,
+          "attack": -4.583662361046586,
+          "idle": 57.29577951308232
+        },
+        "x": {
+          "stride": 0,
+          "bob": 0,
+          "attack": 0,
+          "idle": 0
+        },
+        "y": {
+          "stride": 0,
+          "bob": -0.03,
+          "attack": -0.02,
+          "idle": 0
+        },
+        "scaleX": {
+          "stride": 0,
+          "bob": 0,
+          "attack": 0,
+          "idle": 0
+        },
+        "scaleY": {
+          "stride": 0,
+          "bob": 0,
+          "attack": 0,
+          "idle": 0
+        }
+      },
+      "armFront": {
+        "rotation": {
+          "stride": -21.772396214971284,
+          "bob": 0,
+          "attack": -73.33859777674537,
+          "idle": 22.918311805232932
+        },
+        "x": {
+          "stride": 0,
+          "bob": 0,
+          "attack": 0,
+          "idle": 0
+        },
+        "y": {
+          "stride": 0,
+          "bob": -0.035,
+          "attack": 0,
+          "idle": 0
+        },
+        "scaleX": {
+          "stride": 0,
+          "bob": 0,
+          "attack": 0,
+          "idle": 0
+        },
+        "scaleY": {
+          "stride": 0,
+          "bob": 0,
+          "attack": 0,
+          "idle": 0
+        }
+      },
+      "armBack": {
+        "rotation": {
+          "stride": 16.04281826366305,
+          "bob": 0,
+          "attack": -40.31324031235482,
+          "idle": -12.60507149287811
+        },
+        "x": {
+          "stride": 0,
+          "bob": 0,
+          "attack": 0,
+          "idle": 0
+        },
+        "y": {
+          "stride": 0,
+          "bob": -0.025,
+          "attack": 0,
+          "idle": 0
+        },
+        "scaleX": {
+          "stride": 0,
+          "bob": 0,
+          "attack": 0,
+          "idle": 0
+        },
+        "scaleY": {
+          "stride": 0,
+          "bob": 0,
+          "attack": 0,
+          "idle": 0
+        }
+      },
+      "legFrontThigh": {
+        "rotation": {
+          "stride": -30,
+          "bob": 0,
+          "attack": 0,
+          "idle": 0
+        },
+        "x": {
+          "stride": 0,
+          "bob": 0,
+          "attack": 0,
+          "idle": 0
+        },
+        "y": {
+          "stride": 0,
+          "bob": -0.025,
+          "attack": 0,
+          "idle": 0
+        },
+        "scaleX": {
+          "stride": 0,
+          "bob": 0,
+          "attack": 0,
+          "idle": 0
+        },
+        "scaleY": {
+          "stride": 0,
+          "bob": 0,
+          "attack": 0,
+          "idle": 0
+        }
+      },
+      "legFrontShin": {
+        "rotation": {
+          "stride": 30,
+          "bob": 0,
+          "attack": 0,
+          "idle": 0
+        },
+        "x": {
+          "stride": -0.09,
+          "bob": 0,
+          "attack": 0,
+          "idle": 0
+        },
+        "y": {
+          "stride": 0,
+          "bob": 0,
+          "attack": 0,
+          "idle": 0
+        },
+        "scaleX": {
+          "stride": 0,
+          "bob": 0,
+          "attack": 0,
+          "idle": 0
+        },
+        "scaleY": {
+          "stride": 0,
+          "bob": 0,
+          "attack": 0,
+          "idle": 0
+        }
+      },
+      "legBackThigh": {
+        "rotation": {
+          "stride": -30,
+          "bob": 0,
+          "attack": 0,
+          "idle": 0
+        },
+        "x": {
+          "stride": 0,
+          "bob": 0,
+          "attack": 0,
+          "idle": 0
+        },
+        "y": {
+          "stride": 0,
+          "bob": -0.012,
+          "attack": 0,
+          "idle": 0
+        },
+        "scaleX": {
+          "stride": 0,
+          "bob": 0,
+          "attack": 0,
+          "idle": 0
+        },
+        "scaleY": {
+          "stride": 0,
+          "bob": 0,
+          "attack": 0,
+          "idle": 0
+        }
+      },
+      "legBackShin": {
+        "rotation": {
+          "stride": 30,
+          "bob": 0,
+          "attack": 0,
+          "idle": 0
+        },
+        "x": {
+          "stride": -0.09,
+          "bob": 0,
+          "attack": 0,
+          "idle": 0
+        },
+        "y": {
+          "stride": 0,
+          "bob": 0,
+          "attack": 0,
+          "idle": 0
+        },
+        "scaleX": {
+          "stride": 0,
+          "bob": 0,
+          "attack": 0,
+          "idle": 0
+        },
+        "scaleY": {
+          "stride": 0,
+          "bob": 0,
+          "attack": 0,
+          "idle": 0
+        }
+      },
+      "weapon": {
+        "rotation": {
+          "stride": 0,
+          "bob": 0,
+          "attack": 0,
+          "idle": 20.05352282957881
+        },
+        "x": {
+          "stride": 0,
+          "bob": 0,
+          "attack": 0,
+          "idle": 0
+        },
+        "y": {
+          "stride": 0,
+          "bob": 0,
+          "attack": 0,
+          "idle": 0
+        },
+        "scaleX": {
+          "stride": 0,
+          "bob": 0,
+          "attack": 0,
+          "idle": 0
+        },
+        "scaleY": {
+          "stride": 0,
+          "bob": 0,
+          "attack": 0,
+          "idle": 0
+        }
+      }
+    },
+    "clips": {
+      "idle": {
+        "speed": 1,
+        "loop": true,
+        "keyframes": {
+          "body": [],
+          "head": [],
+          "armFront": [],
+          "armBack": [],
+          "legFrontThigh": [],
+          "legFrontShin": [],
+          "legBackThigh": [],
+          "legBackShin": [],
+          "weapon": []
+        }
+      },
+      "walk": {
+        "speed": 1,
+        "loop": true,
+        "keyframes": {
+          "body": [],
+          "head": [],
+          "armFront": [],
+          "armBack": [],
+          "legFrontThigh": [],
+          "legFrontShin": [],
+          "legBackThigh": [],
+          "legBackShin": [],
+          "weapon": []
+        }
+      },
+      "attack": {
+        "speed": 1,
+        "loop": false,
+        "keyframes": {
+          "body": [],
+          "head": [],
+          "armFront": [],
+          "armBack": [],
+          "legFrontThigh": [],
+          "legFrontShin": [],
+          "legBackThigh": [],
+          "legBackShin": [],
+          "weapon": []
+        }
+      }
+    }
+  },
+  "parts": {
+    "body": {
+      "cell": 0,
+      "parentId": null,
+      "frame": {
+        "x": 153,
+        "y": 36,
+        "w": 367,
+        "h": 600
+      },
+      "pivot": {
+        "x": 184,
+        "y": 300
+      },
+      "mount": {
+        "x": -134,
+        "y": 37
+      },
+      "mountOffset": {
+        "x": -134,
+        "y": 37
+      },
+      "scaleX": 1,
+      "scaleY": 1,
+      "rotationOffsetDeg": 0,
+      "drawOrder": 3,
+      "flipX": false,
+      "flipY": false,
+      "sourceRect": {
+        "x": 472,
+        "y": 301,
+        "w": 367,
+        "h": 600
+      },
+      "sourcePivot": {
+        "x": 656,
+        "y": 601
+      }
+    },
+    "head": {
+      "cell": 1,
+      "parentId": "body",
+      "frame": {
+        "x": 240,
+        "y": 211,
+        "w": 192,
+        "h": 251
+      },
+      "pivot": {
+        "x": 119,
+        "y": 172
+      },
+      "mount": {
+        "x": 21,
+        "y": -268
+      },
+      "mountOffset": {
+        "x": -95,
+        "y": 111
+      },
+      "scaleX": 1,
+      "scaleY": 1,
+      "rotationOffsetDeg": 0,
+      "drawOrder": 4,
+      "flipX": false,
+      "flipY": false,
+      "sourceRect": {
+        "x": 653,
+        "y": 50,
+        "w": 192,
+        "h": 251
+      },
+      "sourcePivot": {
+        "x": 772,
+        "y": 222
+      }
+    },
+    "armFront": {
+      "cell": 2,
+      "parentId": "body",
+      "frame": {
+        "x": 248,
+        "y": 186,
+        "w": 177,
+        "h": 301
+      },
+      "pivot": {
+        "x": 146,
+        "y": 46
+      },
+      "mount": {
+        "x": -96,
+        "y": -171
+      },
+      "mountOffset": {
+        "x": 349,
+        "y": 302
+      },
+      "scaleX": 1,
+      "scaleY": 1,
+      "rotationOffsetDeg": 0,
+      "drawOrder": 7,
+      "flipX": false,
+      "flipY": false,
+      "sourceRect": {
+        "x": 65,
+        "y": 82,
+        "w": 177,
+        "h": 301
+      },
+      "sourcePivot": {
+        "x": 211,
+        "y": 128
+      }
+    },
+    "armBack": {
+      "cell": 3,
+      "parentId": "body",
+      "frame": {
+        "x": 239,
+        "y": 190,
+        "w": 195,
+        "h": 292
+      },
+      "pivot": {
+        "x": 148,
+        "y": 40
+      },
+      "mount": {
+        "x": 144,
+        "y": -155
+      },
+      "mountOffset": {
+        "x": 384,
+        "y": 324
+      },
+      "scaleX": 1,
+      "scaleY": 1,
+      "rotationOffsetDeg": 0,
+      "drawOrder": 2,
+      "flipX": false,
+      "flipY": false,
+      "sourceRect": {
+        "x": 268,
+        "y": 82,
+        "w": 195,
+        "h": 292
+      },
+      "sourcePivot": {
+        "x": 416,
+        "y": 122
+      }
+    },
+    "legFrontThigh": {
+      "cell": 4,
+      "parentId": "body",
+      "frame": {
+        "x": 237,
+        "y": 183,
+        "w": 198,
+        "h": 307
+      },
+      "pivot": {
+        "x": 109,
+        "y": 52
+      },
+      "mount": {
+        "x": -65,
+        "y": 76
+      },
+      "mountOffset": {
+        "x": 432,
+        "y": 222
+      },
+      "scaleX": 1,
+      "scaleY": 1,
+      "rotationOffsetDeg": 0,
+      "drawOrder": 1,
+      "flipX": false,
+      "flipY": false,
+      "sourceRect": {
+        "x": 50,
+        "y": 403,
+        "w": 198,
+        "h": 307
+      },
+      "sourcePivot": {
+        "x": 159,
+        "y": 455
+      }
+    },
+    "legFrontShin": {
+      "cell": 5,
+      "parentId": "legFrontThigh",
+      "frame": {
+        "x": 230,
+        "y": 217,
+        "w": 213,
+        "h": 239
+      },
+      "pivot": {
+        "x": 108,
+        "y": 7
+      },
+      "mount": {
+        "x": -8,
+        "y": 216
+      },
+      "mountOffset": {
+        "x": 0,
+        "y": 0
+      },
+      "scaleX": 1,
+      "scaleY": 1,
+      "rotationOffsetDeg": 0,
+      "drawOrder": 6,
+      "flipX": false,
+      "flipY": false,
+      "sourceRect": {
+        "x": 43,
+        "y": 664,
+        "w": 213,
+        "h": 239
+      },
+      "sourcePivot": {
+        "x": 151,
+        "y": 671
+      }
+    },
+    "legBackThigh": {
+      "cell": 6,
+      "parentId": "body",
+      "frame": {
+        "x": 254,
+        "y": 176,
+        "w": 165,
+        "h": 321
+      },
+      "pivot": {
+        "x": 81,
+        "y": 50
+      },
+      "mount": {
+        "x": 11,
+        "y": 86
+      },
+      "mountOffset": {
+        "x": 318,
+        "y": 238
+      },
+      "scaleX": 1,
+      "scaleY": 1,
+      "rotationOffsetDeg": 0,
+      "drawOrder": 0,
+      "flipX": false,
+      "flipY": false,
+      "sourceRect": {
+        "x": 268,
+        "y": 399,
+        "w": 165,
+        "h": 321
+      },
+      "sourcePivot": {
+        "x": 349,
+        "y": 449
+      }
+    },
+    "legBackShin": {
+      "cell": 7,
+      "parentId": "legBackThigh",
+      "frame": {
+        "x": 246,
+        "y": 214,
+        "w": 181,
+        "h": 244
+      },
+      "pivot": {
+        "x": 86,
+        "y": 24
+      },
+      "mount": {
+        "x": 2,
+        "y": 235
+      },
+      "mountOffset": {
+        "x": 0,
+        "y": 0
+      },
+      "scaleX": 1,
+      "scaleY": 1,
+      "rotationOffsetDeg": 0,
+      "drawOrder": 1,
+      "flipX": false,
+      "flipY": false,
+      "sourceRect": {
+        "x": 265,
+        "y": 660,
+        "w": 181,
+        "h": 244
+      },
+      "sourcePivot": {
+        "x": 351,
+        "y": 684
+      }
+    },
+    "weapon": {
+      "cell": 8,
+      "parentId": "body",
+      "frame": {
+        "x": 252,
+        "y": 14,
+        "w": 168,
+        "h": 644
+      },
+      "pivot": {
+        "x": 99,
+        "y": 345
+      },
+      "mount": {
+        "x": 38,
+        "y": -1
+      },
+      "mountOffset": {
+        "x": -261,
+        "y": -4
+      },
+      "scaleX": 1,
+      "scaleY": 1,
+      "rotationOffsetDeg": 0,
+      "drawOrder": 3,
+      "flipX": false,
+      "flipY": false,
+      "sourceRect": {
+        "x": 856,
+        "y": 259,
+        "w": 168,
+        "h": 644
+      },
+      "sourcePivot": {
+        "x": 955,
+        "y": 604
+      }
+    }
+  },
+  "weaponAttachment": {
+    "partId": "armFront",
+    "x": 98,
+    "y": 252,
+    "angleDeg": 90
+  },
+  "__normalizedAnimationConfig": {
+    "tuning": {
+      "body": {
+        "rotation": {
+          "stride": 0,
+          "bob": 0,
+          "attack": -2.8647889756541165,
+          "idle": 40.10704565915762
+        },
+        "x": {
+          "stride": 0,
+          "bob": 0,
+          "attack": 0,
+          "idle": 0
+        },
+        "y": {
+          "stride": 0,
+          "bob": -0.02,
+          "attack": 0,
+          "idle": 0
+        },
+        "scaleX": {
+          "stride": 0,
+          "bob": 0,
+          "attack": 0,
+          "idle": 0
+        },
+        "scaleY": {
+          "stride": 0,
+          "bob": 0,
+          "attack": 0,
+          "idle": 0
+        }
+      },
+      "head": {
+        "rotation": {
+          "stride": 0,
+          "bob": 0,
+          "attack": -4.583662361046586,
+          "idle": 57.29577951308232
+        },
+        "x": {
+          "stride": 0,
+          "bob": 0,
+          "attack": 0,
+          "idle": 0
+        },
+        "y": {
+          "stride": 0,
+          "bob": -0.03,
+          "attack": -0.02,
+          "idle": 0
+        },
+        "scaleX": {
+          "stride": 0,
+          "bob": 0,
+          "attack": 0,
+          "idle": 0
+        },
+        "scaleY": {
+          "stride": 0,
+          "bob": 0,
+          "attack": 0,
+          "idle": 0
+        }
+      },
+      "armFront": {
+        "rotation": {
+          "stride": -21.772396214971284,
+          "bob": 0,
+          "attack": -73.33859777674537,
+          "idle": 22.918311805232932
+        },
+        "x": {
+          "stride": 0,
+          "bob": 0,
+          "attack": 0,
+          "idle": 0
+        },
+        "y": {
+          "stride": 0,
+          "bob": -0.035,
+          "attack": 0,
+          "idle": 0
+        },
+        "scaleX": {
+          "stride": 0,
+          "bob": 0,
+          "attack": 0,
+          "idle": 0
+        },
+        "scaleY": {
+          "stride": 0,
+          "bob": 0,
+          "attack": 0,
+          "idle": 0
+        }
+      },
+      "armBack": {
+        "rotation": {
+          "stride": 16.04281826366305,
+          "bob": 0,
+          "attack": -40.31324031235482,
+          "idle": -12.60507149287811
+        },
+        "x": {
+          "stride": 0,
+          "bob": 0,
+          "attack": 0,
+          "idle": 0
+        },
+        "y": {
+          "stride": 0,
+          "bob": -0.025,
+          "attack": 0,
+          "idle": 0
+        },
+        "scaleX": {
+          "stride": 0,
+          "bob": 0,
+          "attack": 0,
+          "idle": 0
+        },
+        "scaleY": {
+          "stride": 0,
+          "bob": 0,
+          "attack": 0,
+          "idle": 0
+        }
+      },
+      "legFrontThigh": {
+        "rotation": {
+          "stride": -30,
+          "bob": 0,
+          "attack": 0,
+          "idle": 0
+        },
+        "x": {
+          "stride": 0,
+          "bob": 0,
+          "attack": 0,
+          "idle": 0
+        },
+        "y": {
+          "stride": 0,
+          "bob": -0.025,
+          "attack": 0,
+          "idle": 0
+        },
+        "scaleX": {
+          "stride": 0,
+          "bob": 0,
+          "attack": 0,
+          "idle": 0
+        },
+        "scaleY": {
+          "stride": 0,
+          "bob": 0,
+          "attack": 0,
+          "idle": 0
+        }
+      },
+      "legFrontShin": {
+        "rotation": {
+          "stride": 30,
+          "bob": 0,
+          "attack": 0,
+          "idle": 0
+        },
+        "x": {
+          "stride": -0.09,
+          "bob": 0,
+          "attack": 0,
+          "idle": 0
+        },
+        "y": {
+          "stride": 0,
+          "bob": 0,
+          "attack": 0,
+          "idle": 0
+        },
+        "scaleX": {
+          "stride": 0,
+          "bob": 0,
+          "attack": 0,
+          "idle": 0
+        },
+        "scaleY": {
+          "stride": 0,
+          "bob": 0,
+          "attack": 0,
+          "idle": 0
+        }
+      },
+      "legBackThigh": {
+        "rotation": {
+          "stride": -30,
+          "bob": 0,
+          "attack": 0,
+          "idle": 0
+        },
+        "x": {
+          "stride": 0,
+          "bob": 0,
+          "attack": 0,
+          "idle": 0
+        },
+        "y": {
+          "stride": 0,
+          "bob": -0.012,
+          "attack": 0,
+          "idle": 0
+        },
+        "scaleX": {
+          "stride": 0,
+          "bob": 0,
+          "attack": 0,
+          "idle": 0
+        },
+        "scaleY": {
+          "stride": 0,
+          "bob": 0,
+          "attack": 0,
+          "idle": 0
+        }
+      },
+      "legBackShin": {
+        "rotation": {
+          "stride": 30,
+          "bob": 0,
+          "attack": 0,
+          "idle": 0
+        },
+        "x": {
+          "stride": -0.09,
+          "bob": 0,
+          "attack": 0,
+          "idle": 0
+        },
+        "y": {
+          "stride": 0,
+          "bob": 0,
+          "attack": 0,
+          "idle": 0
+        },
+        "scaleX": {
+          "stride": 0,
+          "bob": 0,
+          "attack": 0,
+          "idle": 0
+        },
+        "scaleY": {
+          "stride": 0,
+          "bob": 0,
+          "attack": 0,
+          "idle": 0
+        }
+      },
+      "weapon": {
+        "rotation": {
+          "stride": 0,
+          "bob": 0,
+          "attack": 0,
+          "idle": 20.05352282957881
+        },
+        "x": {
+          "stride": 0,
+          "bob": 0,
+          "attack": 0,
+          "idle": 0
+        },
+        "y": {
+          "stride": 0,
+          "bob": 0,
+          "attack": 0,
+          "idle": 0
+        },
+        "scaleX": {
+          "stride": 0,
+          "bob": 0,
+          "attack": 0,
+          "idle": 0
+        },
+        "scaleY": {
+          "stride": 0,
+          "bob": 0,
+          "attack": 0,
+          "idle": 0
+        }
+      }
+    },
+    "clips": {
+      "idle": {
+        "id": "idle",
+        "speed": 1,
+        "loop": true,
+        "keyframes": {
+          "body": [],
+          "head": [],
+          "armFront": [],
+          "armBack": [],
+          "legFrontThigh": [],
+          "legFrontShin": [],
+          "legBackThigh": [],
+          "legBackShin": [],
+          "weapon": []
+        }
+      },
+      "walk": {
+        "id": "walk",
+        "speed": 1,
+        "loop": true,
+        "keyframes": {
+          "body": [],
+          "head": [],
+          "armFront": [],
+          "armBack": [],
+          "legFrontThigh": [],
+          "legFrontShin": [],
+          "legBackThigh": [],
+          "legBackShin": [],
+          "weapon": []
+        }
+      },
+      "attack": {
+        "id": "attack",
+        "speed": 1,
+        "loop": false,
+        "keyframes": {
+          "body": [],
+          "head": [],
+          "armFront": [],
+          "armBack": [],
+          "legFrontThigh": [],
+          "legFrontShin": [],
+          "legBackThigh": [],
+          "legBackShin": [],
+          "weapon": []
+        }
+      }
+    }
+  },
+  "__proceduralLegMetrics": {
+    "legFront": {
+      "thighId": "legFrontThigh",
+      "shinId": "legFrontShin",
+      "thighLength": 216.14809737770074,
+      "shinLength": 232.00484908725508,
+      "thighRestAngle": 1.6078164426688268,
+      "shinRestAngle": 1.5772617539460503
+    },
+    "legBack": {
+      "thighId": "legBackThigh",
+      "shinId": "legBackShin",
+      "thighLength": 235.008510484195,
+      "shinLength": 220.04601791443537,
+      "thighRestAngle": 1.5622858939660076,
+      "shinRestAngle": 1.5503446332728408
+    }
+  }
+}
