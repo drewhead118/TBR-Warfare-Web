@@ -47,6 +47,8 @@
       },
       "scaleX": 1,
       "scaleY": 1.4,
+      "rotationOffsetDeg": 0,
+      "drawOrder": 3,
       "flipX": false,
       "flipY": false
     },
@@ -68,6 +70,8 @@
       },
       "scaleX": 1,
       "scaleY": 0.75,
+      "rotationOffsetDeg": 0,
+      "drawOrder": 4,
       "flipX": false,
       "flipY": false
     },
@@ -89,6 +93,8 @@
       },
       "scaleX": 1,
       "scaleY": 0.9,
+      "rotationOffsetDeg": 0,
+      "drawOrder": 7,
       "flipX": false,
       "flipY": false
     },
@@ -105,12 +111,14 @@
         "y": 145
       },
       "mountOffset": {
-        "x": 437,
-        "y": 286
+        "x": 382,
+        "y": 265
       },
       "scaleX": 1,
       "scaleY": 1,
-      "flipX": false,
+      "rotationOffsetDeg": -10,
+      "drawOrder": 2,
+      "flipX": true,
       "flipY": false
     },
     "legFrontThigh": {
@@ -131,6 +139,8 @@
       },
       "scaleX": 0.85,
       "scaleY": 0.75,
+      "rotationOffsetDeg": 0,
+      "drawOrder": 5,
       "flipX": false,
       "flipY": false
     },
@@ -152,6 +162,8 @@
       },
       "scaleX": 1,
       "scaleY": 1,
+      "rotationOffsetDeg": 0,
+      "drawOrder": 6,
       "flipX": false,
       "flipY": false
     },
@@ -173,6 +185,8 @@
       },
       "scaleX": 0.9,
       "scaleY": 0.75,
+      "rotationOffsetDeg": 0,
+      "drawOrder": 0,
       "flipX": false,
       "flipY": false
     },
@@ -194,6 +208,8 @@
       },
       "scaleX": 1,
       "scaleY": 1,
+      "rotationOffsetDeg": 0,
+      "drawOrder": 1,
       "flipX": false,
       "flipY": false
     },
@@ -215,6 +231,8 @@
       },
       "scaleX": 1,
       "scaleY": 1,
+      "rotationOffsetDeg": 0,
+      "drawOrder": 8,
       "flipX": false,
       "flipY": false
     }

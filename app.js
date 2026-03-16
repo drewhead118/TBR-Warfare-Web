@@ -871,6 +871,8 @@ function createEmptyRigPart(id) {
     mountOffset: { x: 0, y: 0 },
     scaleX: 1,
     scaleY: 1,
+    rotationOffsetDeg: 0,
+    drawOrder: RIG_PART_ORDER.indexOf(id),
     flipX: false,
     flipY: false,
   };
@@ -947,6 +949,8 @@ function normalizeSpriteRigParts(rawParts = {}) {
       },
       scaleX: clamp(Number(sourcePart?.scaleX) || 1, 0.05, 8),
       scaleY: clamp(Number(sourcePart?.scaleY) || 1, 0.05, 8),
+      rotationOffsetDeg: Number(sourcePart?.rotationOffsetDeg) || 0,
+      drawOrder: Number.isFinite(Number(sourcePart?.drawOrder)) ? Math.round(Number(sourcePart.drawOrder)) : RIG_PART_ORDER.indexOf(partId),
       flipX: Boolean(sourcePart?.flipX),
       flipY: Boolean(sourcePart?.flipY),
     }];
@@ -975,10 +979,34 @@ function normalizeRigManifestPartHierarchy(manifest) {
       parentId: parts[partId].parentId ?? getRigPartDefinition(partId)?.parentId ?? null,
       scaleX: clamp(Number(parts[partId].scaleX) || 1, 0.05, 8),
       scaleY: clamp(Number(parts[partId].scaleY) || 1, 0.05, 8),
+      rotationOffsetDeg: Number(parts[partId].rotationOffsetDeg) || 0,
+      drawOrder: Number.isFinite(Number(parts[partId].drawOrder)) ? Math.round(Number(parts[partId].drawOrder)) : RIG_PART_ORDER.indexOf(partId),
     };
   });
   manifest.parts = parts;
   return manifest;
+}
+
+function getRigPartBaseDrawOrder(partId) {
+  const index = RIG_PART_ORDER.indexOf(partId);
+  return index >= 0 ? index : RIG_PART_IDS.indexOf(partId);
+}
+
+function getRigPartResolvedDrawOrder(part) {
+  return Number.isFinite(Number(part?.drawOrder))
+    ? Math.round(Number(part.drawOrder))
+    : getRigPartBaseDrawOrder(part?.id);
+}
+
+function getRigRenderOrder(manifest) {
+  return Object.entries(manifest?.parts || {})
+    .map(([id, part]) => ({ id, part: { id, ...part } }))
+    .sort((left, right) => {
+      const orderDelta = getRigPartResolvedDrawOrder(left.part) - getRigPartResolvedDrawOrder(right.part);
+      if (orderDelta !== 0) return orderDelta;
+      return getRigPartBaseDrawOrder(left.id) - getRigPartBaseDrawOrder(right.id);
+    })
+    .map((entry) => entry.id);
 }
 
 function createDefaultRigAnimationTuning() {
@@ -1211,6 +1239,8 @@ const els = {
   spriteRigMountOffsetY: document.getElementById("spriteRigMountOffsetY"),
   spriteRigBaseScaleX: document.getElementById("spriteRigBaseScaleX"),
   spriteRigBaseScaleY: document.getElementById("spriteRigBaseScaleY"),
+  spriteRigRotationOffset: document.getElementById("spriteRigRotationOffset"),
+  spriteRigDrawOrder: document.getElementById("spriteRigDrawOrder"),
   spriteRigWeaponAttachEnabled: document.getElementById("spriteRigWeaponAttachEnabled"),
   spriteRigWeaponAttachX: document.getElementById("spriteRigWeaponAttachX"),
   spriteRigWeaponAttachY: document.getElementById("spriteRigWeaponAttachY"),
@@ -1427,6 +1457,8 @@ function bindSpriteRigEditorUi() {
     els.spriteRigMountOffsetY,
     els.spriteRigBaseScaleX,
     els.spriteRigBaseScaleY,
+    els.spriteRigRotationOffset,
+    els.spriteRigDrawOrder,
   ].forEach((input) => input.addEventListener("input", onSpriteRigFieldInput));
   els.spriteRigWeaponAttachEnabled.addEventListener("change", onSpriteRigWeaponFieldInput);
   [
@@ -1826,6 +1858,8 @@ function syncSpriteRigFields() {
   const mountOffset = part?.mountOffset || { x: "", y: "" };
   const scaleX = part?.scaleX ?? 1;
   const scaleY = part?.scaleY ?? 1;
+  const rotationOffsetDeg = part?.rotationOffsetDeg ?? 0;
+  const drawOrder = part?.drawOrder ?? getRigPartBaseDrawOrder(state.spriteRigEditor.activePartId);
   els.spriteRigRegionX.value = rect.x;
   els.spriteRigRegionY.value = rect.y;
   els.spriteRigRegionW.value = rect.w;
@@ -1836,6 +1870,8 @@ function syncSpriteRigFields() {
   els.spriteRigMountOffsetY.value = mountOffset.y;
   els.spriteRigBaseScaleX.value = `${scaleX}`;
   els.spriteRigBaseScaleY.value = `${scaleY}`;
+  els.spriteRigRotationOffset.value = `${rotationOffsetDeg}`;
+  els.spriteRigDrawOrder.value = `${drawOrder}`;
 }
 
 function syncSpriteRigWeaponFields() {
@@ -1868,12 +1904,16 @@ function onSpriteRigFieldInput() {
     mountOffsetY: Math.round(Number(els.spriteRigMountOffsetY.value) || 0),
     baseScaleX: clamp(Number(els.spriteRigBaseScaleX.value) || 1, 0.05, 8),
     baseScaleY: clamp(Number(els.spriteRigBaseScaleY.value) || 1, 0.05, 8),
+    rotationOffsetDeg: Number(els.spriteRigRotationOffset.value) || 0,
+    drawOrder: Math.round(Number(els.spriteRigDrawOrder.value) || 0),
   };
   part.rect = { x: values.x, y: values.y, w: values.w, h: values.h };
   part.pivot = { x: values.pivotX, y: values.pivotY };
   part.mountOffset = { x: values.mountOffsetX, y: values.mountOffsetY };
   part.scaleX = values.baseScaleX;
   part.scaleY = values.baseScaleY;
+  part.rotationOffsetDeg = values.rotationOffsetDeg;
+  part.drawOrder = values.drawOrder;
   clampSpriteRigPartToImage(part);
   clampSpriteRigWeaponAttachmentToImage();
   invalidateSpriteRigPackedArtifact();
@@ -2282,6 +2322,10 @@ function clampSpriteRigPartToImage(part) {
     part.pivot.x = clamp(Math.round(part.pivot.x), part.rect.x, part.rect.x + part.rect.w);
     part.pivot.y = clamp(Math.round(part.pivot.y), part.rect.y, part.rect.y + part.rect.h);
   }
+  part.rotationOffsetDeg = Number(part.rotationOffsetDeg) || 0;
+  part.drawOrder = Number.isFinite(Number(part.drawOrder))
+    ? Math.round(Number(part.drawOrder))
+    : getRigPartBaseDrawOrder(part.id);
 }
 
 function clampSpriteRigWeaponAttachmentToImage() {
@@ -2440,6 +2484,8 @@ function buildSpriteRigPreviewState(manifest, now) {
     displayFacingX: 1,
     walkTilt: 0,
     rotation: 0,
+    locomotionSpeed: 0,
+    gaitAngularVelocity: Math.PI * 2 * (config.clips.walk?.speed || 1) * 0.72,
   };
   let animationState = {
     stride: 0,
@@ -2460,6 +2506,8 @@ function buildSpriteRigPreviewState(manifest, now) {
       bob: (0.5 - Math.cos(now * 8.4 * walkSpeed) * 0.5) * blend,
       attackSwing: Math.max(0, Math.sin(now * 2.8 * attackSpeed)) * (0.35 + blend * 0.65),
       walkTilt: Math.sin(now * 1.5 * walkSpeed) * 0.035 * blend,
+      locomotionSpeed: 24 + blend * 18,
+      gaitAngularVelocity: Math.PI * 2 * walkSpeed * 0.72,
     };
     animationState = {
       stride: previewUnit.stride,
@@ -2496,6 +2544,8 @@ function buildSpriteRigPreviewState(manifest, now) {
       stride: Math.sin(walkTime * Math.PI * 2),
       bob: 0.5 - Math.cos(walkTime * Math.PI * 4) * 0.5,
       walkTilt: Math.sin(walkTime * Math.PI * 2) * 0.035,
+      locomotionSpeed: 40,
+      gaitAngularVelocity: Math.PI * 2 * (config.clips.walk?.speed || 1) * 0.72,
     };
     animationState = {
       ...animationState,
@@ -2563,13 +2613,6 @@ function drawSpriteRigPreviewHealthBar(previewCtx, previewUnit, manifest, pointX
   const hpWidth = (unitDef.healthBarWidth || 20) * renderScale / 2.1;
   const base = getHealthBarMetricsForPose(previewUnit, { point: { x: pointX }, bodyY, scale: pointScale }, renderScale, manifest?.layout);
   previewCtx.save();
-  previewCtx.fillStyle = "rgba(255, 248, 220, 0.18)";
-  previewCtx.strokeStyle = "rgba(255, 220, 145, 0.5)";
-  previewCtx.lineWidth = 1.5;
-  previewCtx.setLineDash([5, 4]);
-  previewCtx.fillRect(base.defaultX - hpWidth / 2, base.defaultY, hpWidth, 4 * pointScale / 2.1);
-  previewCtx.strokeRect(base.defaultX - hpWidth / 2, base.defaultY, hpWidth, 4 * pointScale / 2.1);
-  previewCtx.setLineDash([]);
   previewCtx.fillStyle = "rgba(37,24,16,0.62)";
   previewCtx.fillRect(base.x - hpWidth / 2, base.y, hpWidth, 4 * pointScale / 2.1);
   previewCtx.fillStyle = "#9ae085";
@@ -2786,6 +2829,8 @@ function buildSpriteRigManifestFromEditor() {
       },
       scaleX: clamp(Number(part.scaleX) || 1, 0.05, 8),
       scaleY: clamp(Number(part.scaleY) || 1, 0.05, 8),
+      rotationOffsetDeg: Number(part.rotationOffsetDeg) || 0,
+      drawOrder: Number.isFinite(Number(part.drawOrder)) ? Math.round(Number(part.drawOrder)) : getRigPartBaseDrawOrder(id),
       flipX: Boolean(part.flipX),
       flipY: Boolean(part.flipY),
       sourceRect: { ...part.rect },
@@ -3006,6 +3051,8 @@ function stripEditorFieldsFromManifest(manifest) {
       mountOffset: part.mountOffset,
       scaleX: part.scaleX,
       scaleY: part.scaleY,
+      rotationOffsetDeg: part.rotationOffsetDeg,
+      drawOrder: part.drawOrder,
       flipX: part.flipX,
       flipY: part.flipY,
       sourceRect: part.sourceRect,
@@ -5355,6 +5402,7 @@ function drawRiggedSpriteFromManifest(targetCtx, manifest, image, unit, scale, o
   const partMetrics = {};
   const partMatrices = {};
   const partTransforms = {};
+  const renderOrder = getRigRenderOrder(manifest);
   targetCtx.save();
   targetCtx.translate(
     (bodyPivotSource.x - anchorPoint.x) * sourceScale,
@@ -5400,7 +5448,7 @@ function drawRiggedSpriteFromManifest(targetCtx, manifest, image, unit, scale, o
     targetCtx.restore();
     return partMatrices[id];
   }
-  RIG_PART_ORDER.forEach((id) => {
+  renderOrder.forEach((id) => {
     const part = manifest.parts[id];
     if (!part) return;
     const cellSize = manifest.sheet?.cellSize || 64;
@@ -5493,7 +5541,7 @@ function buildRigAnimationState(unit, manifest) {
   const attack = clamp(unit?.attackSwing || 0, 0, 1);
   const walkBlend = clamp(unit?.walkBlend ?? smoothStep(0.08, 0.92, Math.max(Math.abs(stride), bob)), 0, 1);
   const idle = Math.sin((now * 2.1 * (config.clips.idle?.speed || 1)) + (unit?.statusVisualSeed || 0)) * 0.02;
-  const walkTime = wrap01((((unit?.gaitPhase || now * 7) / (Math.PI * 2))) * (config.clips.walk?.speed || 1));
+  const walkTime = wrap01((unit?.gaitPhase || now * 7) / (Math.PI * 2));
   const attackTime = clamp(attack > 0 ? 1 - attack : 1, 0, 1);
   return {
     stride,
@@ -5591,7 +5639,7 @@ function solveRigTwoBoneIK(thighLength, shinLength, targetX, targetY, kneeSide =
   };
 }
 
-function getRigProceduralLegPoseForPart(partId, animation, manifest) {
+function getRigProceduralLegPoseForPart(partId, animation, manifest, unit = null) {
   const metrics = getRigProceduralLegMetrics(manifest);
   const isFrontLeg = partId === "legFrontThigh" || partId === "legFrontShin";
   const isBackLeg = partId === "legBackThigh" || partId === "legBackShin";
@@ -5608,7 +5656,13 @@ function getRigProceduralLegPoseForPart(partId, animation, manifest) {
   const phase = wrap01(walkTime + (isBackLeg ? 0.5 : 0));
   const stanceRatio = 0.58;
   const totalLength = legMetrics.thighLength + legMetrics.shinLength;
-  const stepHalf = totalLength * (0.07 + gaitAmount * 0.055);
+  const locomotionSpeed = Math.hypot(unit?.vx || 0, unit?.vy || 0) || Math.max(0, Number(unit?.locomotionSpeed) || 0);
+  const gaitAngularVelocity = Math.max(0.001, Number(unit?.gaitAngularVelocity) || 0);
+  const distancePerCycle = gaitAngularVelocity > 0
+    ? locomotionSpeed * ((Math.PI * 2) / gaitAngularVelocity)
+    : locomotionSpeed * 0.42;
+  const distanceScale = clamp(0.85 + distancePerCycle / 14, 0.85, 2.1);
+  const stepHalf = totalLength * (0.12 + gaitAmount * 0.11) * distanceScale;
   const liftHeight = totalLength * (0.055 + gaitAmount * 0.045);
   const stanceSink = totalLength * 0.014;
   const groundY = Math.min(totalLength * 0.94, totalLength - 1.5);
@@ -5635,6 +5689,7 @@ function getRigProceduralLegPoseForPart(partId, animation, manifest) {
 function getRigPartTransform(partId, animation, unit, manifest) {
   const config = getRigAnimationConfigFromManifest(manifest);
   const tuning = config.tuning?.[partId] || createEmptyRigAnimationTuningPart();
+  const basePart = manifest.parts?.[partId] || null;
   const idlePose = sampleRigClipPose(
     manifest,
     "idle",
@@ -5665,11 +5720,12 @@ function getRigPartTransform(partId, animation, unit, manifest) {
   const strideDriver = getRigStrideDriverForPart(partId, animation.stride || 0);
   const proceduralWalkPose = animation.previewKeyframeOverride?.clipId === "walk" && animation.previewKeyframeOverride?.partId === partId
     ? null
-    : getRigProceduralLegPoseForPart(partId, animation, manifest);
+    : getRigProceduralLegPoseForPart(partId, animation, manifest, unit);
   const strideContributionDriver = proceduralWalkPose ? 0 : strideDriver;
   const walkPoseWeight = proceduralWalkPose ? 0 : (animation.clipWeights?.walk ?? 0);
   const rotationDeg = (
-    (tuning.rotation.stride || 0) * strideContributionDriver
+    (Number(basePart?.rotationOffsetDeg) || 0)
+    + (tuning.rotation.stride || 0) * strideContributionDriver
     + (proceduralWalkPose?.rotationDeg || 0)
     + (tuning.rotation.bob || 0) * (animation.bob || 0)
     + (tuning.rotation.attack || 0) * (animation.attack || 0)
@@ -6617,7 +6673,8 @@ function updateWalkTilt(unit, dt) {
   const speed = Math.hypot(unit.vx, unit.vy);
   const targetTilt = speed > 10 ? clamp(unit.vx / 80, -1, 1) * 0.12 : 0;
   const gaitSpeed = clamp(speed / 38, 0, 2.4);
-  unit.gaitPhase += dt * (7 + gaitSpeed * 7.5) * getRigAnimationClipSpeedForUnit(unit, "walk");
+  unit.gaitAngularVelocity = (7 + gaitSpeed * 7.5) * getRigAnimationClipSpeedForUnit(unit, "walk");
+  unit.gaitPhase += dt * unit.gaitAngularVelocity;
   const targetStride = speed > 8 ? Math.sin(unit.gaitPhase) * Math.min(1, gaitSpeed) : 0;
   const targetBob = speed > 8 ? (0.5 - Math.cos(unit.gaitPhase * 2) * 0.5) * Math.min(1, gaitSpeed) : 0;
   const targetWalkBlend = speed > 8 ? smoothStep(0.12, 0.9, Math.min(1, gaitSpeed)) : 0;
