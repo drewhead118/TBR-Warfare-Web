@@ -83,19 +83,55 @@ const UNIT_RIG_CANDIDATE_PATHS = [
   (unitId) => `art/${unitId}.json`,
   (unitId) => `${unitId}.json`,
 ];
-const RIG_PART_ORDER = ["legBack", "armBack", "body", "head", "legFront", "armFront", "weapon"];
+const RIG_PART_ORDER = ["legBackThigh", "legBackShin", "armBack", "body", "head", "legFrontThigh", "legFrontShin", "armFront", "weapon"];
 const RIG_PART_DEFINITIONS = [
-  { id: "body", label: "Body", optional: false, color: "#ffd483" },
-  { id: "head", label: "Head", optional: false, color: "#f7cdb0" },
-  { id: "armFront", label: "Front Arm", optional: false, color: "#9fe1a7" },
-  { id: "armBack", label: "Back Arm", optional: true, color: "#7cc6db" },
-  { id: "legFront", label: "Front Leg", optional: false, color: "#e7915d" },
-  { id: "legBack", label: "Back Leg", optional: true, color: "#d98cff" },
-  { id: "weapon", label: "Weapon", optional: true, color: "#f1efb0" },
+  { id: "body", label: "Body", optional: false, color: "#ffd483", parentId: null },
+  { id: "head", label: "Head", optional: false, color: "#f7cdb0", parentId: "body" },
+  { id: "armFront", label: "Front Arm", optional: false, color: "#9fe1a7", parentId: "body" },
+  { id: "armBack", label: "Back Arm", optional: true, color: "#7cc6db", parentId: "body" },
+  { id: "legFrontThigh", label: "Front Thigh", optional: false, color: "#e7915d", parentId: "body", legacyId: "legFront" },
+  { id: "legFrontShin", label: "Front Shin / Foot", optional: false, color: "#f0b084", parentId: "legFrontThigh" },
+  { id: "legBackThigh", label: "Back Thigh", optional: true, color: "#d98cff", parentId: "body", legacyId: "legBack" },
+  { id: "legBackShin", label: "Back Shin / Foot", optional: true, color: "#c7a2ff", parentId: "legBackThigh" },
+  { id: "weapon", label: "Weapon", optional: true, color: "#f1efb0", parentId: "body" },
 ];
 const RIG_PART_IDS = RIG_PART_DEFINITIONS.map((part) => part.id);
-const DEFAULT_RIG_LAYOUT = { height: 42, anchorX: 0.5, anchorY: 0.88, healthBarOffsetX: 0, healthBarOffsetY: 0 };
+const RIG_PART_DEFINITION_BY_ID = Object.fromEntries(RIG_PART_DEFINITIONS.map((part) => [part.id, part]));
+const DEFAULT_RIG_LAYOUT = { height: 60, anchorX: 0.5, anchorY: 0.88, healthBarOffsetX: 0, healthBarOffsetY: 0 };
 const RIG_EDITOR_CANVAS_SIZE = 640;
+const RIG_WORKSHOP_FILE_EXTENSION = ".tbr-sprite-rig.json";
+const RIG_WORKSHOP_SOURCE_DIR = ".sprite-rig-sources";
+const RIG_ANIMATION_CLIP_DEFINITIONS = [
+  { id: "idle", label: "Idle", loop: true, speed: 1 },
+  { id: "walk", label: "Walk", loop: true, speed: 1 },
+  { id: "attack", label: "Attack", loop: false, speed: 1 },
+];
+const RIG_ANIMATION_FIELD_DEFINITIONS = {
+  idle: [
+    { path: "rotation.idle", label: "Idle Rotation", step: 0.1 },
+    { path: "x.idle", label: "Idle X", step: 0.01 },
+    { path: "y.idle", label: "Idle Y", step: 0.01 },
+    { path: "scaleX.idle", label: "Idle Scale X", step: 0.01 },
+    { path: "scaleY.idle", label: "Idle Scale Y", step: 0.01 },
+  ],
+  walk: [
+    { path: "rotation.stride", label: "Stride Rotation", step: 0.1 },
+    { path: "rotation.bob", label: "Bob Rotation", step: 0.1 },
+    { path: "x.stride", label: "Stride X", step: 0.01 },
+    { path: "x.bob", label: "Bob X", step: 0.01 },
+    { path: "y.stride", label: "Stride Y", step: 0.01 },
+    { path: "y.bob", label: "Bob Y", step: 0.01 },
+    { path: "scaleX.stride", label: "Stride Scale X", step: 0.01 },
+    { path: "scaleY.stride", label: "Stride Scale Y", step: 0.01 },
+  ],
+  attack: [
+    { path: "rotation.attack", label: "Attack Rotation", step: 0.1 },
+    { path: "x.attack", label: "Attack X", step: 0.01 },
+    { path: "y.attack", label: "Attack Y", step: 0.01 },
+    { path: "scaleX.attack", label: "Attack Scale X", step: 0.01 },
+    { path: "scaleY.attack", label: "Attack Scale Y", step: 0.01 },
+  ],
+};
 const UNIT_SPRITE_LAYOUTS = {
   archer: { height: 38, anchorX: 0.5, anchorY: 0.88 },
   mage: { height: 39, anchorX: 0.5, anchorY: 0.88 },
@@ -833,6 +869,8 @@ function createEmptyRigPart(id) {
     rect: null,
     pivot: null,
     mountOffset: { x: 0, y: 0 },
+    scaleX: 1,
+    scaleY: 1,
     flipX: false,
     flipY: false,
   };
@@ -847,10 +885,171 @@ function createEmptyRigWeaponAttachment() {
   };
 }
 
+function radToDeg(value) {
+  return value * (180 / Math.PI);
+}
+
+function degToRad(value) {
+  return value * (Math.PI / 180);
+}
+
+function createEmptyRigAnimationChannelSet() {
+  return { stride: 0, bob: 0, attack: 0, idle: 0 };
+}
+
+function createEmptyRigAnimationTuningPart() {
+  return {
+    rotation: createEmptyRigAnimationChannelSet(),
+    x: createEmptyRigAnimationChannelSet(),
+    y: createEmptyRigAnimationChannelSet(),
+    scaleX: createEmptyRigAnimationChannelSet(),
+    scaleY: createEmptyRigAnimationChannelSet(),
+  };
+}
+
+function createEmptyRigKeyframePose() {
+  return {
+    x: 0,
+    y: 0,
+    rotationDeg: 0,
+    scaleX: 0,
+    scaleY: 0,
+  };
+}
+
+function getRigPartDefinition(partId) {
+  return RIG_PART_DEFINITION_BY_ID[partId] || null;
+}
+
+function getRigPartLegacyId(partId) {
+  return getRigPartDefinition(partId)?.legacyId || null;
+}
+
+function normalizeSpriteRigParts(rawParts = {}) {
+  return Object.fromEntries(RIG_PART_IDS.map((partId) => {
+    const sourcePart = rawParts?.[partId] || rawParts?.[getRigPartLegacyId(partId)] || null;
+    return [partId, {
+      ...createEmptyRigPart(partId),
+      ...sourcePart,
+      rect: sourcePart?.rect ? {
+        x: Math.round(Number(sourcePart.rect.x) || 0),
+        y: Math.round(Number(sourcePart.rect.y) || 0),
+        w: Math.max(1, Math.round(Number(sourcePart.rect.w) || 1)),
+        h: Math.max(1, Math.round(Number(sourcePart.rect.h) || 1)),
+      } : null,
+      pivot: sourcePart?.pivot ? {
+        x: Math.round(Number(sourcePart.pivot.x) || 0),
+        y: Math.round(Number(sourcePart.pivot.y) || 0),
+      } : null,
+      mountOffset: {
+        x: Math.round(Number(sourcePart?.mountOffset?.x) || 0),
+        y: Math.round(Number(sourcePart?.mountOffset?.y) || 0),
+      },
+      scaleX: clamp(Number(sourcePart?.scaleX) || 1, 0.05, 8),
+      scaleY: clamp(Number(sourcePart?.scaleY) || 1, 0.05, 8),
+      flipX: Boolean(sourcePart?.flipX),
+      flipY: Boolean(sourcePart?.flipY),
+    }];
+  }));
+}
+
+function normalizeRigManifestPartHierarchy(manifest) {
+  if (!manifest?.parts) return manifest;
+  const parts = { ...manifest.parts };
+  if (!parts.legFrontThigh && parts.legFront) {
+    parts.legFrontThigh = {
+      ...parts.legFront,
+      parentId: "body",
+    };
+  }
+  if (!parts.legBackThigh && parts.legBack) {
+    parts.legBackThigh = {
+      ...parts.legBack,
+      parentId: "body",
+    };
+  }
+  RIG_PART_IDS.forEach((partId) => {
+    if (!parts[partId]) return;
+    parts[partId] = {
+      ...parts[partId],
+      parentId: parts[partId].parentId ?? getRigPartDefinition(partId)?.parentId ?? null,
+      scaleX: clamp(Number(parts[partId].scaleX) || 1, 0.05, 8),
+      scaleY: clamp(Number(parts[partId].scaleY) || 1, 0.05, 8),
+    };
+  });
+  manifest.parts = parts;
+  return manifest;
+}
+
+function createDefaultRigAnimationTuning() {
+  const tuning = Object.fromEntries(RIG_PART_IDS.map((id) => [id, createEmptyRigAnimationTuningPart()]));
+  tuning.body.rotation.attack = radToDeg(-0.05);
+  tuning.body.rotation.idle = radToDeg(0.7);
+  tuning.body.y.bob = -0.06;
+
+  tuning.head.rotation.attack = radToDeg(-0.08);
+  tuning.head.rotation.idle = radToDeg(1);
+  tuning.head.y.bob = -0.08;
+  tuning.head.y.attack = -0.02;
+
+  tuning.armFront.rotation.stride = radToDeg(-0.38);
+  tuning.armFront.rotation.attack = radToDeg(1.28);
+  tuning.armFront.rotation.idle = radToDeg(0.4);
+  tuning.armFront.y.bob = -0.035;
+
+  tuning.armBack.rotation.stride = radToDeg(0.28);
+  tuning.armBack.rotation.attack = radToDeg(-0.18);
+  tuning.armBack.rotation.idle = radToDeg(-0.22);
+  tuning.armBack.y.bob = -0.025;
+
+  tuning.legFrontThigh.rotation.stride = -30;
+  tuning.legFrontThigh.rotation.attack = 0;
+  tuning.legFrontThigh.y.bob = -0.025;
+  tuning.legFrontShin.rotation.stride = 30;
+  tuning.legFrontShin.x.stride = -0.09;
+  tuning.legFrontShin.y.bob = 0;
+
+  tuning.legBackThigh.rotation.stride = -30;
+  tuning.legBackThigh.rotation.attack = 0;
+  tuning.legBackThigh.y.bob = -0.012;
+  tuning.legBackShin.rotation.stride = 30;
+  tuning.legBackShin.x.stride = -0.09;
+  tuning.legBackShin.y.bob = 0;
+
+  tuning.weapon.rotation.stride = radToDeg(-0.16);
+  tuning.weapon.rotation.attack = radToDeg(1.12);
+  tuning.weapon.rotation.idle = radToDeg(0.35);
+  tuning.weapon.y.attack = -0.04;
+  return tuning;
+}
+
+function createEmptyRigAnimationClips() {
+  return Object.fromEntries(RIG_ANIMATION_CLIP_DEFINITIONS.map((clip) => [clip.id, {
+    id: clip.id,
+    speed: clip.speed,
+    loop: clip.loop,
+    keyframes: Object.fromEntries(RIG_PART_IDS.map((partId) => [partId, []])),
+  }]));
+}
+
+function createDefaultRigAnimationConfig() {
+  return {
+    tuning: createDefaultRigAnimationTuning(),
+    clips: createEmptyRigAnimationClips(),
+  };
+}
+
+function createDefaultSpriteRigKeyframePoseState() {
+  return createEmptyRigKeyframePose();
+}
+
 function createSpriteRigEditorState() {
   return {
     sourceImage: null,
     sourceName: "",
+    sourceFileName: "",
+    sourceMimeType: "image/png",
+    sourceImageDataUrl: "",
     sourceWidth: 0,
     sourceHeight: 0,
     zoom: 1,
@@ -864,15 +1063,23 @@ function createSpriteRigEditorState() {
     previewScene: null,
     previewReferenceImage: null,
     previewBlend: 0.55,
+    previewMode: "composite",
+    previewAutoplay: true,
+    previewTime: 0,
+    selectedAnimationId: "walk",
+    keyframePose: createDefaultSpriteRigKeyframePoseState(),
+    exportDirectoryHandle: null,
+    exportDirectoryName: "",
     unitId: Object.keys(UNIT_DEFINITIONS)[0] || "",
     renderHeight: DEFAULT_RIG_LAYOUT.height,
     anchorY: DEFAULT_RIG_LAYOUT.anchorY,
     healthBarOffsetX: DEFAULT_RIG_LAYOUT.healthBarOffsetX,
     healthBarOffsetY: DEFAULT_RIG_LAYOUT.healthBarOffsetY,
     weaponAttachment: createEmptyRigWeaponAttachment(),
+    animationConfig: createDefaultRigAnimationConfig(),
     packedArtifact: null,
     statusText: "Load a sprite to begin defining the rig.",
-    parts: Object.fromEntries(RIG_PART_IDS.map((id) => [id, createEmptyRigPart(id)])),
+    parts: normalizeSpriteRigParts(),
   };
 }
 
@@ -978,6 +1185,9 @@ const els = {
   compositionSelectedCount: document.getElementById("compositionSelectedCount"),
   battleUnitTooltip: document.getElementById("battleUnitTooltip"),
   spriteRigFileInput: document.getElementById("spriteRigFileInput"),
+  spriteRigProjectInput: document.getElementById("spriteRigProjectInput"),
+  spriteRigSaveProjectBtn: document.getElementById("spriteRigSaveProjectBtn"),
+  spriteRigChooseExportDirBtn: document.getElementById("spriteRigChooseExportDirBtn"),
   spriteRigUnitSelect: document.getElementById("spriteRigUnitSelect"),
   spriteRigRenderHeight: document.getElementById("spriteRigRenderHeight"),
   spriteRigAnchorY: document.getElementById("spriteRigAnchorY"),
@@ -997,6 +1207,8 @@ const els = {
   spriteRigPivotY: document.getElementById("spriteRigPivotY"),
   spriteRigMountOffsetX: document.getElementById("spriteRigMountOffsetX"),
   spriteRigMountOffsetY: document.getElementById("spriteRigMountOffsetY"),
+  spriteRigBaseScaleX: document.getElementById("spriteRigBaseScaleX"),
+  spriteRigBaseScaleY: document.getElementById("spriteRigBaseScaleY"),
   spriteRigWeaponAttachEnabled: document.getElementById("spriteRigWeaponAttachEnabled"),
   spriteRigWeaponAttachX: document.getElementById("spriteRigWeaponAttachX"),
   spriteRigWeaponAttachY: document.getElementById("spriteRigWeaponAttachY"),
@@ -1005,12 +1217,30 @@ const els = {
   spriteRigWeaponClearAttachBtn: document.getElementById("spriteRigWeaponClearAttachBtn"),
   spriteRigCopyFromBodyBtn: document.getElementById("spriteRigCopyFromBodyBtn"),
   spriteRigResetMountOffsetBtn: document.getElementById("spriteRigResetMountOffsetBtn"),
+  spriteRigResetBaseScaleBtn: document.getElementById("spriteRigResetBaseScaleBtn"),
   spriteRigFlipXBtn: document.getElementById("spriteRigFlipXBtn"),
   spriteRigFlipYBtn: document.getElementById("spriteRigFlipYBtn"),
   spriteRigClearPartBtn: document.getElementById("spriteRigClearPartBtn"),
   spriteRigPreviewCanvas: document.getElementById("spriteRigPreviewCanvas"),
+  spriteRigPreviewMode: document.getElementById("spriteRigPreviewMode"),
+  spriteRigPreviewAutoplay: document.getElementById("spriteRigPreviewAutoplay"),
+  spriteRigPreviewTime: document.getElementById("spriteRigPreviewTime"),
   spriteRigPreviewBlend: document.getElementById("spriteRigPreviewBlend"),
   spriteRigPreviewLabel: document.getElementById("spriteRigPreviewLabel"),
+  spriteRigAnimationSelect: document.getElementById("spriteRigAnimationSelect"),
+  spriteRigAnimationSummary: document.getElementById("spriteRigAnimationSummary"),
+  spriteRigAnimationClipFields: document.getElementById("spriteRigAnimationClipFields"),
+  spriteRigAnimationFields: document.getElementById("spriteRigAnimationFields"),
+  spriteRigKeyframeSummary: document.getElementById("spriteRigKeyframeSummary"),
+  spriteRigKeyframeX: document.getElementById("spriteRigKeyframeX"),
+  spriteRigKeyframeY: document.getElementById("spriteRigKeyframeY"),
+  spriteRigKeyframeRotation: document.getElementById("spriteRigKeyframeRotation"),
+  spriteRigKeyframeScaleX: document.getElementById("spriteRigKeyframeScaleX"),
+  spriteRigKeyframeScaleY: document.getElementById("spriteRigKeyframeScaleY"),
+  spriteRigSetKeyframeBtn: document.getElementById("spriteRigSetKeyframeBtn"),
+  spriteRigDeleteKeyframeBtn: document.getElementById("spriteRigDeleteKeyframeBtn"),
+  spriteRigResetKeyframePoseBtn: document.getElementById("spriteRigResetKeyframePoseBtn"),
+  spriteRigKeyframeList: document.getElementById("spriteRigKeyframeList"),
   spriteRigDownloadSheetBtn: document.getElementById("spriteRigDownloadSheetBtn"),
   spriteRigDownloadManifestBtn: document.getElementById("spriteRigDownloadManifestBtn"),
   spriteRigExportDirBtn: document.getElementById("spriteRigExportDirBtn"),
@@ -1110,6 +1340,7 @@ function bindUi() {
 function initializeSpriteRigEditor() {
   if (!els.spriteRigSourceCanvas || !els.spriteRigPreviewCanvas) return;
   populateSpriteRigUnitSelect();
+  populateSpriteRigAnimationSelect();
   els.spriteRigUnitSelect.value = state.spriteRigEditor.unitId;
   els.spriteRigRenderHeight.value = `${state.spriteRigEditor.renderHeight}`;
   els.spriteRigAnchorY.value = `${state.spriteRigEditor.anchorY}`;
@@ -1119,6 +1350,7 @@ function initializeSpriteRigEditor() {
   renderSpriteRigPartPicker();
   syncSpriteRigFields();
   syncSpriteRigWeaponFields();
+  syncSpriteRigAnimationControls();
   updateSpriteRigZoomLabel();
   updateSpriteRigStatus();
   renderSpriteRigSourceCanvas();
@@ -1129,6 +1361,9 @@ function initializeSpriteRigEditor() {
 function bindSpriteRigEditorUi() {
   if (!els.spriteRigFileInput) return;
   els.spriteRigFileInput.addEventListener("change", onSpriteRigFileChange);
+  els.spriteRigProjectInput?.addEventListener("change", onSpriteRigProjectFileChange);
+  els.spriteRigSaveProjectBtn?.addEventListener("click", saveSpriteRigWorkshopAsset);
+  els.spriteRigChooseExportDirBtn?.addEventListener("click", chooseSpriteRigExportDirectory);
   els.spriteRigUnitSelect.addEventListener("change", () => {
     state.spriteRigEditor.unitId = els.spriteRigUnitSelect.value;
     invalidateSpriteRigPackedArtifact();
@@ -1154,6 +1389,27 @@ function bindSpriteRigEditorUi() {
     state.spriteRigEditor.previewBlend = clamp((Number(els.spriteRigPreviewBlend.value) || 0) / 100, 0, 1);
     renderSpriteRigPreview();
   });
+  els.spriteRigPreviewMode?.addEventListener("change", () => {
+    state.spriteRigEditor.previewMode = els.spriteRigPreviewMode.value;
+    renderSpriteRigPreview();
+    updateSpriteRigStatus();
+  });
+  els.spriteRigPreviewAutoplay?.addEventListener("change", () => {
+    state.spriteRigEditor.previewAutoplay = Boolean(els.spriteRigPreviewAutoplay.checked);
+    renderSpriteRigPreview();
+  });
+  els.spriteRigPreviewTime?.addEventListener("input", () => {
+    state.spriteRigEditor.previewTime = clamp((Number(els.spriteRigPreviewTime.value) || 0) / 100, 0, 1);
+    state.spriteRigEditor.previewAutoplay = false;
+    syncSpriteRigAnimationControls();
+    renderSpriteRigPreview();
+  });
+  els.spriteRigAnimationSelect?.addEventListener("change", () => {
+    state.spriteRigEditor.selectedAnimationId = els.spriteRigAnimationSelect.value;
+    syncSpriteRigAnimationControls();
+    renderSpriteRigPreview();
+    updateSpriteRigStatus();
+  });
   [
     els.spriteRigRegionX,
     els.spriteRigRegionY,
@@ -1163,6 +1419,8 @@ function bindSpriteRigEditorUi() {
     els.spriteRigPivotY,
     els.spriteRigMountOffsetX,
     els.spriteRigMountOffsetY,
+    els.spriteRigBaseScaleX,
+    els.spriteRigBaseScaleY,
   ].forEach((input) => input.addEventListener("input", onSpriteRigFieldInput));
   els.spriteRigWeaponAttachEnabled.addEventListener("change", onSpriteRigWeaponFieldInput);
   [
@@ -1174,9 +1432,26 @@ function bindSpriteRigEditorUi() {
   els.spriteRigWeaponClearAttachBtn.addEventListener("click", resetSpriteRigWeaponAttachment);
   els.spriteRigCopyFromBodyBtn.addEventListener("click", centerSpriteRigPivotInRegion);
   els.spriteRigResetMountOffsetBtn.addEventListener("click", resetActiveSpriteRigMountOffset);
+  els.spriteRigResetBaseScaleBtn.addEventListener("click", resetActiveSpriteRigBaseScale);
   els.spriteRigFlipXBtn.addEventListener("click", () => toggleActiveSpriteRigReflection("x"));
   els.spriteRigFlipYBtn.addEventListener("click", () => toggleActiveSpriteRigReflection("y"));
   els.spriteRigClearPartBtn.addEventListener("click", clearActiveSpriteRigPart);
+  [
+    els.spriteRigKeyframeX,
+    els.spriteRigKeyframeY,
+    els.spriteRigKeyframeRotation,
+    els.spriteRigKeyframeScaleX,
+    els.spriteRigKeyframeScaleY,
+  ].forEach((input) => input?.addEventListener("input", () => {
+    state.spriteRigEditor.keyframePose = readSpriteRigKeyframePoseFields();
+    renderSpriteRigPreview();
+  }));
+  els.spriteRigSetKeyframeBtn?.addEventListener("click", upsertSpriteRigKeyframe);
+  els.spriteRigDeleteKeyframeBtn?.addEventListener("click", deleteSpriteRigKeyframe);
+  els.spriteRigResetKeyframePoseBtn?.addEventListener("click", () => {
+    resetSpriteRigKeyframePoseFields();
+    renderSpriteRigPreview();
+  });
   els.spriteRigDownloadSheetBtn.addEventListener("click", () => downloadSpriteRigArtifact("sheet"));
   els.spriteRigDownloadManifestBtn.addEventListener("click", () => downloadSpriteRigArtifact("manifest"));
   els.spriteRigExportDirBtn.addEventListener("click", exportSpriteRigToDirectory);
@@ -1220,6 +1495,298 @@ function ensureSpriteRigPreviewReferenceImage() {
   image.src = "assets/unit-archer.svg";
 }
 
+function populateSpriteRigAnimationSelect() {
+  if (!els.spriteRigAnimationSelect) return;
+  els.spriteRigAnimationSelect.innerHTML = "";
+  RIG_ANIMATION_CLIP_DEFINITIONS.forEach((clip) => {
+    const option = document.createElement("option");
+    option.value = clip.id;
+    option.textContent = clip.label;
+    els.spriteRigAnimationSelect.appendChild(option);
+  });
+}
+
+function getRigAnimationClipDefinition(clipId) {
+  return RIG_ANIMATION_CLIP_DEFINITIONS.find((clip) => clip.id === clipId) || RIG_ANIMATION_CLIP_DEFINITIONS[0];
+}
+
+function normalizeRigKeyframePose(rawPose) {
+  return {
+    x: Number(rawPose?.x) || 0,
+    y: Number(rawPose?.y) || 0,
+    rotationDeg: Number(rawPose?.rotationDeg) || 0,
+    scaleX: Number(rawPose?.scaleX) || 0,
+    scaleY: Number(rawPose?.scaleY) || 0,
+  };
+}
+
+function normalizeRigAnimationConfig(rawConfig) {
+  const fallback = createDefaultRigAnimationConfig();
+  const normalized = {
+    tuning: Object.fromEntries(RIG_PART_IDS.map((partId) => [partId, createEmptyRigAnimationTuningPart()])),
+    clips: createEmptyRigAnimationClips(),
+  };
+  RIG_PART_IDS.forEach((partId) => {
+    const rawPartTuning = rawConfig?.tuning?.[partId] || rawConfig?.tuning?.[getRigPartLegacyId(partId)] || null;
+    ["rotation", "x", "y", "scaleX", "scaleY"].forEach((groupKey) => {
+      ["stride", "bob", "attack", "idle"].forEach((channelKey) => {
+        normalized.tuning[partId][groupKey][channelKey] = Number(
+          rawPartTuning?.[groupKey]?.[channelKey]
+          ?? fallback.tuning[partId]?.[groupKey]?.[channelKey]
+        ) || 0;
+      });
+    });
+  });
+  RIG_ANIMATION_CLIP_DEFINITIONS.forEach((clipDef) => {
+    const sourceClip = rawConfig?.clips?.[clipDef.id] || {};
+    normalized.clips[clipDef.id].speed = clamp(Number(sourceClip.speed) || clipDef.speed, 0.1, 4);
+    normalized.clips[clipDef.id].loop = clipDef.loop;
+    RIG_PART_IDS.forEach((partId) => {
+      const rawFrames = Array.isArray(sourceClip.keyframes?.[partId])
+        ? sourceClip.keyframes[partId]
+        : Array.isArray(sourceClip.keyframes?.[getRigPartLegacyId(partId)])
+          ? sourceClip.keyframes[getRigPartLegacyId(partId)]
+          : [];
+      normalized.clips[clipDef.id].keyframes[partId] = rawFrames
+        .map((frame) => ({
+          time: clamp(Number(frame?.time) || 0, 0, 1),
+          pose: normalizeRigKeyframePose(frame?.pose),
+        }))
+        .sort((a, b) => a.time - b.time);
+    });
+  });
+  return normalized;
+}
+
+function getSelectedSpriteRigAnimationClip() {
+  const clipId = state.spriteRigEditor.selectedAnimationId || RIG_ANIMATION_CLIP_DEFINITIONS[0].id;
+  return state.spriteRigEditor.animationConfig?.clips?.[clipId] || createEmptyRigAnimationClips()[clipId];
+}
+
+function getActiveSpriteRigAnimationTuningPart() {
+  const partId = state.spriteRigEditor.activePartId;
+  return state.spriteRigEditor.animationConfig?.tuning?.[partId] || createEmptyRigAnimationTuningPart();
+}
+
+function getSpriteRigTuningValue(partTuning, path) {
+  return path.split(".").reduce((value, key) => value?.[key], partTuning) ?? 0;
+}
+
+function setSpriteRigTuningValue(partTuning, path, nextValue) {
+  const keys = path.split(".");
+  let cursor = partTuning;
+  for (let i = 0; i < keys.length - 1; i += 1) cursor = cursor[keys[i]];
+  cursor[keys[keys.length - 1]] = nextValue;
+}
+
+function getSpriteRigCurrentKeyframeTime() {
+  return clamp(Number(state.spriteRigEditor.previewTime) || 0, 0, 1);
+}
+
+function getSpriteRigKeyframesForSelection() {
+  const clip = getSelectedSpriteRigAnimationClip();
+  return clip?.keyframes?.[state.spriteRigEditor.activePartId] || [];
+}
+
+function findSpriteRigExactKeyframe(frames, time) {
+  return (frames || []).find((frame) => Math.abs(frame.time - time) <= 0.0001) || null;
+}
+
+function sampleSpriteRigKeyframePose(frames, time, loop) {
+  const list = (frames || []).slice().sort((a, b) => a.time - b.time);
+  if (!list.length) return createEmptyRigKeyframePose();
+  const targetTime = loop ? ((time % 1) + 1) % 1 : clamp(time, 0, 1);
+  const exact = findSpriteRigExactKeyframe(list, targetTime);
+  if (exact) return normalizeRigKeyframePose(exact.pose);
+  if (list.length === 1) return normalizeRigKeyframePose(list[0].pose);
+  if (!loop) {
+    let previous = list[0];
+    let next = list[list.length - 1];
+    for (let i = 0; i < list.length; i += 1) {
+      if (list[i].time <= targetTime) previous = list[i];
+      if (list[i].time >= targetTime) {
+        next = list[i];
+        break;
+      }
+    }
+    if (targetTime <= list[0].time) return normalizeRigKeyframePose(list[0].pose);
+    if (targetTime >= list[list.length - 1].time) return normalizeRigKeyframePose(list[list.length - 1].pose);
+    const amount = clamp((targetTime - previous.time) / Math.max(next.time - previous.time, 0.0001), 0, 1);
+    const prevPose = normalizeRigKeyframePose(previous.pose);
+    const nextPose = normalizeRigKeyframePose(next.pose);
+    return {
+      x: lerp(prevPose.x, nextPose.x, amount),
+      y: lerp(prevPose.y, nextPose.y, amount),
+      rotationDeg: lerp(prevPose.rotationDeg, nextPose.rotationDeg, amount),
+      scaleX: lerp(prevPose.scaleX, nextPose.scaleX, amount),
+      scaleY: lerp(prevPose.scaleY, nextPose.scaleY, amount),
+    };
+  }
+  let previous = list[list.length - 1];
+  let next = list[0];
+  for (let i = 0; i < list.length; i += 1) {
+    if (list[i].time >= targetTime) {
+      next = list[i];
+      break;
+    }
+    previous = list[i];
+  }
+  const adjustedTargetTime = targetTime < previous.time ? targetTime + 1 : targetTime;
+  const nextTime = next.time <= previous.time ? next.time + 1 : next.time;
+  const amount = clamp((adjustedTargetTime - previous.time) / Math.max(nextTime - previous.time, 0.0001), 0, 1);
+  const prevPose = normalizeRigKeyframePose(previous.pose);
+  const nextPose = normalizeRigKeyframePose(next.pose);
+  return {
+    x: lerp(prevPose.x, nextPose.x, amount),
+    y: lerp(prevPose.y, nextPose.y, amount),
+    rotationDeg: lerp(prevPose.rotationDeg, nextPose.rotationDeg, amount),
+    scaleX: lerp(prevPose.scaleX, nextPose.scaleX, amount),
+    scaleY: lerp(prevPose.scaleY, nextPose.scaleY, amount),
+  };
+}
+
+function syncSpriteRigAnimationControls() {
+  if (!els.spriteRigAnimationSelect) return;
+  els.spriteRigAnimationSelect.value = state.spriteRigEditor.selectedAnimationId;
+  if (els.spriteRigPreviewMode) els.spriteRigPreviewMode.value = state.spriteRigEditor.previewMode;
+  if (els.spriteRigPreviewAutoplay) els.spriteRigPreviewAutoplay.checked = Boolean(state.spriteRigEditor.previewAutoplay);
+  if (els.spriteRigPreviewTime) els.spriteRigPreviewTime.value = `${Math.round(getSpriteRigCurrentKeyframeTime() * 100)}`;
+  renderSpriteRigAnimationFieldEditors();
+  syncSpriteRigKeyframePoseFields();
+  renderSpriteRigKeyframeList();
+}
+
+function renderSpriteRigAnimationFieldEditors() {
+  if (!els.spriteRigAnimationFields || !els.spriteRigAnimationClipFields) return;
+  const clipId = state.spriteRigEditor.selectedAnimationId;
+  const clipDef = getRigAnimationClipDefinition(clipId);
+  const partTuning = getActiveSpriteRigAnimationTuningPart();
+  const clip = getSelectedSpriteRigAnimationClip();
+  els.spriteRigAnimationSummary.textContent = `${clipDef.label} / ${RIG_PART_DEFINITIONS.find((part) => part.id === state.spriteRigEditor.activePartId)?.label || "Part"}`;
+  els.spriteRigAnimationClipFields.innerHTML = "";
+  const speedLabel = document.createElement("label");
+  speedLabel.innerHTML = `<span>${clipDef.label} Speed</span><input type="number" step="0.05" min="0.1" max="4" value="${clip?.speed ?? clipDef.speed}">`;
+  const speedInput = speedLabel.querySelector("input");
+  speedInput.addEventListener("input", () => {
+    clip.speed = clamp(Number(speedInput.value) || clipDef.speed, 0.1, 4);
+    invalidateSpriteRigPackedArtifact();
+    renderSpriteRigPreview();
+    updateSpriteRigStatus();
+  });
+  els.spriteRigAnimationClipFields.appendChild(speedLabel);
+
+  els.spriteRigAnimationFields.innerHTML = "";
+  (RIG_ANIMATION_FIELD_DEFINITIONS[clipId] || []).forEach((fieldDef) => {
+    const label = document.createElement("label");
+    label.innerHTML = `<span>${fieldDef.label}</span><input type="number" step="${fieldDef.step}" value="${getSpriteRigTuningValue(partTuning, fieldDef.path)}">`;
+    const input = label.querySelector("input");
+    input.addEventListener("input", () => {
+      setSpriteRigTuningValue(partTuning, fieldDef.path, Number(input.value) || 0);
+      invalidateSpriteRigPackedArtifact();
+      renderSpriteRigPreview();
+      updateSpriteRigStatus();
+    });
+    els.spriteRigAnimationFields.appendChild(label);
+  });
+}
+
+function syncSpriteRigKeyframePoseFields() {
+  const clip = getSelectedSpriteRigAnimationClip();
+  const frames = getSpriteRigKeyframesForSelection();
+  const time = getSpriteRigCurrentKeyframeTime();
+  const exact = findSpriteRigExactKeyframe(frames, time);
+  const pose = exact
+    ? normalizeRigKeyframePose(exact.pose)
+    : sampleSpriteRigKeyframePose(frames, time, clip?.loop);
+  state.spriteRigEditor.keyframePose = pose;
+  els.spriteRigKeyframeX.value = `${pose.x}`;
+  els.spriteRigKeyframeY.value = `${pose.y}`;
+  els.spriteRigKeyframeRotation.value = `${pose.rotationDeg}`;
+  els.spriteRigKeyframeScaleX.value = `${pose.scaleX}`;
+  els.spriteRigKeyframeScaleY.value = `${pose.scaleY}`;
+  els.spriteRigKeyframeSummary.textContent = exact
+    ? `${getRigAnimationClipDefinition(state.spriteRigEditor.selectedAnimationId).label} @ ${Math.round(time * 100)}%`
+    : `Interpolated @ ${Math.round(time * 100)}%`;
+}
+
+function readSpriteRigKeyframePoseFields() {
+  return {
+    x: Number(els.spriteRigKeyframeX?.value) || 0,
+    y: Number(els.spriteRigKeyframeY?.value) || 0,
+    rotationDeg: Number(els.spriteRigKeyframeRotation?.value) || 0,
+    scaleX: Number(els.spriteRigKeyframeScaleX?.value) || 0,
+    scaleY: Number(els.spriteRigKeyframeScaleY?.value) || 0,
+  };
+}
+
+function upsertSpriteRigKeyframe() {
+  const clip = getSelectedSpriteRigAnimationClip();
+  const frames = clip.keyframes[state.spriteRigEditor.activePartId];
+  const time = getSpriteRigCurrentKeyframeTime();
+  const pose = readSpriteRigKeyframePoseFields();
+  const existing = findSpriteRigExactKeyframe(frames, time);
+  if (existing) {
+    existing.pose = pose;
+  } else {
+    frames.push({ time, pose });
+    frames.sort((a, b) => a.time - b.time);
+  }
+  state.spriteRigEditor.keyframePose = pose;
+  invalidateSpriteRigPackedArtifact();
+  renderSpriteRigPreview();
+  renderSpriteRigKeyframeList();
+  syncSpriteRigKeyframePoseFields();
+  updateSpriteRigStatus();
+}
+
+function deleteSpriteRigKeyframe() {
+  const clip = getSelectedSpriteRigAnimationClip();
+  const frames = clip.keyframes[state.spriteRigEditor.activePartId];
+  const time = getSpriteRigCurrentKeyframeTime();
+  const index = frames.findIndex((frame) => Math.abs(frame.time - time) <= 0.0001);
+  if (index >= 0) frames.splice(index, 1);
+  state.spriteRigEditor.keyframePose = createEmptyRigKeyframePose();
+  syncSpriteRigKeyframePoseFields();
+  renderSpriteRigKeyframeList();
+  renderSpriteRigPreview();
+  updateSpriteRigStatus();
+}
+
+function resetSpriteRigKeyframePoseFields() {
+  state.spriteRigEditor.keyframePose = createEmptyRigKeyframePose();
+  els.spriteRigKeyframeX.value = "0";
+  els.spriteRigKeyframeY.value = "0";
+  els.spriteRigKeyframeRotation.value = "0";
+  els.spriteRigKeyframeScaleX.value = "0";
+  els.spriteRigKeyframeScaleY.value = "0";
+}
+
+function renderSpriteRigKeyframeList() {
+  if (!els.spriteRigKeyframeList) return;
+  const frames = getSpriteRigKeyframesForSelection();
+  els.spriteRigKeyframeList.innerHTML = "";
+  if (!frames.length) {
+    const empty = document.createElement("span");
+    empty.className = "hint";
+    empty.textContent = "No keyframes set for this part in the selected clip yet.";
+    els.spriteRigKeyframeList.appendChild(empty);
+    return;
+  }
+  frames.forEach((frame) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `sprite-rig-keyframe-chip${Math.abs(frame.time - getSpriteRigCurrentKeyframeTime()) <= 0.0001 ? " active" : ""}`;
+    button.textContent = `${Math.round(frame.time * 100)}%`;
+    button.addEventListener("click", () => {
+      state.spriteRigEditor.previewAutoplay = false;
+      state.spriteRigEditor.previewTime = frame.time;
+      syncSpriteRigAnimationControls();
+      renderSpriteRigPreview();
+    });
+    els.spriteRigKeyframeList.appendChild(button);
+  });
+}
+
 function renderSpriteRigPartPicker() {
   if (!els.spriteRigPartPicker) return;
   els.spriteRigPartPicker.innerHTML = "";
@@ -1235,6 +1802,7 @@ function renderSpriteRigPartPicker() {
       state.spriteRigEditor.activePartId = partDef.id;
       renderSpriteRigPartPicker();
       syncSpriteRigFields();
+      syncSpriteRigAnimationControls();
       renderSpriteRigSourceCanvas();
     });
     els.spriteRigPartPicker.appendChild(button);
@@ -1250,6 +1818,8 @@ function syncSpriteRigFields() {
   const rect = part?.rect || { x: "", y: "", w: "", h: "" };
   const pivot = part?.pivot || { x: "", y: "" };
   const mountOffset = part?.mountOffset || { x: "", y: "" };
+  const scaleX = part?.scaleX ?? 1;
+  const scaleY = part?.scaleY ?? 1;
   els.spriteRigRegionX.value = rect.x;
   els.spriteRigRegionY.value = rect.y;
   els.spriteRigRegionW.value = rect.w;
@@ -1258,6 +1828,8 @@ function syncSpriteRigFields() {
   els.spriteRigPivotY.value = pivot.y;
   els.spriteRigMountOffsetX.value = mountOffset.x;
   els.spriteRigMountOffsetY.value = mountOffset.y;
+  els.spriteRigBaseScaleX.value = `${scaleX}`;
+  els.spriteRigBaseScaleY.value = `${scaleY}`;
 }
 
 function syncSpriteRigWeaponFields() {
@@ -1288,10 +1860,14 @@ function onSpriteRigFieldInput() {
     pivotY: Math.round(Number(els.spriteRigPivotY.value) || 0),
     mountOffsetX: Math.round(Number(els.spriteRigMountOffsetX.value) || 0),
     mountOffsetY: Math.round(Number(els.spriteRigMountOffsetY.value) || 0),
+    baseScaleX: clamp(Number(els.spriteRigBaseScaleX.value) || 1, 0.05, 8),
+    baseScaleY: clamp(Number(els.spriteRigBaseScaleY.value) || 1, 0.05, 8),
   };
   part.rect = { x: values.x, y: values.y, w: values.w, h: values.h };
   part.pivot = { x: values.pivotX, y: values.pivotY };
   part.mountOffset = { x: values.mountOffsetX, y: values.mountOffsetY };
+  part.scaleX = values.baseScaleX;
+  part.scaleY = values.baseScaleY;
   clampSpriteRigPartToImage(part);
   clampSpriteRigWeaponAttachmentToImage();
   invalidateSpriteRigPackedArtifact();
@@ -1357,6 +1933,17 @@ function resetActiveSpriteRigMountOffset() {
   updateSpriteRigStatus();
 }
 
+function resetActiveSpriteRigBaseScale() {
+  const part = getActiveSpriteRigPart();
+  if (!part) return;
+  part.scaleX = 1;
+  part.scaleY = 1;
+  invalidateSpriteRigPackedArtifact();
+  syncSpriteRigFields();
+  renderSpriteRigPreview();
+  updateSpriteRigStatus();
+}
+
 function toggleActiveSpriteRigReflection(axis) {
   const part = getActiveSpriteRigPart();
   if (!part) return;
@@ -1394,42 +1981,98 @@ function clearActiveSpriteRigPart() {
   updateSpriteRigStatus();
 }
 
-function onSpriteRigFileChange(event) {
+function applySpriteRigSourceImage(image, options = {}) {
+  const editor = state.spriteRigEditor;
+  editor.sourceImage = image;
+  editor.sourceName = options.sourceName || editor.sourceName || "sprite-rig";
+  editor.sourceFileName = options.fileName || editor.sourceFileName || `${editor.sourceName}.png`;
+  editor.sourceMimeType = options.mimeType || editor.sourceMimeType || "image/png";
+  editor.sourceImageDataUrl = options.dataUrl || editor.sourceImageDataUrl || "";
+  editor.sourceWidth = image.naturalWidth || image.width;
+  editor.sourceHeight = image.naturalHeight || image.height;
+  editor.fitZoom = Math.min(
+    RIG_EDITOR_CANVAS_SIZE / Math.max(1, editor.sourceWidth),
+    RIG_EDITOR_CANVAS_SIZE / Math.max(1, editor.sourceHeight),
+  );
+  editor.zoom = editor.fitZoom * 0.8;
+  updateSpriteRigViewportOffsets();
+}
+
+function resetSpriteRigEditorForNewSource() {
+  const editor = state.spriteRigEditor;
+  editor.parts = normalizeSpriteRigParts();
+  editor.healthBarOffsetX = DEFAULT_RIG_LAYOUT.healthBarOffsetX;
+  editor.healthBarOffsetY = DEFAULT_RIG_LAYOUT.healthBarOffsetY;
+  editor.weaponAttachment = createEmptyRigWeaponAttachment();
+  editor.activePartId = "body";
+  editor.animationConfig = createDefaultRigAnimationConfig();
+  editor.selectedAnimationId = "walk";
+  editor.previewMode = "composite";
+  editor.previewAutoplay = true;
+  editor.previewTime = 0;
+  editor.keyframePose = createDefaultSpriteRigKeyframePoseState();
+  invalidateSpriteRigPackedArtifact();
+}
+
+function finalizeSpriteRigSourceLoad() {
+  if (els.spriteRigUnitSelect && !els.spriteRigUnitSelect.value) {
+    els.spriteRigUnitSelect.value = state.spriteRigEditor.unitId;
+  }
+  els.spriteRigHealthBarOffsetX.value = `${state.spriteRigEditor.healthBarOffsetX}`;
+  els.spriteRigHealthBarOffsetY.value = `${state.spriteRigEditor.healthBarOffsetY}`;
+  renderSpriteRigPartPicker();
+  syncSpriteRigFields();
+  syncSpriteRigWeaponFields();
+  syncSpriteRigAnimationControls();
+  updateSpriteRigZoomLabel();
+  updateSpriteRigStatus();
+  renderSpriteRigSourceCanvas();
+  renderSpriteRigPreview();
+}
+
+async function fileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+async function onSpriteRigFileChange(event) {
   const file = event.target.files?.[0];
   if (!file) return;
-  const objectUrl = URL.createObjectURL(file);
-  const image = new Image();
-  image.onload = () => {
-    state.spriteRigEditor.sourceImage = image;
-    state.spriteRigEditor.sourceName = file.name.replace(/\.[^.]+$/, "");
-    state.spriteRigEditor.sourceWidth = image.naturalWidth || image.width;
-    state.spriteRigEditor.sourceHeight = image.naturalHeight || image.height;
-    state.spriteRigEditor.parts = Object.fromEntries(RIG_PART_IDS.map((id) => [id, createEmptyRigPart(id)]));
-    state.spriteRigEditor.healthBarOffsetX = DEFAULT_RIG_LAYOUT.healthBarOffsetX;
-    state.spriteRigEditor.healthBarOffsetY = DEFAULT_RIG_LAYOUT.healthBarOffsetY;
-    state.spriteRigEditor.weaponAttachment = createEmptyRigWeaponAttachment();
-    state.spriteRigEditor.activePartId = "body";
-    invalidateSpriteRigPackedArtifact();
-    state.spriteRigEditor.fitZoom = Math.min(
-      RIG_EDITOR_CANVAS_SIZE / Math.max(1, state.spriteRigEditor.sourceWidth),
-      RIG_EDITOR_CANVAS_SIZE / Math.max(1, state.spriteRigEditor.sourceHeight),
-    );
-    state.spriteRigEditor.zoom = state.spriteRigEditor.fitZoom * 0.8;
-    updateSpriteRigViewportOffsets();
-    if (els.spriteRigUnitSelect && !els.spriteRigUnitSelect.value) {
-      els.spriteRigUnitSelect.value = state.spriteRigEditor.unitId;
-    }
-    renderSpriteRigPartPicker();
-    syncSpriteRigFields();
-    syncSpriteRigWeaponFields();
-    els.spriteRigHealthBarOffsetX.value = `${state.spriteRigEditor.healthBarOffsetX}`;
-    els.spriteRigHealthBarOffsetY.value = `${state.spriteRigEditor.healthBarOffsetY}`;
-    updateSpriteRigZoomLabel();
-    updateSpriteRigStatus();
-    renderSpriteRigSourceCanvas();
-    renderSpriteRigPreview();
-  };
-  image.src = objectUrl;
+  try {
+    const dataUrl = await fileToDataUrl(file);
+    const image = await loadImageAsset(dataUrl);
+    resetSpriteRigEditorForNewSource();
+    applySpriteRigSourceImage(image, {
+      sourceName: file.name.replace(/\.[^.]+$/, ""),
+      fileName: file.name,
+      mimeType: file.type || "image/png",
+      dataUrl,
+    });
+    finalizeSpriteRigSourceLoad();
+  } catch (error) {
+    els.spriteRigStatus.textContent = `Could not load source sprite: ${error.message || error}`;
+  } finally {
+    if (event.target) event.target.value = "";
+  }
+}
+
+async function onSpriteRigProjectFileChange(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  try {
+    const text = await file.text();
+    const project = JSON.parse(text);
+    await loadSpriteRigWorkshopProject(project);
+    els.spriteRigStatus.textContent = `Opened workshop asset ${file.name}.`;
+  } catch (error) {
+    els.spriteRigStatus.textContent = `Could not open workshop asset: ${error.message || error}`;
+  } finally {
+    if (event.target) event.target.value = "";
+  }
 }
 
 function updateSpriteRigViewportOffsets() {
@@ -1562,9 +2205,13 @@ function onSpriteRigPreviewPointerDown(event) {
   editor.previewDrag = {
     pointerId: event.pointerId,
     startPoint: point,
+    mode: editor.previewAutoplay ? "mount" : "keyframe",
     startMountOffset: {
       x: part.mountOffset?.x || 0,
       y: part.mountOffset?.y || 0,
+    },
+    startKeyframePose: {
+      ...readSpriteRigKeyframePoseFields(),
     },
     sourceScale: editor.previewScene?.sourceScale || 1,
   };
@@ -1580,12 +2227,23 @@ function onSpriteRigPreviewPointerMove(event) {
   if (!part) return;
   const dx = (point.x - drag.startPoint.x) / Math.max(drag.sourceScale || 1, 0.0001);
   const dy = (point.y - drag.startPoint.y) / Math.max(drag.sourceScale || 1, 0.0001);
-  part.mountOffset = {
-    x: Math.round(drag.startMountOffset.x + dx),
-    y: Math.round(drag.startMountOffset.y + dy),
-  };
-  invalidateSpriteRigPackedArtifact();
-  syncSpriteRigFields();
+  if (drag.mode === "keyframe") {
+    const nextPose = {
+      ...drag.startKeyframePose,
+      x: Math.round((drag.startKeyframePose.x + dx) * 100) / 100,
+      y: Math.round((drag.startKeyframePose.y + dy) * 100) / 100,
+    };
+    state.spriteRigEditor.keyframePose = nextPose;
+    els.spriteRigKeyframeX.value = `${nextPose.x}`;
+    els.spriteRigKeyframeY.value = `${nextPose.y}`;
+  } else {
+    part.mountOffset = {
+      x: Math.round(drag.startMountOffset.x + dx),
+      y: Math.round(drag.startMountOffset.y + dy),
+    };
+    invalidateSpriteRigPackedArtifact();
+    syncSpriteRigFields();
+  }
   renderSpriteRigPreview();
   updateSpriteRigStatus();
 }
@@ -1594,6 +2252,7 @@ function onSpriteRigPreviewPointerUp(event) {
   const drag = state.spriteRigEditor.previewDrag;
   if (!drag) return;
   if (typeof drag.pointerId === "number" && typeof event.pointerId === "number" && drag.pointerId !== event.pointerId) return;
+  if (drag.mode === "keyframe") upsertSpriteRigKeyframe();
   state.spriteRigEditor.previewDrag = null;
   renderSpriteRigPreview();
 }
@@ -1741,25 +2400,122 @@ function renderSpriteRigPreview() {
   }
   const artifact = buildSpriteRigSheetCanvas();
   if (!artifact) return;
-  const blend = state.spriteRigEditor.previewBlend;
   const now = performance.now() / 1000;
-  const previewUnit = {
-    type: state.spriteRigEditor.unitId || "archer",
-    stride: Math.sin(now * 4.2) * blend,
-    bob: (0.5 - Math.cos(now * 8.4) * 0.5) * blend,
-    attackSwing: Math.max(0, Math.sin(now * 2.8)) * (0.35 + blend * 0.65),
-    displayFacingX: 1,
-    walkTilt: Math.sin(now * 1.5) * 0.035 * blend,
-    rotation: 0,
-  };
-  els.spriteRigPreviewLabel.textContent = blend < 0.2 ? "Mostly Idle" : blend < 0.65 ? "Walk Blend" : "Attack Blend";
-  const scene = renderBattleAccurateSpriteRigPreview(previewCtx, canvas, artifact, previewUnit);
+  const previewState = buildSpriteRigPreviewState(artifact.manifest, now);
+  els.spriteRigPreviewLabel.textContent = previewState.label;
+  const scene = renderBattleAccurateSpriteRigPreview(previewCtx, canvas, artifact, previewState.previewUnit, previewState.animationState);
   state.spriteRigEditor.previewScene = scene
     ? { ...scene }
     : null;
 }
 
-function renderBattleAccurateSpriteRigPreview(previewCtx, canvas, artifact, previewUnit) {
+function buildSpriteRigPreviewState(manifest, now) {
+  const editor = state.spriteRigEditor;
+  const config = getRigAnimationConfigFromManifest(manifest);
+  const selectedClipId = editor.selectedAnimationId || "walk";
+  const selectedClip = config.clips[selectedClipId] || getSelectedSpriteRigAnimationClip();
+  const scrubTime = editor.previewAutoplay
+    ? null
+    : getSpriteRigCurrentKeyframeTime();
+  const walkTime = scrubTime != null
+    ? scrubTime
+    : wrap01(now * 0.72 * (config.clips.walk?.speed || 1));
+  const attackTime = scrubTime != null
+    ? scrubTime
+    : wrap01(now * 0.55 * (config.clips.attack?.speed || 1));
+  const idleTime = scrubTime != null
+    ? scrubTime
+    : wrap01(now * 0.35 * (config.clips.idle?.speed || 1));
+  let previewUnit = {
+    type: editor.unitId || "archer",
+    stride: 0,
+    bob: 0,
+    attackSwing: 0,
+    displayFacingX: 1,
+    walkTilt: 0,
+    rotation: 0,
+  };
+  let animationState = {
+    stride: 0,
+    bob: 0,
+    attack: 0,
+    idle: 0,
+    clipTimes: { idle: idleTime, walk: walkTime, attack: attackTime },
+    clipWeights: { idle: 0, walk: 0, attack: 0 },
+  };
+  let label = getRigAnimationClipDefinition(selectedClipId).label;
+  if (editor.previewMode === "composite") {
+    const blend = clamp(editor.previewBlend, 0, 1);
+    const walkSpeed = config.clips.walk?.speed || 1;
+    const attackSpeed = config.clips.attack?.speed || 1;
+    previewUnit = {
+      ...previewUnit,
+      stride: Math.sin(now * 4.2 * walkSpeed) * blend,
+      bob: (0.5 - Math.cos(now * 8.4 * walkSpeed) * 0.5) * blend,
+      attackSwing: Math.max(0, Math.sin(now * 2.8 * attackSpeed)) * (0.35 + blend * 0.65),
+      walkTilt: Math.sin(now * 1.5 * walkSpeed) * 0.035 * blend,
+    };
+    animationState = {
+      stride: previewUnit.stride,
+      bob: previewUnit.bob,
+      attack: previewUnit.attackSwing,
+      idle: Math.sin((idleTime * Math.PI * 2) + 0.2) * 0.02,
+      clipTimes: { idle: idleTime, walk: walkTime, attack: attackTime },
+      clipWeights: {
+        idle: 1 - blend,
+        walk: blend,
+        attack: previewUnit.attackSwing > 0.001 ? 1 : 0,
+      },
+    };
+    label = blend < 0.2 ? "Mostly Idle" : blend < 0.65 ? "Walk Blend" : "Attack Blend";
+  } else if (selectedClipId === "idle") {
+    animationState = {
+      ...animationState,
+      idle: Math.sin((idleTime * Math.PI * 2) + 0.2) * 0.02,
+      clipWeights: { idle: 1, walk: 0, attack: 0 },
+    };
+    label = "Idle";
+  } else if (selectedClipId === "attack") {
+    const attackSwing = Math.sin(attackTime * Math.PI);
+    previewUnit.attackSwing = attackSwing;
+    animationState = {
+      ...animationState,
+      attack: attackSwing,
+      clipWeights: { idle: 0, walk: 0, attack: 1 },
+    };
+    label = "Attack";
+  } else {
+    previewUnit = {
+      ...previewUnit,
+      stride: Math.sin(walkTime * Math.PI * 2),
+      bob: 0.5 - Math.cos(walkTime * Math.PI * 4) * 0.5,
+      walkTilt: Math.sin(walkTime * Math.PI * 2) * 0.035,
+    };
+    animationState = {
+      ...animationState,
+      stride: previewUnit.stride,
+      bob: previewUnit.bob,
+      clipWeights: { idle: 0, walk: 1, attack: 0 },
+    };
+    label = "Walk";
+  }
+  if (!editor.previewAutoplay) {
+    animationState.clipTimes[selectedClipId] = scrubTime ?? 0;
+    const frames = selectedClip?.keyframes?.[editor.activePartId] || [];
+    const exact = findSpriteRigExactKeyframe(frames, scrubTime ?? 0);
+    if (exact) {
+      state.spriteRigEditor.keyframePose = normalizeRigKeyframePose(exact.pose);
+    }
+    animationState.previewKeyframeOverride = {
+      clipId: selectedClipId,
+      partId: editor.activePartId,
+      pose: state.spriteRigEditor.keyframePose,
+    };
+  }
+  return { previewUnit, animationState, label };
+}
+
+function renderBattleAccurateSpriteRigPreview(previewCtx, canvas, artifact, previewUnit, animationState) {
   const pointScale = 5.3;
   const renderScale = pointScale * getUnitRenderScale(previewUnit);
   const groundX = canvas.width / 2;
@@ -1776,6 +2532,7 @@ function renderBattleAccurateSpriteRigPreview(previewCtx, canvas, artifact, prev
   previewCtx.rotate((previewUnit.walkTilt || 0) + (previewUnit.rotation || 0));
   previewCtx.scale(previewUnit.displayFacingX || 1, 1);
   const scene = drawRiggedSpriteFromManifest(previewCtx, artifact.manifest, artifact.canvas, previewUnit, pointScale * getUnitRenderScale(previewUnit), {
+    animationState,
     collectPartMetrics: true,
     highlightPartId: state.spriteRigEditor.activePartId,
     dragPartId: state.spriteRigEditor.previewDrag ? state.spriteRigEditor.activePartId : null,
@@ -1866,6 +2623,8 @@ function updateSpriteRigStatus() {
     `Defined parts: ${definedParts.length}/${RIG_PART_DEFINITIONS.length}`,
     missingRequired.length ? `Missing required: ${missingRequired.join(", ")}` : "All required parts are defined.",
     `Health bar offset: (${state.spriteRigEditor.healthBarOffsetX}, ${state.spriteRigEditor.healthBarOffsetY})`,
+    `Editing clip: ${getRigAnimationClipDefinition(state.spriteRigEditor.selectedAnimationId).label} | Preview: ${state.spriteRigEditor.previewMode === "composite" ? "runtime blend" : "selected clip"}`,
+    `Export directory: ${state.spriteRigEditor.exportDirectoryName || "not chosen yet"}`,
   ];
   const weaponAttachment = state.spriteRigEditor.weaponAttachment;
   if (weaponAttachment?.enabled && weaponAttachment.sourceX != null && weaponAttachment.sourceY != null) {
@@ -1873,12 +2632,113 @@ function updateSpriteRigStatus() {
   } else {
     lines.push("Weapon pin: disabled.");
   }
+  const keyframeCount = getSpriteRigKeyframesForSelection().length;
+  lines.push(`Selected part keyframes: ${keyframeCount}`);
   state.spriteRigEditor.statusText = lines.join("\n");
   els.spriteRigStatus.textContent = state.spriteRigEditor.statusText;
 }
 
 function invalidateSpriteRigPackedArtifact() {
   state.spriteRigEditor.packedArtifact = null;
+}
+
+function serializeRigAnimationConfig(animationConfig) {
+  const normalized = normalizeRigAnimationConfig(animationConfig);
+  return {
+    tuning: cloneData(normalized.tuning),
+    clips: Object.fromEntries(RIG_ANIMATION_CLIP_DEFINITIONS.map((clipDef) => [clipDef.id, {
+      speed: normalized.clips[clipDef.id].speed,
+      loop: clipDef.loop,
+      keyframes: Object.fromEntries(RIG_PART_IDS.map((partId) => [partId, normalized.clips[clipDef.id].keyframes[partId].map((frame) => ({
+        time: frame.time,
+        pose: normalizeRigKeyframePose(frame.pose),
+      }))])),
+    }])),
+  };
+}
+
+function buildSpriteRigWorkshopProject() {
+  const editor = state.spriteRigEditor;
+  if (!editor.sourceImage || !editor.sourceImageDataUrl) return null;
+  return {
+    kind: "tbr-sprite-rig-workshop",
+    version: 1,
+    unitId: editor.unitId || sanitizeRigAssetName(editor.sourceName) || "unit-rig",
+    source: {
+      name: editor.sourceName,
+      fileName: editor.sourceFileName || `${editor.sourceName || "sprite-rig"}.png`,
+      mimeType: editor.sourceMimeType || "image/png",
+      dataUrl: editor.sourceImageDataUrl,
+      width: editor.sourceWidth,
+      height: editor.sourceHeight,
+    },
+    layout: {
+      renderHeight: editor.renderHeight,
+      anchorY: editor.anchorY,
+      healthBarOffsetX: editor.healthBarOffsetX,
+      healthBarOffsetY: editor.healthBarOffsetY,
+    },
+    preview: {
+      selectedAnimationId: editor.selectedAnimationId,
+      previewMode: editor.previewMode,
+      previewBlend: editor.previewBlend,
+    },
+    weaponAttachment: cloneData(editor.weaponAttachment),
+    parts: cloneData(editor.parts),
+    animations: serializeRigAnimationConfig(editor.animationConfig),
+  };
+}
+
+async function loadSpriteRigWorkshopProject(project) {
+  if (!project || project.kind !== "tbr-sprite-rig-workshop") {
+    throw new Error("This file is not a TBR sprite workshop asset.");
+  }
+  if (!project.source?.dataUrl) {
+    throw new Error("Workshop asset is missing its embedded source image.");
+  }
+  const image = await loadImageAsset(project.source.dataUrl);
+  const editor = state.spriteRigEditor;
+  applySpriteRigSourceImage(image, {
+    sourceName: project.source.name || project.unitId || "sprite-rig",
+    fileName: project.source.fileName || `${project.unitId || "sprite-rig"}.png`,
+    mimeType: project.source.mimeType || "image/png",
+    dataUrl: project.source.dataUrl,
+  });
+  editor.unitId = project.unitId || editor.unitId;
+  editor.renderHeight = clamp(Number(project.layout?.renderHeight) || DEFAULT_RIG_LAYOUT.height, 16, 256);
+  editor.anchorY = clamp(Number(project.layout?.anchorY) || DEFAULT_RIG_LAYOUT.anchorY, 0.5, 1.2);
+  editor.healthBarOffsetX = Math.round(Number(project.layout?.healthBarOffsetX) || 0);
+  editor.healthBarOffsetY = Math.round(Number(project.layout?.healthBarOffsetY) || 0);
+  editor.weaponAttachment = {
+    ...createEmptyRigWeaponAttachment(),
+    ...(project.weaponAttachment || {}),
+  };
+  editor.parts = normalizeSpriteRigParts(project.parts);
+  RIG_PART_IDS.forEach((id) => clampSpriteRigPartToImage(editor.parts[id]));
+  editor.animationConfig = normalizeRigAnimationConfig(project.animations);
+  editor.selectedAnimationId = project.preview?.selectedAnimationId || "walk";
+  editor.previewMode = project.preview?.previewMode || "composite";
+  editor.previewBlend = clamp(Number(project.preview?.previewBlend) || 0.55, 0, 1);
+  editor.previewAutoplay = true;
+  editor.previewTime = 0;
+  editor.activePartId = "body";
+  editor.keyframePose = createDefaultSpriteRigKeyframePoseState();
+  clampSpriteRigWeaponAttachmentToImage();
+  invalidateSpriteRigPackedArtifact();
+  els.spriteRigUnitSelect.value = editor.unitId;
+  els.spriteRigRenderHeight.value = `${editor.renderHeight}`;
+  els.spriteRigAnchorY.value = `${editor.anchorY}`;
+  els.spriteRigHealthBarOffsetX.value = `${editor.healthBarOffsetX}`;
+  els.spriteRigHealthBarOffsetY.value = `${editor.healthBarOffsetY}`;
+  els.spriteRigPreviewBlend.value = `${Math.round(editor.previewBlend * 100)}`;
+  renderSpriteRigPartPicker();
+  syncSpriteRigFields();
+  syncSpriteRigWeaponFields();
+  syncSpriteRigAnimationControls();
+  updateSpriteRigZoomLabel();
+  updateSpriteRigStatus();
+  renderSpriteRigSourceCanvas();
+  renderSpriteRigPreview();
 }
 
 function buildSpriteRigManifestFromEditor() {
@@ -1896,23 +2756,30 @@ function buildSpriteRigManifestFromEditor() {
   RIG_PART_IDS.forEach((id, index) => {
     const part = editor.parts[id];
     if (!part?.rect || !part.pivot) return;
+    const parentId = getRigPartDefinition(id)?.parentId || null;
+    const parentPivot = parentId
+      ? (editor.parts[parentId]?.pivot || bodyPivot)
+      : bodyPivot;
     const frameX = Math.round((cellSize - part.rect.w) / 2);
     const frameY = Math.round((cellSize - part.rect.h) / 2);
     parts[id] = {
       cell: index,
+      parentId,
       frame: { x: frameX, y: frameY, w: part.rect.w, h: part.rect.h },
       pivot: {
         x: part.pivot.x - part.rect.x,
         y: part.pivot.y - part.rect.y,
       },
       mount: {
-        x: part.pivot.x - bodyPivot.x + (part.mountOffset?.x || 0),
-        y: part.pivot.y - bodyPivot.y + (part.mountOffset?.y || 0),
+        x: part.pivot.x - parentPivot.x + (part.mountOffset?.x || 0),
+        y: part.pivot.y - parentPivot.y + (part.mountOffset?.y || 0),
       },
       mountOffset: {
         x: part.mountOffset?.x || 0,
         y: part.mountOffset?.y || 0,
       },
+      scaleX: clamp(Number(part.scaleX) || 1, 0.05, 8),
+      scaleY: clamp(Number(part.scaleY) || 1, 0.05, 8),
       flipX: Boolean(part.flipX),
       flipY: Boolean(part.flipY),
       sourceRect: { ...part.rect },
@@ -1920,7 +2787,7 @@ function buildSpriteRigManifestFromEditor() {
     };
   });
   const manifest = {
-    version: 1,
+    version: 2,
     unitId: editor.unitId || sanitizeRigAssetName(editor.sourceName) || "unit-rig",
     layout: {
       height: editor.renderHeight,
@@ -1940,6 +2807,7 @@ function buildSpriteRigManifestFromEditor() {
       rows: Math.ceil(RIG_PART_IDS.length / 4),
       order: [...RIG_PART_IDS],
     },
+    animations: serializeRigAnimationConfig(editor.animationConfig),
     parts,
   };
   if (
@@ -2005,28 +2873,103 @@ async function downloadSpriteRigArtifact(kind) {
   triggerBlobDownload(jsonBlob, `${fileStem}.json`);
 }
 
+async function chooseSpriteRigExportDirectory() {
+  if (!window.showDirectoryPicker) {
+    els.spriteRigStatus.textContent = "Choosing an export directory needs a Chromium browser with the File System Access API.";
+    return null;
+  }
+  try {
+    const directoryHandle = await window.showDirectoryPicker();
+    state.spriteRigEditor.exportDirectoryHandle = directoryHandle;
+    state.spriteRigEditor.exportDirectoryName = directoryHandle.name || "";
+    updateSpriteRigStatus();
+    return directoryHandle;
+  } catch (error) {
+    if (error?.name !== "AbortError") {
+      els.spriteRigStatus.textContent = `Could not choose export directory: ${error.message || error}`;
+    }
+    return null;
+  }
+}
+
+async function ensureSpriteRigSubdirectory(directoryHandle, name) {
+  return directoryHandle.getDirectoryHandle(name, { create: true });
+}
+
+async function writeBlobToDirectory(directoryHandle, filename, blob) {
+  const fileHandle = await directoryHandle.getFileHandle(filename, { create: true });
+  const writable = await fileHandle.createWritable();
+  await writable.write(blob);
+  await writable.close();
+}
+
+async function writeTextToDirectory(directoryHandle, filename, text) {
+  const fileHandle = await directoryHandle.getFileHandle(filename, { create: true });
+  const writable = await fileHandle.createWritable();
+  await writable.write(text);
+  await writable.close();
+}
+
+function getSpriteRigProjectStem() {
+  return state.spriteRigEditor.unitId || sanitizeRigAssetName(state.spriteRigEditor.sourceName) || "unit-rig";
+}
+
+async function writeSpriteRigWorkshopSourceCopy(directoryHandle) {
+  const editor = state.spriteRigEditor;
+  if (!editor.sourceImageDataUrl) return null;
+  const sourceDir = await ensureSpriteRigSubdirectory(directoryHandle, RIG_WORKSHOP_SOURCE_DIR);
+  const sourceFileName = `${getSpriteRigProjectStem()}-source${(editor.sourceFileName.match(/\.[^.]+$/) || [".png"])[0]}`;
+  const response = await fetch(editor.sourceImageDataUrl);
+  const blob = await response.blob();
+  await writeBlobToDirectory(sourceDir, sourceFileName, blob);
+  return `${RIG_WORKSHOP_SOURCE_DIR}/${sourceFileName}`;
+}
+
+async function saveSpriteRigWorkshopAsset() {
+  const project = buildSpriteRigWorkshopProject();
+  if (!project) {
+    els.spriteRigStatus.textContent = "Load a source sprite before saving a workshop asset.";
+    return;
+  }
+  const directoryHandle = state.spriteRigEditor.exportDirectoryHandle;
+  const filename = `${project.unitId}${RIG_WORKSHOP_FILE_EXTENSION}`;
+  if (directoryHandle) {
+    try {
+      const sourcePath = await writeSpriteRigWorkshopSourceCopy(directoryHandle);
+      const projectWithSourceCopy = {
+        ...project,
+        source: {
+          ...project.source,
+          localCopy: sourcePath,
+        },
+      };
+      await writeTextToDirectory(directoryHandle, filename, JSON.stringify(projectWithSourceCopy, null, 2));
+      els.spriteRigStatus.textContent = `Saved workshop asset ${filename} to ${state.spriteRigEditor.exportDirectoryName || "the selected directory"}.`;
+      return;
+    } catch (error) {
+      els.spriteRigStatus.textContent = `Could not save workshop asset: ${error.message || error}`;
+      return;
+    }
+  }
+  const blob = new Blob([JSON.stringify(project, null, 2)], { type: "application/json" });
+  triggerBlobDownload(blob, filename);
+  els.spriteRigStatus.textContent = `Downloaded workshop asset ${filename}.`;
+}
+
 async function exportSpriteRigToDirectory() {
   const artifact = buildSpriteRigSheetCanvas();
   if (!artifact) {
     els.spriteRigStatus.textContent = "Define at least the body region and pivot before exporting.";
     return;
   }
-  if (!window.showDirectoryPicker) {
-    els.spriteRigStatus.textContent = "Directory export needs a Chromium browser with the File System Access API.";
-    return;
-  }
   try {
-    const directoryHandle = await window.showDirectoryPicker();
-    const pngHandle = await directoryHandle.getFileHandle(`${artifact.manifest.unitId}.png`, { create: true });
-    const pngWritable = await pngHandle.createWritable();
+    const directoryHandle = state.spriteRigEditor.exportDirectoryHandle || await chooseSpriteRigExportDirectory();
+    if (!directoryHandle) return;
     const pngBlob = await new Promise((resolve) => artifact.canvas.toBlob(resolve, "image/png"));
-    await pngWritable.write(pngBlob);
-    await pngWritable.close();
-    const jsonHandle = await directoryHandle.getFileHandle(`${artifact.manifest.unitId}.json`, { create: true });
-    const jsonWritable = await jsonHandle.createWritable();
-    await jsonWritable.write(JSON.stringify(stripEditorFieldsFromManifest(artifact.manifest), null, 2));
-    await jsonWritable.close();
-    els.spriteRigStatus.textContent = `Exported ${artifact.manifest.unitId}.png and ${artifact.manifest.unitId}.json to the selected directory.`;
+    await writeBlobToDirectory(directoryHandle, `${artifact.manifest.unitId}.png`, pngBlob);
+    await writeTextToDirectory(directoryHandle, `${artifact.manifest.unitId}.json`, JSON.stringify(stripEditorFieldsFromManifest(artifact.manifest), null, 2));
+    await saveSpriteRigWorkshopAsset();
+    els.spriteRigStatus.textContent = `Exported ${artifact.manifest.unitId}.png, ${artifact.manifest.unitId}.json, and the workshop asset to ${state.spriteRigEditor.exportDirectoryName || "the selected directory"}.`;
   } catch (error) {
     if (error?.name !== "AbortError") {
       els.spriteRigStatus.textContent = `Directory export failed: ${error.message || error}`;
@@ -2047,14 +2990,19 @@ function triggerBlobDownload(blob, filename) {
 function stripEditorFieldsFromManifest(manifest) {
   return {
     ...manifest,
+    animations: serializeRigAnimationConfig(manifest.animations),
     parts: Object.fromEntries(Object.entries(manifest.parts).map(([id, part]) => [id, {
       cell: part.cell,
+      parentId: part.parentId,
       frame: part.frame,
       pivot: part.pivot,
       mount: part.mount,
       mountOffset: part.mountOffset,
+      scaleX: part.scaleX,
+      scaleY: part.scaleY,
       flipX: part.flipX,
       flipY: part.flipY,
+      sourceRect: part.sourceRect,
       sourcePivot: part.sourcePivot,
     }])),
   };
@@ -4113,6 +5061,7 @@ function makeUnit(factionId, type, x, y) {
     gaitPhase: Math.random() * Math.PI * 2,
     stride: 0,
     bob: 0,
+    walkBlend: 0,
     attackSwing: 0,
     focusTargetId: null,
     guardTargetId: null,
@@ -4251,6 +5200,8 @@ async function loadNextUnitRigCandidate(entry) {
     const response = await fetch(nextUrl);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const manifest = await response.json();
+    normalizeRigManifestPartHierarchy(manifest);
+    manifest.__normalizedAnimationConfig = normalizeRigAnimationConfig(manifest.animations);
     const imageUrl = resolveRigImageUrl(nextUrl, manifest?.sheet?.image || `${entry.unitId}.png`);
     const image = await loadImageAsset(imageUrl);
     entry.status = "loaded";
@@ -4279,6 +5230,14 @@ function loadImageAsset(url) {
     image.onerror = reject;
     image.src = url;
   });
+}
+
+function getRigAnimationClipSpeedForUnit(unitOrType, clipId) {
+  const unitId = typeof unitOrType === "string" ? unitOrType : unitOrType?.type;
+  const source = getRiggedUnitSpriteSource(unitId);
+  if (!source?.manifest) return 1;
+  const config = getRigAnimationConfigFromManifest(source.manifest);
+  return clamp(Number(config.clips?.[clipId]?.speed) || 1, 0.1, 4);
 }
 
 function loadNextStatusBadgeCandidate(entry) {
@@ -4353,7 +5312,7 @@ function drawRiggedSpriteFromManifest(targetCtx, manifest, image, unit, scale, o
   const targetHeight = (layout.height || DEFAULT_RIG_LAYOUT.height) * scale / 2.1;
   const body = manifest.parts.body;
   if (!body) return false;
-  const animation = buildRigAnimationState(unit);
+  const animation = options.animationState || buildRigAnimationState(unit, manifest);
   const sourceHeight = Math.max(1, manifest.sourceSize?.height || layout.height || DEFAULT_RIG_LAYOUT.height);
   const sourceWidth = Math.max(1, manifest.sourceSize?.width || layout.height || DEFAULT_RIG_LAYOUT.height);
   const sourceScale = targetHeight / sourceHeight;
@@ -4364,46 +5323,61 @@ function drawRiggedSpriteFromManifest(targetCtx, manifest, image, unit, scale, o
   const bodyPivotSource = body.sourcePivot || anchorPoint;
   const partMetrics = {};
   const partMatrices = {};
+  const partTransforms = {};
   targetCtx.save();
   targetCtx.translate(
     (bodyPivotSource.x - anchorPoint.x) * sourceScale,
     (bodyPivotSource.y - anchorPoint.y) * sourceScale,
   );
-  RIG_PART_ORDER.forEach((id) => {
+  const rootMatrix = targetCtx.getTransform();
+  function ensurePartMatrix(id) {
+    if (partMatrices[id]) return partMatrices[id];
     const part = manifest.parts[id];
-    if (!part) return;
-    const transform = getRigPartTransform(id, animation, unit);
-    const cellSize = manifest.sheet?.cellSize || 64;
-    const columns = manifest.sheet?.columns || 4;
-    const cellX = (part.cell % columns) * cellSize;
-    const cellY = Math.floor(part.cell / columns) * cellSize;
+    if (!part) return rootMatrix;
+    const transform = partTransforms[id] || (partTransforms[id] = getRigPartTransform(id, animation, unit, manifest));
     const mountX = (part.mount?.x || 0) * sourceScale;
     const mountY = (part.mount?.y || 0) * sourceScale;
-    const partScaleX = (part.flipX ? -1 : 1) * (1 + (transform.scaleX || 0));
-    const partScaleY = (part.flipY ? -1 : 1) * (1 + (transform.scaleY || 0));
+    const baseScaleX = clamp(Number(part.scaleX) || 1, 0.05, 8);
+    const baseScaleY = clamp(Number(part.scaleY) || 1, 0.05, 8);
+    const partScaleX = (part.flipX ? -1 : 1) * baseScaleX * (1 + (transform.scaleX || 0));
+    const partScaleY = (part.flipY ? -1 : 1) * baseScaleY * (1 + (transform.scaleY || 0));
+    const parentId = id === "weapon" && manifest.weaponAttachment?.partId
+      ? manifest.weaponAttachment.partId
+      : part.parentId;
+    const parentMatrix = parentId && manifest.parts[parentId]
+      ? ensurePartMatrix(parentId)
+      : rootMatrix;
     targetCtx.save();
-    if (id === "weapon" && manifest.weaponAttachment?.partId && partMatrices[manifest.weaponAttachment.partId]) {
+    targetCtx.setTransform(parentMatrix);
+    if (id === "weapon" && manifest.weaponAttachment?.partId && manifest.parts[manifest.weaponAttachment.partId]) {
       const parentPart = manifest.parts[manifest.weaponAttachment.partId];
       const attachment = manifest.weaponAttachment;
-      const attachmentAngle = (attachment.angleDeg || 0) * (Math.PI / 180);
-      const parentMatrix = partMatrices[manifest.weaponAttachment.partId];
+      const attachmentAngle = degToRad(attachment.angleDeg || 0);
       const attachmentX = ((attachment.x || 0) - (parentPart?.pivot?.x || 0)) * sourceScale;
       const attachmentY = ((attachment.y || 0) - (parentPart?.pivot?.y || 0)) * sourceScale;
-      targetCtx.setTransform(parentMatrix);
       targetCtx.translate(
         attachmentX + mountX + (transform.x || 0) * targetHeight,
         attachmentY + mountY + (transform.y || 0) * targetHeight,
       );
       targetCtx.rotate(attachmentAngle + (transform.rotation || 0));
-      targetCtx.scale(partScaleX, partScaleY);
     } else {
       targetCtx.translate(mountX + (transform.x || 0) * targetHeight, mountY + (transform.y || 0) * targetHeight);
       targetCtx.rotate(transform.rotation || 0);
-      targetCtx.scale(partScaleX, partScaleY);
     }
+    targetCtx.scale(partScaleX, partScaleY);
     partMatrices[id] = targetCtx.getTransform();
+    targetCtx.restore();
+    return partMatrices[id];
+  }
+  RIG_PART_ORDER.forEach((id) => {
+    const part = manifest.parts[id];
+    if (!part) return;
+    const cellSize = manifest.sheet?.cellSize || 64;
+    const columns = manifest.sheet?.columns || 4;
+    const cellX = (part.cell % columns) * cellSize;
+    const cellY = Math.floor(part.cell / columns) * cellSize;
+    const matrix = ensurePartMatrix(id);
     if (options.collectPartMetrics) {
-      const matrix = partMatrices[id];
       const bounds = getTransformedRectBounds(
         matrix,
         -part.pivot.x * sourceScale,
@@ -4416,6 +5390,8 @@ function drawRiggedSpriteFromManifest(targetCtx, manifest, image, unit, scale, o
         matrix,
       };
     }
+    targetCtx.save();
+    targetCtx.setTransform(matrix);
     targetCtx.drawImage(
       image,
       cellX + part.frame.x,
@@ -4466,33 +5442,256 @@ function transformMatrixPoint(matrix, x, y) {
   };
 }
 
-function buildRigAnimationState(unit) {
+function wrap01(value) {
+  return ((value % 1) + 1) % 1;
+}
+
+function getRigAnimationConfigFromManifest(manifest) {
+  if (!manifest) return createDefaultRigAnimationConfig();
+  if (!manifest.__normalizedAnimationConfig) {
+    manifest.__normalizedAnimationConfig = normalizeRigAnimationConfig(manifest.animations);
+  }
+  return manifest.__normalizedAnimationConfig;
+}
+
+function buildRigAnimationState(unit, manifest) {
+  const config = getRigAnimationConfigFromManifest(manifest);
+  const now = state.battle?.time || performance.now() / 1000;
   const stride = unit?.stride || 0;
   const bob = unit?.bob || 0;
   const attack = clamp(unit?.attackSwing || 0, 0, 1);
-  const idle = Math.sin(((state.battle?.time || performance.now() / 1000) * 2.1) + (unit?.statusVisualSeed || 0)) * 0.02;
+  const walkBlend = clamp(unit?.walkBlend ?? smoothStep(0.08, 0.92, Math.max(Math.abs(stride), bob)), 0, 1);
+  const idle = Math.sin((now * 2.1 * (config.clips.idle?.speed || 1)) + (unit?.statusVisualSeed || 0)) * 0.02;
+  const walkTime = wrap01((((unit?.gaitPhase || now * 7) / (Math.PI * 2))) * (config.clips.walk?.speed || 1));
+  const attackTime = clamp(attack > 0 ? 1 - attack : 1, 0, 1);
   return {
     stride,
     bob,
     attack,
     idle,
+    clipTimes: {
+      idle: wrap01(now * 0.35 * (config.clips.idle?.speed || 1)),
+      walk: walkTime,
+      attack: attackTime,
+    },
+    clipWeights: {
+      idle: 1 - walkBlend,
+      walk: walkBlend,
+      attack: attack > 0.001 ? 1 : 0,
+    },
   };
 }
 
-function getRigPartTransform(partId, animation, unit) {
-  const stride = animation.stride;
-  const bob = animation.bob;
-  const attack = animation.attack;
-  const idle = animation.idle;
-  const torsoBobY = -bob * 0.2;
-  if (partId === "body") return { y: torsoBobY, rotation: idle * 0.7 + attack * -0.05 };
-  if (partId === "head") return { y: -bob * 0.26 - attack * 0.04, rotation: idle + attack * -0.08 };
-  if (partId === "armFront") return { rotation: (-stride * 0.38) + attack * 1.28 + idle * 0.4, y: torsoBobY + bob * 0.04 };
-  if (partId === "armBack") return { rotation: (stride * 0.28) - attack * 0.18 - idle * 0.22, y: torsoBobY + bob * 0.02 };
-  if (partId === "legFront") return { rotation: stride * 0.62 - attack * 0.05, y: torsoBobY + bob * 0.03 };
-  if (partId === "legBack") return { rotation: -stride * 0.62 + attack * 0.03, y: -bob * 0.02 };
-  if (partId === "weapon") return { rotation: (-stride * 0.16) + attack * 1.12 + idle * 0.35, y: attack * -0.04 };
-  return { rotation: 0 };
+function sampleRigClipPose(manifest, clipId, partId, time, overridePose = null) {
+  if (overridePose) return normalizeRigKeyframePose(overridePose);
+  const config = getRigAnimationConfigFromManifest(manifest);
+  const clip = config.clips?.[clipId];
+  return sampleSpriteRigKeyframePose(clip?.keyframes?.[partId] || [], time, clip?.loop);
+}
+
+function getRigStrideDriverForPart(partId, stride) {
+  if (partId === "legFrontThigh" || partId === "legFrontShin") return clamp(stride, 0, 1);
+  if (partId === "legBackThigh" || partId === "legBackShin") return clamp(-stride, 0, 1);
+  return stride;
+}
+
+function updateUnitWalkBlend(unit, targetBlend, dt) {
+  const currentBlend = clamp(unit?.walkBlend || 0, 0, 1);
+  const nextBlend = currentBlend + (clamp(targetBlend, 0, 1) - currentBlend) * Math.min(1, dt * 1.15);
+  unit.walkBlend = clamp(nextBlend, 0, 1);
+}
+
+function getRigProceduralFootVector(shinPart, thighLength) {
+  const frameWidth = shinPart?.frame?.w || 0;
+  const frameHeight = shinPart?.frame?.h || 0;
+  const pivotX = shinPart?.pivot?.x || 0;
+  const pivotY = shinPart?.pivot?.y || 0;
+  return {
+    x: clamp((frameWidth * 0.5) - pivotX, -thighLength * 0.18, thighLength * 0.22),
+    y: Math.max(frameHeight - pivotY, thighLength * 0.72, 1),
+  };
+}
+
+function getRigProceduralLegMetrics(manifest) {
+  if (!manifest?.parts) return null;
+  if (!manifest.__proceduralLegMetrics) {
+    const buildMetrics = (thighId, shinId) => {
+      const thighPart = manifest.parts[thighId];
+      const shinPart = manifest.parts[shinId];
+      if (!thighPart || !shinPart?.mount) return null;
+      const thighVector = {
+        x: shinPart.mount.x || 0,
+        y: shinPart.mount.y || Math.max(1, (thighPart.frame?.h || 1) * 0.6),
+      };
+      const thighLength = Math.max(1, Math.hypot(thighVector.x, thighVector.y));
+      const footVector = getRigProceduralFootVector(shinPart, thighLength);
+      return {
+        thighId,
+        shinId,
+        thighLength,
+        shinLength: Math.max(1, Math.hypot(footVector.x, footVector.y)),
+        thighRestAngle: Math.atan2(thighVector.y, thighVector.x),
+        shinRestAngle: Math.atan2(footVector.y, footVector.x),
+      };
+    };
+    manifest.__proceduralLegMetrics = {
+      legFront: buildMetrics("legFrontThigh", "legFrontShin"),
+      legBack: buildMetrics("legBackThigh", "legBackShin"),
+    };
+  }
+  return manifest.__proceduralLegMetrics;
+}
+
+function solveRigTwoBoneIK(thighLength, shinLength, targetX, targetY, kneeSide = -1) {
+  const rawDistance = Math.hypot(targetX, targetY);
+  const distance = clamp(rawDistance, Math.abs(thighLength - shinLength) + 0.001, thighLength + shinLength - 0.001);
+  if (distance <= 0.001) return null;
+  const dirX = targetX / distance;
+  const dirY = targetY / distance;
+  const along = clamp(((thighLength * thighLength) - (shinLength * shinLength) + (distance * distance)) / (2 * distance), 0, thighLength);
+  const height = Math.sqrt(Math.max(0, (thighLength * thighLength) - (along * along)));
+  const perpX = -dirY;
+  const perpY = dirX;
+  const kneeX = dirX * along + perpX * height * kneeSide;
+  const kneeY = dirY * along + perpY * height * kneeSide;
+  return {
+    thighAngle: Math.atan2(kneeY, kneeX),
+    shinAngle: Math.atan2(targetY - kneeY, targetX - kneeX),
+  };
+}
+
+function getRigProceduralLegPoseForPart(partId, animation, manifest) {
+  const metrics = getRigProceduralLegMetrics(manifest);
+  const isFrontLeg = partId === "legFrontThigh" || partId === "legFrontShin";
+  const isBackLeg = partId === "legBackThigh" || partId === "legBackShin";
+  const legMetrics = isFrontLeg ? metrics?.legFront : isBackLeg ? metrics?.legBack : null;
+  if (!legMetrics) return null;
+  const walkWeight = clamp(animation.clipWeights?.walk ?? 0, 0, 1);
+  if (walkWeight <= 0.001) return null;
+  const gaitAmount = clamp(
+    Math.max(walkWeight * 0.95, Math.abs(animation.stride || 0), animation.bob || 0),
+    0,
+    1,
+  );
+  const walkTime = wrap01(animation.clipTimes?.walk ?? 0);
+  const phase = wrap01(walkTime + (isBackLeg ? 0.5 : 0));
+  const stanceRatio = 0.58;
+  const totalLength = legMetrics.thighLength + legMetrics.shinLength;
+  const stepHalf = totalLength * (0.07 + gaitAmount * 0.055);
+  const liftHeight = totalLength * (0.055 + gaitAmount * 0.045);
+  const stanceSink = totalLength * 0.014;
+  const groundY = Math.min(totalLength * 0.94, totalLength - 1.5);
+  let footX;
+  let footY;
+  if (phase < stanceRatio) {
+    const stanceT = phase / stanceRatio;
+    footX = lerp(stepHalf, -stepHalf, stanceT);
+    footY = groundY + Math.sin(stanceT * Math.PI) * stanceSink;
+  } else {
+    const swingT = smoothStep(0, 1, (phase - stanceRatio) / Math.max(1 - stanceRatio, 0.001));
+    footX = lerp(-stepHalf, stepHalf, swingT);
+    footY = groundY - Math.sin(swingT * Math.PI) * liftHeight;
+  }
+  const solved = solveRigTwoBoneIK(legMetrics.thighLength, legMetrics.shinLength, footX, footY);
+  if (!solved) return null;
+  const thighRotation = (solved.thighAngle - legMetrics.thighRestAngle) * walkWeight;
+  const shinRotation = (solved.shinAngle - legMetrics.shinRestAngle - thighRotation) * walkWeight;
+  return partId === legMetrics.thighId
+    ? { rotationDeg: radToDeg(thighRotation), x: 0, y: 0 }
+    : { rotationDeg: radToDeg(shinRotation), x: 0, y: 0 };
+}
+
+function getRigPartTransform(partId, animation, unit, manifest) {
+  const config = getRigAnimationConfigFromManifest(manifest);
+  const tuning = config.tuning?.[partId] || createEmptyRigAnimationTuningPart();
+  const idlePose = sampleRigClipPose(
+    manifest,
+    "idle",
+    partId,
+    animation.clipTimes?.idle ?? 0,
+    animation.previewKeyframeOverride?.clipId === "idle" && animation.previewKeyframeOverride?.partId === partId
+      ? animation.previewKeyframeOverride.pose
+      : null,
+  );
+  const walkPose = sampleRigClipPose(
+    manifest,
+    "walk",
+    partId,
+    animation.clipTimes?.walk ?? 0,
+    animation.previewKeyframeOverride?.clipId === "walk" && animation.previewKeyframeOverride?.partId === partId
+      ? animation.previewKeyframeOverride.pose
+      : null,
+  );
+  const attackPose = sampleRigClipPose(
+    manifest,
+    "attack",
+    partId,
+    animation.clipTimes?.attack ?? 0,
+    animation.previewKeyframeOverride?.clipId === "attack" && animation.previewKeyframeOverride?.partId === partId
+      ? animation.previewKeyframeOverride.pose
+      : null,
+  );
+  const strideDriver = getRigStrideDriverForPart(partId, animation.stride || 0);
+  const proceduralWalkPose = animation.previewKeyframeOverride?.clipId === "walk" && animation.previewKeyframeOverride?.partId === partId
+    ? null
+    : getRigProceduralLegPoseForPart(partId, animation, manifest);
+  const strideContributionDriver = proceduralWalkPose ? 0 : strideDriver;
+  const walkPoseWeight = proceduralWalkPose ? 0 : (animation.clipWeights?.walk ?? 0);
+  const rotationDeg = (
+    (tuning.rotation.stride || 0) * strideContributionDriver
+    + (proceduralWalkPose?.rotationDeg || 0)
+    + (tuning.rotation.bob || 0) * (animation.bob || 0)
+    + (tuning.rotation.attack || 0) * (animation.attack || 0)
+    + (tuning.rotation.idle || 0) * (animation.idle || 0)
+    + idlePose.rotationDeg * (animation.clipWeights?.idle ?? 0)
+    + walkPose.rotationDeg * walkPoseWeight
+    + attackPose.rotationDeg * (animation.clipWeights?.attack ?? 0)
+  );
+  const x = (
+    (tuning.x.stride || 0) * strideContributionDriver
+    + (proceduralWalkPose?.x || 0)
+    + (tuning.x.bob || 0) * (animation.bob || 0)
+    + (tuning.x.attack || 0) * (animation.attack || 0)
+    + (tuning.x.idle || 0) * (animation.idle || 0)
+    + idlePose.x * (animation.clipWeights?.idle ?? 0)
+    + walkPose.x * walkPoseWeight
+    + attackPose.x * (animation.clipWeights?.attack ?? 0)
+  );
+  const y = (
+    (tuning.y.stride || 0) * strideContributionDriver
+    + (proceduralWalkPose?.y || 0)
+    + (tuning.y.bob || 0) * (animation.bob || 0)
+    + (tuning.y.attack || 0) * (animation.attack || 0)
+    + (tuning.y.idle || 0) * (animation.idle || 0)
+    + idlePose.y * (animation.clipWeights?.idle ?? 0)
+    + walkPose.y * walkPoseWeight
+    + attackPose.y * (animation.clipWeights?.attack ?? 0)
+  );
+  const scaleX = (
+    (tuning.scaleX.stride || 0) * strideContributionDriver
+    + (tuning.scaleX.bob || 0) * (animation.bob || 0)
+    + (tuning.scaleX.attack || 0) * (animation.attack || 0)
+    + (tuning.scaleX.idle || 0) * (animation.idle || 0)
+    + idlePose.scaleX * (animation.clipWeights?.idle ?? 0)
+    + walkPose.scaleX * walkPoseWeight
+    + attackPose.scaleX * (animation.clipWeights?.attack ?? 0)
+  );
+  const scaleY = (
+    (tuning.scaleY.stride || 0) * strideContributionDriver
+    + (tuning.scaleY.bob || 0) * (animation.bob || 0)
+    + (tuning.scaleY.attack || 0) * (animation.attack || 0)
+    + (tuning.scaleY.idle || 0) * (animation.idle || 0)
+    + idlePose.scaleY * (animation.clipWeights?.idle ?? 0)
+    + walkPose.scaleY * walkPoseWeight
+    + attackPose.scaleY * (animation.clipWeights?.attack ?? 0)
+  );
+  return {
+    x,
+    y,
+    rotation: degToRad(rotationDeg),
+    scaleX,
+    scaleY,
+  };
 }
 
 function drawStatusBadgeSprite(statusId, scale) {
@@ -4939,7 +6138,7 @@ function spreadIgniteStatus(unit, status, battle, dt) {
 }
 function updateUnit(unit, faction, battle, dt) {
   if (unit.dead || unit.fled) return;
-  unit.attackSwing = Math.max(0, (unit.attackSwing || 0) - dt * 2.8);
+  unit.attackSwing = Math.max(0, (unit.attackSwing || 0) - dt * 2.8 * getRigAnimationClipSpeedForUnit(unit, "attack"));
   const unitDef = getUnitDefinition(unit);
   const stats = getUnitStats(unit, unitDef);
   const graves = battle.graves || [];
@@ -4947,6 +6146,7 @@ function updateUnit(unit, faction, battle, dt) {
     updateUnitActivity(unit, "Suspended by hostile magic.");
     unit.vx = 0;
     unit.vy = 0;
+    updateUnitWalkBlend(unit, 0, dt);
     unit.walkTilt += (0 - unit.walkTilt) * 0.24;
     unit.stride += (0 - unit.stride) * 0.24;
     unit.bob += (0 - unit.bob) * 0.2;
@@ -4956,6 +6156,7 @@ function updateUnit(unit, faction, battle, dt) {
     updateUnitActivity(unit, "Being hurled by hostile magic.");
     unit.vx = 0;
     unit.vy = 0;
+    updateUnitWalkBlend(unit, 0, dt);
     unit.walkTilt += (0 - unit.walkTilt) * 0.24;
     unit.stride += (0 - unit.stride) * 0.24;
     unit.bob += (0 - unit.bob) * 0.18;
@@ -5385,12 +6586,14 @@ function updateWalkTilt(unit, dt) {
   const speed = Math.hypot(unit.vx, unit.vy);
   const targetTilt = speed > 10 ? clamp(unit.vx / 80, -1, 1) * 0.12 : 0;
   const gaitSpeed = clamp(speed / 38, 0, 2.4);
-  unit.gaitPhase += dt * (7 + gaitSpeed * 7.5);
+  unit.gaitPhase += dt * (7 + gaitSpeed * 7.5) * getRigAnimationClipSpeedForUnit(unit, "walk");
   const targetStride = speed > 8 ? Math.sin(unit.gaitPhase) * Math.min(1, gaitSpeed) : 0;
   const targetBob = speed > 8 ? (0.5 - Math.cos(unit.gaitPhase * 2) * 0.5) * Math.min(1, gaitSpeed) : 0;
+  const targetWalkBlend = speed > 8 ? smoothStep(0.12, 0.9, Math.min(1, gaitSpeed)) : 0;
   unit.walkTilt += (targetTilt - unit.walkTilt) * Math.min(1, dt * 10);
   unit.stride += (targetStride - unit.stride) * Math.min(1, dt * 12);
   unit.bob += (targetBob - unit.bob) * Math.min(1, dt * 12);
+  updateUnitWalkBlend(unit, targetWalkBlend, dt);
 }
 function updateStableFacing(unit, dt) {
   const desired = Math.abs(unit.vx) < 4 ? unit.displayFacingX : (unit.vx >= 0 ? 1 : -1);
@@ -5737,6 +6940,7 @@ function performArtificerAttack({ unit, target, battle, unitDef }) {
 function updateTurretState({ unit, battle, enemies, dt }) {
   unit.vx = 0;
   unit.vy = 0;
+  updateUnitWalkBlend(unit, 0, dt);
   unit.walkTilt += (0 - unit.walkTilt) * Math.min(1, dt * 12);
   unit.stride += (0 - unit.stride) * Math.min(1, dt * 12);
   unit.bob += (0 - unit.bob) * Math.min(1, dt * 10);

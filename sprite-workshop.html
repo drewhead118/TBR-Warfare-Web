@@ -27,6 +27,12 @@
               <input id="spriteRigFileInput" type="file" accept="image/png,image/webp,image/jpeg">
               <span>Upload Source Sprite</span>
             </label>
+            <label class="file-button ghost">
+              <input id="spriteRigProjectInput" type="file" accept=".json,application/json">
+              <span>Open Workshop Asset</span>
+            </label>
+            <button id="spriteRigSaveProjectBtn" class="ghost" type="button">Save Workshop Asset</button>
+            <button id="spriteRigChooseExportDirBtn" class="ghost" type="button">Choose Export Directory</button>
             <label>
               <span>Unit</span>
               <select id="spriteRigUnitSelect"></select>
@@ -61,41 +67,81 @@
         </section>
 
         <section class="sprite-rig-column sprite-rig-sidebar">
-          <div class="sprite-rig-part-picker" id="spriteRigPartPicker"></div>
-          <div class="sprite-rig-fields">
-            <label>
-              <span>Region X</span>
-              <input id="spriteRigRegionX" type="number" step="1">
-            </label>
-            <label>
-              <span>Region Y</span>
-              <input id="spriteRigRegionY" type="number" step="1">
-            </label>
-            <label>
-              <span>Region W</span>
-              <input id="spriteRigRegionW" type="number" min="1" step="1">
-            </label>
-            <label>
-              <span>Region H</span>
-              <input id="spriteRigRegionH" type="number" min="1" step="1">
-            </label>
-            <label>
-              <span>Pivot X</span>
-              <input id="spriteRigPivotX" type="number" step="1">
-            </label>
-            <label>
-              <span>Pivot Y</span>
-              <input id="spriteRigPivotY" type="number" step="1">
-            </label>
-            <label>
-              <span>Mount Offset X</span>
-              <input id="spriteRigMountOffsetX" type="number" step="1">
-            </label>
-            <label>
-              <span>Mount Offset Y</span>
-              <input id="spriteRigMountOffsetY" type="number" step="1">
-            </label>
+          <div class="sprite-rig-preview-pane">
+            <div class="sprite-rig-preview-card sprite-rig-preview-stage">
+              <div class="section-heading">
+                <h3>Animation Preview</h3>
+                <span id="spriteRigPreviewLabel">Idle</span>
+              </div>
+              <div class="sprite-rig-preview-controls">
+                <label>
+                  <span>Preview Mode</span>
+                  <select id="spriteRigPreviewMode">
+                    <option value="selected">Selected Clip</option>
+                    <option value="composite">Runtime Blend</option>
+                  </select>
+                </label>
+                <label class="checkbox-row">
+                  <input id="spriteRigPreviewAutoplay" type="checkbox" checked>
+                  <span>Autoplay preview</span>
+                </label>
+                <label>
+                  <span>Timeline</span>
+                  <input id="spriteRigPreviewTime" type="range" min="0" max="100" step="1" value="0">
+                </label>
+              </div>
+              <canvas id="spriteRigPreviewCanvas" width="280" height="280"></canvas>
+              <label>
+                <span>Blend Attack Into Walk</span>
+                <input id="spriteRigPreviewBlend" type="range" min="0" max="100" step="1" value="55">
+              </label>
+              <p class="hint">Switch between isolated clips and the runtime blend while tuning. The currently selected part is outlined here and can still be dragged to correct its baseline placement. The dashed health bar shows the default placement, while the solid bar uses your configured offset.</p>
+            </div>
           </div>
+          <div class="sprite-rig-drawer">
+            <div class="sprite-rig-part-picker" id="spriteRigPartPicker"></div>
+            <div class="sprite-rig-fields">
+              <label>
+                <span>Region X</span>
+                <input id="spriteRigRegionX" type="number" step="1">
+              </label>
+              <label>
+                <span>Region Y</span>
+                <input id="spriteRigRegionY" type="number" step="1">
+              </label>
+              <label>
+                <span>Region W</span>
+                <input id="spriteRigRegionW" type="number" min="1" step="1">
+              </label>
+              <label>
+                <span>Region H</span>
+                <input id="spriteRigRegionH" type="number" min="1" step="1">
+              </label>
+              <label>
+                <span>Pivot X</span>
+                <input id="spriteRigPivotX" type="number" step="1">
+              </label>
+              <label>
+                <span>Pivot Y</span>
+                <input id="spriteRigPivotY" type="number" step="1">
+              </label>
+              <label>
+                <span>Mount Offset X</span>
+                <input id="spriteRigMountOffsetX" type="number" step="1">
+              </label>
+              <label>
+                <span>Mount Offset Y</span>
+                <input id="spriteRigMountOffsetY" type="number" step="1">
+              </label>
+              <label>
+                <span>Base Scale X</span>
+                <input id="spriteRigBaseScaleX" type="number" step="0.05" value="1">
+              </label>
+              <label>
+                <span>Base Scale Y</span>
+                <input id="spriteRigBaseScaleY" type="number" step="0.05" value="1">
+              </label>
+            </div>
           <div class="sprite-rig-preview-card">
             <div class="section-heading">
               <h3>Weapon Attach</h3>
@@ -128,25 +174,67 @@
           <div class="button-row">
             <button id="spriteRigCopyFromBodyBtn" class="ghost small" type="button">Center Pivot In Region</button>
             <button id="spriteRigResetMountOffsetBtn" class="ghost small" type="button">Reset Mount Offset</button>
+            <button id="spriteRigResetBaseScaleBtn" class="ghost small" type="button">Reset Base Scale</button>
             <button id="spriteRigFlipXBtn" class="ghost small" type="button">Reflect X</button>
             <button id="spriteRigFlipYBtn" class="ghost small" type="button">Reflect Y</button>
             <button id="spriteRigClearPartBtn" class="ghost small" type="button">Clear Part</button>
           </div>
           <div class="sprite-rig-preview-card">
             <div class="section-heading">
-              <h3>Animation Preview</h3>
-              <span id="spriteRigPreviewLabel">Idle</span>
+              <h3>Animation Tuning</h3>
+              <span id="spriteRigAnimationSummary">Walk</span>
             </div>
-            <canvas id="spriteRigPreviewCanvas" width="280" height="280"></canvas>
-            <input id="spriteRigPreviewBlend" type="range" min="0" max="100" step="1" value="55">
-            <p class="hint">The preview blends walk and attack motion so we can tune the sheet for both without leaving the browser. The currently selected part is outlined here and can be dragged directly to correct its placement. The dashed health bar shows the default placement, while the solid bar uses your configured offset.</p>
+            <div class="sprite-rig-preview-controls">
+              <label>
+                <span>Edit Clip</span>
+                <select id="spriteRigAnimationSelect"></select>
+              </label>
+            </div>
+            <div class="sprite-rig-fields" id="spriteRigAnimationClipFields"></div>
+            <div class="sprite-rig-fields" id="spriteRigAnimationFields"></div>
+          </div>
+          <div class="sprite-rig-preview-card">
+            <div class="section-heading">
+              <h3>Keyframes</h3>
+              <span id="spriteRigKeyframeSummary">No keyframe</span>
+            </div>
+            <p class="hint">Pause the preview, scrub to a moment in the selected clip, then set a bespoke pose for the highlighted part. Keyframes layer on top of the procedural tuning so shield arms, lunges, and special silhouettes can be refined without rebuilding the rig.</p>
+            <div class="sprite-rig-fields">
+              <label>
+                <span>Pose X</span>
+                <input id="spriteRigKeyframeX" type="number" step="0.01" value="0">
+              </label>
+              <label>
+                <span>Pose Y</span>
+                <input id="spriteRigKeyframeY" type="number" step="0.01" value="0">
+              </label>
+              <label>
+                <span>Pose Rotation</span>
+                <input id="spriteRigKeyframeRotation" type="number" step="0.1" value="0">
+              </label>
+              <label>
+                <span>Pose Scale X</span>
+                <input id="spriteRigKeyframeScaleX" type="number" step="0.01" value="0">
+              </label>
+              <label>
+                <span>Pose Scale Y</span>
+                <input id="spriteRigKeyframeScaleY" type="number" step="0.01" value="0">
+              </label>
+            </div>
+            <div class="button-row">
+              <button id="spriteRigSetKeyframeBtn" class="ghost small" type="button">Set Keyframe</button>
+              <button id="spriteRigDeleteKeyframeBtn" class="ghost small" type="button">Delete Keyframe</button>
+              <button id="spriteRigResetKeyframePoseBtn" class="ghost small" type="button">Reset Pose</button>
+            </div>
+            <div id="spriteRigKeyframeList" class="sprite-rig-keyframe-list"></div>
           </div>
           <div class="button-row">
             <button id="spriteRigDownloadSheetBtn" class="secondary" type="button">Download Rig Sheet</button>
             <button id="spriteRigDownloadManifestBtn" class="secondary" type="button">Download Manifest</button>
-            <button id="spriteRigExportDirBtn" class="accent" type="button">Export To Directory</button>
+            <button id="spriteRigExportDirBtn" class="accent" type="button">Export Runtime Rig</button>
           </div>
           <pre id="spriteRigStatus" class="sprite-rig-status">Load a sprite to begin defining the rig.</pre>
+          </div>
         </section>
       </div>
     </section>
