@@ -74,6 +74,82 @@ const STATUS_BADGE_CANDIDATE_PATHS = [
   (statusId) => `${statusId}-status.png`,
   (statusId) => `${statusId}.png`,
 ];
+const GROUND_TEXTURE_SOURCES = {
+  dirt: "assets/textures/dirt.png",
+  grass: "assets/textures/grass.png",
+  sand: "assets/textures/sand.png",
+  stone: "assets/textures/stone.png",
+};
+const GROUND_TEXTURE_PROFILE_PRESETS = {
+  meadow: {
+    weights: { grass: 6, dirt: 3, stone: 1, sand: 1 },
+    patchLayers: [
+      { count: [3, 5], radiusX: [180, 340], radiusY: [120, 240], harmonics: [[240, 340, 0.14], [120, 210, 0.1], [56, 110, 0.06]] },
+      { count: [6, 10], radiusX: [90, 190], radiusY: [55, 125], harmonics: [[100, 170, 0.11], [42, 88, 0.07]] },
+      { count: [16, 28], radiusX: [24, 62], radiusY: [14, 34], harmonics: [[26, 48, 0.06], [14, 24, 0.04]] },
+    ],
+    softLightAlpha: 0.5,
+    multiplyAlpha: 0.18,
+  },
+  wetland: {
+    weights: { grass: 4, dirt: 4, stone: 2, sand: 1 },
+    patchLayers: [
+      { count: [4, 7], radiusX: [170, 320], radiusY: [130, 230], harmonics: [[220, 330, 0.15], [110, 190, 0.11], [48, 92, 0.06]] },
+      { count: [10, 15], radiusX: [70, 160], radiusY: [45, 110], harmonics: [[86, 150, 0.12], [32, 64, 0.08]] },
+      { count: [18, 34], radiusX: [16, 48], radiusY: [12, 28], harmonics: [[18, 34, 0.06], [10, 18, 0.04]] },
+    ],
+    softLightAlpha: 0.46,
+    multiplyAlpha: 0.22,
+  },
+  dunes: {
+    weights: { sand: 7, stone: 2, dirt: 2, grass: 1 },
+    patchLayers: [
+      { count: [3, 6], radiusX: [220, 380], radiusY: [110, 210], harmonics: [[250, 360, 0.16], [130, 220, 0.12], [70, 120, 0.07]] },
+      { count: [7, 11], radiusX: [100, 220], radiusY: [48, 102], harmonics: [[115, 180, 0.12], [46, 86, 0.07]] },
+      { count: [18, 28], radiusX: [20, 58], radiusY: [10, 28], harmonics: [[24, 42, 0.05], [12, 20, 0.035]] },
+    ],
+    softLightAlpha: 0.42,
+    multiplyAlpha: 0.14,
+  },
+  rocky: {
+    weights: { stone: 6, dirt: 3, sand: 2, grass: 1 },
+    patchLayers: [
+      { count: [4, 6], radiusX: [160, 300], radiusY: [100, 190], harmonics: [[210, 300, 0.15], [92, 150, 0.11], [38, 74, 0.07]] },
+      { count: [10, 16], radiusX: [60, 130], radiusY: [36, 88], harmonics: [[70, 120, 0.12], [24, 50, 0.09]] },
+      { count: [24, 40], radiusX: [12, 34], radiusY: [10, 24], harmonics: [[12, 24, 0.08], [7, 14, 0.05]] },
+    ],
+    softLightAlpha: 0.38,
+    multiplyAlpha: 0.26,
+  },
+  moor: {
+    weights: { grass: 3, stone: 3, dirt: 4, sand: 1 },
+    patchLayers: [
+      { count: [4, 7], radiusX: [170, 310], radiusY: [110, 220], harmonics: [[200, 310, 0.14], [96, 170, 0.1], [42, 82, 0.06]] },
+      { count: [8, 14], radiusX: [76, 170], radiusY: [42, 110], harmonics: [[82, 146, 0.11], [28, 60, 0.075]] },
+      { count: [20, 34], radiusX: [18, 46], radiusY: [12, 28], harmonics: [[18, 34, 0.06], [9, 18, 0.04]] },
+    ],
+    softLightAlpha: 0.44,
+    multiplyAlpha: 0.2,
+  },
+};
+const ARENA_TEXTURE_PROFILE_BY_NAME = {
+  "Sunlit Vale": "meadow",
+  "Moss March": "wetland",
+  "Copper Plain": "rocky",
+  "Blue Fen": "wetland",
+  "Rose Dunes": "dunes",
+  "Jade Steppe": "meadow",
+  "Violet Moor": "moor",
+  "Ashen Reach": "rocky",
+  "Auric Flats": "dunes",
+  "Nightglass Basin": "rocky",
+  "Cinder Scar": "rocky",
+  "Thornwild Verge": "meadow",
+  "Ivory Saltpan": "dunes",
+  "Saffron Breakers": "dunes",
+  "Moonroot Hollow": "wetland",
+  "Stormglass Shelf": "rocky",
+};
 const UNIT_RIG_CANDIDATE_PATHS = [
   (unitId) => `assets/unit-rigs/${unitId}.json`,
   (unitId) => `output/unit-rigs/${unitId}.json`,
@@ -846,10 +922,29 @@ function createArenaTheme(name, top, bottom, glow, ground, commonProps = {}, rar
     bottom,
     glow,
     ground,
+    textureProfile: createArenaTextureProfile(name),
     propWeights: {
       common: { ...DEFAULT_PROP_WEIGHTS, ...commonProps },
       rare: { ...rareProps },
     },
+  };
+}
+
+function createArenaTextureProfile(name) {
+  const presetKey = ARENA_TEXTURE_PROFILE_BY_NAME[name] || "meadow";
+  const preset = GROUND_TEXTURE_PROFILE_PRESETS[presetKey] || GROUND_TEXTURE_PROFILE_PRESETS.meadow;
+  return {
+    key: presetKey,
+    weights: { ...preset.weights },
+    patchLayers: preset.patchLayers.map((layer) => ({
+      ...layer,
+      count: [...layer.count],
+      radiusX: [...layer.radiusX],
+      radiusY: [...layer.radiusY],
+      harmonics: layer.harmonics.map((harmonic) => [...harmonic]),
+    })),
+    softLightAlpha: preset.softLightAlpha,
+    multiplyAlpha: preset.multiplyAlpha,
   };
 }
 
@@ -1161,6 +1256,12 @@ const state = {
     draft: null,
     search: "",
     pendingTransfer: null,
+  },
+  renderDebug: {
+    visibleUnits: 0,
+    culledUnits: 0,
+    totalUnits: 0,
+    fps: 0,
   },
   lastBattleHighlightAt: -Infinity,
   lastTournamentViewSyncAt: -Infinity,
@@ -4113,6 +4214,7 @@ function buildBattle(factionPool = state.factions, arena = createArenaVariant(0,
     bombs: [],
     arena,
     weatherField: createWeatherField(arena.weather),
+    terrainTexture: createBattleTerrainTextureState(field, arena),
     props: buildFieldProps(field, arena),
     pendingWinner: null,
     completed: false,
@@ -4465,6 +4567,7 @@ function applyArenaToBattle(battle, arena) {
   if (!battle) return;
   battle.arena = arena;
   battle.weatherField = createWeatherField(arena.weather);
+  battle.terrainTexture = createBattleTerrainTextureState(battle.field, arena);
   battle.props = buildFieldProps(battle.field, arena);
 }
 
@@ -5194,6 +5297,153 @@ function getFactionImage(url) {
   return state.images.get(url);
 }
 
+function getGroundTextureImage(textureId) {
+  const source = GROUND_TEXTURE_SOURCES[textureId];
+  return source ? getFactionImage(source) : null;
+}
+
+function hashStringToSeed(input) {
+  let hash = 2166136261;
+  for (let index = 0; index < input.length; index += 1) {
+    hash ^= input.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function createSeededRandom(seed) {
+  let value = seed >>> 0;
+  return () => {
+    value = (value + 0x6D2B79F5) >>> 0;
+    let next = value;
+    next = Math.imul(next ^ (next >>> 15), next | 1);
+    next ^= next + Math.imul(next ^ (next >>> 7), next | 61);
+    return ((next ^ (next >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function randomRange(rand, min, max) {
+  return min + (max - min) * rand();
+}
+
+function randomIntRange(rand, min, max) {
+  return Math.floor(randomRange(rand, min, max + 1));
+}
+
+function chooseWeightedTextureId(rand, weights) {
+  const entries = Object.entries(weights || {}).filter(([, weight]) => weight > 0);
+  if (!entries.length) return "grass";
+  const total = entries.reduce((sum, [, weight]) => sum + weight, 0);
+  let roll = rand() * total;
+  for (const [textureId, weight] of entries) {
+    roll -= weight;
+    if (roll <= 0) return textureId;
+  }
+  return entries[entries.length - 1][0];
+}
+
+function createBattleTerrainTextureState(field, arena) {
+  const seedBase = `${arena?.name || "arena"}|${arena?.weather || "clear"}|${Date.now()}|${Math.random()}`;
+  return {
+    width: field.width,
+    height: field.height,
+    seed: hashStringToSeed(seedBase),
+    profile: arena?.textureProfile ? cloneData(arena.textureProfile) : createArenaTextureProfile(arena?.name || ""),
+    canvas: null,
+    pending: false,
+    ready: false,
+  };
+}
+
+function ensureBattleTerrainTexture(battle) {
+  if (!battle?.terrainTexture || battle.terrainTexture.ready || battle.terrainTexture.pending) return;
+  const requiredTextureIds = Object.keys(battle.terrainTexture.profile?.weights || {});
+  const images = {};
+  const unresolved = requiredTextureIds.some((textureId) => {
+    const image = getGroundTextureImage(textureId);
+    if (!image || !image.complete || image.naturalWidth <= 0) return true;
+    images[textureId] = image;
+    return false;
+  });
+  if (unresolved) return;
+  battle.terrainTexture.pending = true;
+  battle.terrainTexture.canvas = buildBattleTerrainTextureCanvas(battle.terrainTexture, battle.arena, images);
+  battle.terrainTexture.ready = Boolean(battle.terrainTexture.canvas);
+  battle.terrainTexture.pending = false;
+}
+
+function buildBattleTerrainTextureCanvas(terrainTexture, arena, images) {
+  const canvas = document.createElement("canvas");
+  canvas.width = terrainTexture.width;
+  canvas.height = terrainTexture.height;
+  const textureCtx = canvas.getContext("2d");
+  const rand = createSeededRandom(terrainTexture.seed);
+  textureCtx.clearRect(0, 0, canvas.width, canvas.height);
+
+  terrainTexture.profile.patchLayers.forEach((layer, layerIndex) => {
+    const patchCount = randomIntRange(rand, layer.count[0], layer.count[1]);
+    for (let patchIndex = 0; patchIndex < patchCount; patchIndex += 1) {
+      drawTerrainTexturePatch(textureCtx, rand, images, terrainTexture.profile.weights, layer, layerIndex, canvas.width, canvas.height);
+    }
+  });
+  return canvas;
+}
+
+function drawTerrainTexturePatch(textureCtx, rand, images, weights, layer, layerIndex, width, height) {
+  const textureId = chooseWeightedTextureId(rand, weights || {});
+  const image = images[textureId];
+  if (!image) return;
+  const centerX = randomRange(rand, -width * 0.08, width * 1.08);
+  const centerY = randomRange(rand, -height * 0.08, height * 1.08);
+  const radiusX = randomRange(rand, layer.radiusX[0], layer.radiusX[1]);
+  const radiusY = randomRange(rand, layer.radiusY[0], layer.radiusY[1]);
+  const rotation = randomRange(rand, -Math.PI, Math.PI);
+
+  textureCtx.save();
+  textureCtx.translate(centerX, centerY);
+  textureCtx.rotate(rotation);
+  textureCtx.beginPath();
+  textureCtx.ellipse(0, 0, radiusX, radiusY, 0, 0, Math.PI * 2);
+  textureCtx.clip();
+
+  const harmonicRotation = randomRange(rand, -0.22, 0.22);
+  textureCtx.rotate(harmonicRotation);
+  const patchLeft = -radiusX - 36;
+  const patchTop = -radiusY - 36;
+  const patchRight = radiusX + 36;
+  const patchBottom = radiusY + 36;
+
+  layer.harmonics.forEach(([tileMin, tileMax, alphaBase], harmonicIndex) => {
+    const tileSize = randomRange(rand, tileMin, tileMax);
+    const frequencyScale = 0.75 + rand() * 0.65;
+    const stepX = tileSize * frequencyScale;
+    const stepY = tileSize * (0.68 + rand() * 0.58);
+    const startX = patchLeft - stepX * 1.5 + randomRange(rand, -tileSize, tileSize);
+    const startY = patchTop - stepY * 1.5 + randomRange(rand, -tileSize, tileSize);
+    textureCtx.save();
+    textureCtx.globalAlpha = alphaBase * (0.84 + rand() * 0.4) * (1 - layerIndex * 0.08) * (1 - harmonicIndex * 0.06);
+    textureCtx.filter = `contrast(${0.92 + rand() * 0.55}) brightness(${0.78 + rand() * 0.45})`;
+    for (let y = startY; y < patchBottom + stepY * 1.5; y += stepY) {
+      for (let x = startX; x < patchRight + stepX * 1.5; x += stepX) {
+        const drawSize = tileSize * (0.72 + rand() * 0.9);
+        const drawW = drawSize * (image.naturalWidth / Math.max(1, image.naturalHeight));
+        const drawH = drawSize;
+        const jitterX = randomRange(rand, -drawSize * 0.35, drawSize * 0.35);
+        const jitterY = randomRange(rand, -drawSize * 0.35, drawSize * 0.35);
+        textureCtx.save();
+        textureCtx.translate(x + jitterX, y + jitterY);
+        textureCtx.rotate(randomRange(rand, -0.4, 0.4));
+        textureCtx.scale(rand() > 0.5 ? -1 : 1, rand() > 0.72 ? -1 : 1);
+        textureCtx.drawImage(image, -drawW / 2, -drawH / 2, drawW, drawH);
+        textureCtx.restore();
+      }
+    }
+    textureCtx.restore();
+  });
+
+  textureCtx.restore();
+}
+
 function getUnitSpriteSource(unitId) {
   if (!unitId) return null;
   if (!state.unitSpriteSources.has(unitId)) {
@@ -5792,6 +6042,10 @@ function drawStatusBadgeSprite(statusId, scale) {
 function loop(timestamp) {
   const dt = Math.min(0.033, (timestamp - lastFrame) / 1000);
   lastFrame = timestamp;
+  const instantFps = dt > 0 ? 1 / dt : 0;
+  state.renderDebug.fps = state.renderDebug.fps > 0
+    ? lerp(state.renderDebug.fps, instantFps, 0.12)
+    : instantFps;
   const simDt = dt * getBattleSpeedMultiplier();
   if (HAS_BATTLE_PAGE) {
     if (state.running && state.battle) stepBattle(state.battle, simDt);
@@ -9059,15 +9313,21 @@ function advanceTournament() {
     tournament.currentMatchIndex += 1;
     nextMatch.status = "active";
     nextMatch.arena = createRandomArenaVariant(tournament.currentRoundIndex, tournament.currentMatchIndex, nextMatch.factionIds.length);
+    state.running = false;
     state.battle = buildActiveBattle();
     resetCamera();
     closeWinnerModal();
+    clearBattleHover();
+    clearKnockoutAnnouncement();
+    clearBossAnnouncement();
+    endBattleAudio();
     els.battleState.textContent = getCurrentMatchLabel(tournament);
     els.winnerLabel.textContent = winnerId ? findSourceFaction(winnerId)?.title || "Advancing" : "Mutual destruction";
     setTicker(`${getCurrentMatchLabel(tournament)} is ready in ${nextMatch.arena.name}.`);
     renderBracketTracker();
     updateAdvanceButtonLabel();
     renderArmyEditors();
+    renderSpeedControls();
     syncTournamentViewState(true);
     return;
   }
@@ -9080,15 +9340,21 @@ function advanceTournament() {
     tournament.rounds.push(upcomingRound);
     upcomingRound.matches[0].status = "active";
     upcomingRound.matches[0].arena = createRandomArenaVariant(tournament.currentRoundIndex, 0, upcomingRound.matches[0].factionIds.length);
+    state.running = false;
     state.battle = buildActiveBattle();
     resetCamera();
     closeWinnerModal();
+    clearBattleHover();
+    clearKnockoutAnnouncement();
+    clearBossAnnouncement();
+    endBattleAudio();
     els.battleState.textContent = getCurrentMatchLabel(tournament);
     els.winnerLabel.textContent = winnerId ? findSourceFaction(winnerId)?.title || "Advancing" : "Mutual destruction";
     setTicker(`${upcomingRound.label} begins in ${upcomingRound.matches[0].arena.name}.`);
     renderBracketTracker();
     updateAdvanceButtonLabel();
     renderArmyEditors();
+    renderSpeedControls();
     syncTournamentViewState(true);
     return;
   }
@@ -9875,6 +10141,26 @@ function worldToScreen(x, y, viewport) {
   return { x: viewport.width / 2 - state.camera.x * scale + x * scale, y: viewport.height / 2 - state.camera.y * scale + y * scale, scale };
 }
 
+function getViewportWorldBounds(viewport, paddingPx = 0) {
+  const scale = getBaseScale(viewport) * state.camera.zoom;
+  const paddingWorld = paddingPx / Math.max(scale, 0.0001);
+  const halfWorldWidth = viewport.width / scale / 2;
+  const halfWorldHeight = viewport.height / scale / 2;
+  return {
+    minX: state.camera.x - halfWorldWidth - paddingWorld,
+    maxX: state.camera.x + halfWorldWidth + paddingWorld,
+    minY: state.camera.y - halfWorldHeight - paddingWorld,
+    maxY: state.camera.y + halfWorldHeight + paddingWorld,
+  };
+}
+
+function isUnitInViewport(unit, bounds) {
+  return unit.x >= bounds.minX
+    && unit.x <= bounds.maxX
+    && unit.y >= bounds.minY
+    && unit.y <= bounds.maxY;
+}
+
 function render() {
   if (!state.battle) return;
   const viewport = getViewport();
@@ -9899,6 +10185,7 @@ function render() {
   drawWeather(viewport, state.battle);
   drawBattleHealthChart(state.battle);
   renderBattleUnitTooltip(hoveredUnit, state.battle, viewport);
+  drawRenderDebugOverlay();
 }
 
 function initializeBattleHealthTimeline(battle) {
@@ -10054,6 +10341,18 @@ function drawField(viewport, battle) {
   glow.addColorStop(1, "rgba(0,0,0,0)");
   ctx.fillStyle = glow;
   ctx.fillRect(0, 0, viewport.width, viewport.height);
+  ensureBattleTerrainTexture(battle);
+  if (battle.terrainTexture?.canvas) {
+    const profile = battle.terrainTexture.profile || arena.textureProfile || createArenaTextureProfile(arena.name);
+    ctx.save();
+    ctx.globalCompositeOperation = "soft-light";
+    ctx.globalAlpha = profile.softLightAlpha || 0.42;
+    ctx.drawImage(battle.terrainTexture.canvas, top.x, top.y, bottom.x - top.x, bottom.y - top.y);
+    ctx.globalCompositeOperation = "multiply";
+    ctx.globalAlpha = profile.multiplyAlpha || 0.18;
+    ctx.drawImage(battle.terrainTexture.canvas, top.x, top.y, bottom.x - top.x, bottom.y - top.y);
+    ctx.restore();
+  }
 }
 
 function drawGroundDecor(viewport, battle) {
@@ -10775,12 +11074,17 @@ function drawStuckArrows(viewport, arrows) {
 }
 
 function drawUnits(viewport, factions) {
-  const units = factions.flatMap((faction) => faction.units
-    .filter((unit) => !unit.dead && !unit.fled)
-    .map((unit) => ({ ...unit, factionColor: getUnitDisplayFactionColor(unit, state.battle) || faction.color })))
+  const cullBounds = getViewportWorldBounds(viewport, 150);
+  const livingUnits = factions.flatMap((faction) => faction.units
+    .filter((unit) => !unit.dead && !unit.fled && !(unit.type === "phantom" && unit.possessedUnitId))
+    .map((unit) => ({ ...unit, factionColor: getUnitDisplayFactionColor(unit, state.battle) || faction.color })));
+  const units = livingUnits
+    .filter((unit) => isUnitInViewport(unit, cullBounds))
     .sort((a, b) => a.y - b.y);
+  state.renderDebug.totalUnits = livingUnits.length;
+  state.renderDebug.visibleUnits = units.length;
+  state.renderDebug.culledUnits = Math.max(0, livingUnits.length - units.length);
   units.forEach((unit) => {
-    if (unit.type === "phantom" && unit.possessedUnitId) return;
     const unitDef = getUnitDefinition(unit);
     const { pose, renderScale, healthBarY, healthBarX, hpWidth } = getUnitHoverMetrics(unit, viewport);
     const { point, scale, bodyY } = pose;
@@ -10817,6 +11121,34 @@ function drawUnits(viewport, factions) {
     ctx.fillRect(healthBarX - hpWidth / 2, healthBarY, hpWidth * (unit.health / unit.maxHealth), 4 * scale / 2.1);
     if (isHovered) drawHoveredUnitLabels(unit, pose, renderScale, healthBarX, healthBarY, hpWidth);
   });
+}
+
+function drawRenderDebugOverlay() {
+  const { visibleUnits, culledUnits, totalUnits, fps } = state.renderDebug;
+  const lines = [
+    `FPS: ${fps.toFixed(1)}`,
+    `Units drawn: ${visibleUnits}`,
+    `Units culled: ${culledUnits}`,
+    `Units total: ${totalUnits}`,
+  ];
+  ctx.save();
+  ctx.textAlign = "left";
+  ctx.textBaseline = "top";
+  ctx.font = "10px monospace";
+  const padding = 6;
+  const lineHeight = 12;
+  const width = lines.reduce((max, line) => Math.max(max, ctx.measureText(line).width), 0) + padding * 2;
+  const height = lines.length * lineHeight + padding * 2;
+  ctx.fillStyle = "rgba(12, 10, 16, 0.68)";
+  ctx.fillRect(8, 8, width, height);
+  ctx.strokeStyle = "rgba(255, 245, 220, 0.18)";
+  ctx.lineWidth = 1;
+  ctx.strokeRect(8.5, 8.5, width - 1, height - 1);
+  ctx.fillStyle = "#f2e6c9";
+  lines.forEach((line, index) => {
+    ctx.fillText(line, 8 + padding, 8 + padding + index * lineHeight);
+  });
+  ctx.restore();
 }
 
 function drawImmobilizedGroundNet(point, scale, unit) {
