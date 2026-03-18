@@ -6,7 +6,7 @@
     "anchorX": 0.5,
     "anchorY": 0.88,
     "healthBarOffsetX": 0,
-    "healthBarOffsetY": 0
+    "healthBarOffsetY": -15
   },
   "sourceSize": {
     "width": 1024,
@@ -99,7 +99,7 @@
         "rotation": {
           "stride": -21.772396214971284,
           "bob": 0,
-          "attack": 73.33859777674537,
+          "attack": -73.33859777674537,
           "idle": 22.918311805232932
         },
         "x": {
@@ -352,7 +352,7 @@
         }
       },
       "attack": {
-        "speed": 1,
+        "speed": 2,
         "loop": false,
         "keyframes": {
           "body": [],
@@ -383,12 +383,12 @@
         "y": 303
       },
       "mount": {
-        "x": -148,
-        "y": 201
+        "x": -168,
+        "y": 24
       },
       "mountOffset": {
-        "x": -148,
-        "y": 201
+        "x": -168,
+        "y": 24
       },
       "scaleX": 1,
       "scaleY": 1,
@@ -507,7 +507,7 @@
       "scaleX": 1,
       "scaleY": 1,
       "rotationOffsetDeg": -30,
-      "drawOrder": 2,
+      "drawOrder": 1,
       "flipX": false,
       "flipY": false,
       "sourceRect": {
@@ -788,7 +788,7 @@
         "rotation": {
           "stride": -21.772396214971284,
           "bob": 0,
-          "attack": 73.33859777674537,
+          "attack": -73.33859777674537,
           "idle": 22.918311805232932
         },
         "x": {
@@ -1044,7 +1044,7 @@
       },
       "attack": {
         "id": "attack",
-        "speed": 1,
+        "speed": 2,
         "loop": false,
         "keyframes": {
           "body": [],

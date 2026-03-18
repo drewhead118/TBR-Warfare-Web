@@ -80,6 +80,7 @@ const GROUND_TEXTURE_SOURCES = {
   sand: "assets/textures/sand.png",
   stone: "assets/textures/stone.png",
 };
+const TERRAIN_TEXTURE_RESOLUTION_SCALE = 3;
 const GROUND_TEXTURE_PROFILE_PRESETS = {
   meadow: {
     weights: { grass: 6, dirt: 3, stone: 1, sand: 1 },
@@ -88,6 +89,8 @@ const GROUND_TEXTURE_PROFILE_PRESETS = {
       { count: [6, 10], radiusX: [90, 190], radiusY: [55, 125], harmonics: [[100, 170, 0.11], [42, 88, 0.07]] },
       { count: [16, 28], radiusX: [24, 62], radiusY: [14, 34], harmonics: [[26, 48, 0.06], [14, 24, 0.04]] },
     ],
+    feather: [0.26, 0.4],
+    baseLayer: { tileSize: [125, 190], alpha: [0.11, 0.17], jitter: [0.08, 0.18], contrast: [0.9, 1.2], brightness: [0.84, 1.08], rotation: [-0.08, 0.08] },
     softLightAlpha: 0.5,
     multiplyAlpha: 0.18,
   },
@@ -98,6 +101,8 @@ const GROUND_TEXTURE_PROFILE_PRESETS = {
       { count: [10, 15], radiusX: [70, 160], radiusY: [45, 110], harmonics: [[86, 150, 0.12], [32, 64, 0.08]] },
       { count: [18, 34], radiusX: [16, 48], radiusY: [12, 28], harmonics: [[18, 34, 0.06], [10, 18, 0.04]] },
     ],
+    feather: [0.3, 0.45],
+    baseLayer: { tileSize: [118, 176], alpha: [0.12, 0.18], jitter: [0.1, 0.22], contrast: [0.88, 1.18], brightness: [0.8, 1.04], rotation: [-0.1, 0.1] },
     softLightAlpha: 0.46,
     multiplyAlpha: 0.22,
   },
@@ -108,6 +113,8 @@ const GROUND_TEXTURE_PROFILE_PRESETS = {
       { count: [7, 11], radiusX: [100, 220], radiusY: [48, 102], harmonics: [[115, 180, 0.12], [46, 86, 0.07]] },
       { count: [18, 28], radiusX: [20, 58], radiusY: [10, 28], harmonics: [[24, 42, 0.05], [12, 20, 0.035]] },
     ],
+    feather: [0.24, 0.36],
+    baseLayer: { tileSize: [132, 208], alpha: [0.1, 0.15], jitter: [0.06, 0.15], contrast: [0.94, 1.14], brightness: [0.9, 1.12], rotation: [-0.06, 0.06] },
     softLightAlpha: 0.42,
     multiplyAlpha: 0.14,
   },
@@ -118,6 +125,8 @@ const GROUND_TEXTURE_PROFILE_PRESETS = {
       { count: [10, 16], radiusX: [60, 130], radiusY: [36, 88], harmonics: [[70, 120, 0.12], [24, 50, 0.09]] },
       { count: [24, 40], radiusX: [12, 34], radiusY: [10, 24], harmonics: [[12, 24, 0.08], [7, 14, 0.05]] },
     ],
+    feather: [0.28, 0.44],
+    baseLayer: { tileSize: [120, 174], alpha: [0.12, 0.2], jitter: [0.08, 0.16], contrast: [0.96, 1.28], brightness: [0.76, 1], rotation: [-0.12, 0.12] },
     softLightAlpha: 0.38,
     multiplyAlpha: 0.26,
   },
@@ -128,9 +137,29 @@ const GROUND_TEXTURE_PROFILE_PRESETS = {
       { count: [8, 14], radiusX: [76, 170], radiusY: [42, 110], harmonics: [[82, 146, 0.11], [28, 60, 0.075]] },
       { count: [20, 34], radiusX: [18, 46], radiusY: [12, 28], harmonics: [[18, 34, 0.06], [9, 18, 0.04]] },
     ],
+    feather: [0.32, 0.48],
+    baseLayer: { tileSize: [112, 168], alpha: [0.12, 0.19], jitter: [0.1, 0.24], contrast: [0.9, 1.16], brightness: [0.76, 0.98], rotation: [-0.1, 0.1] },
     softLightAlpha: 0.44,
     multiplyAlpha: 0.2,
   },
+};
+const ARENA_TEXTURE_PROFILE_OVERRIDES = {
+  "Sunlit Vale": { feather: [0.24, 0.36], baseLayer: { tileSize: [132, 186], alpha: [0.1, 0.15], jitter: [0.08, 0.16] } },
+  "Moss March": { feather: [0.34, 0.5], baseLayer: { tileSize: [104, 150], alpha: [0.14, 0.2], jitter: [0.14, 0.26], brightness: [0.76, 1] } },
+  "Copper Plain": { feather: [0.26, 0.4], baseLayer: { tileSize: [118, 166], alpha: [0.12, 0.18], contrast: [0.98, 1.3], brightness: [0.8, 1.02] } },
+  "Blue Fen": { feather: [0.32, 0.48], baseLayer: { tileSize: [110, 158], alpha: [0.13, 0.19], jitter: [0.12, 0.24], brightness: [0.78, 1.02] } },
+  "Rose Dunes": { feather: [0.22, 0.32], baseLayer: { tileSize: [146, 218], alpha: [0.09, 0.13], rotation: [-0.04, 0.04] } },
+  "Jade Steppe": { feather: [0.24, 0.38], baseLayer: { tileSize: [136, 194], alpha: [0.1, 0.16], jitter: [0.06, 0.14] } },
+  "Violet Moor": { feather: [0.34, 0.52], baseLayer: { tileSize: [104, 154], alpha: [0.14, 0.22], contrast: [0.88, 1.12], brightness: [0.72, 0.94] } },
+  "Ashen Reach": { feather: [0.3, 0.46], baseLayer: { tileSize: [112, 160], alpha: [0.14, 0.22], contrast: [1, 1.32], brightness: [0.74, 0.96] } },
+  "Auric Flats": { feather: [0.2, 0.3], baseLayer: { tileSize: [150, 224], alpha: [0.08, 0.12], brightness: [0.94, 1.14] } },
+  "Nightglass Basin": { feather: [0.32, 0.5], baseLayer: { tileSize: [100, 148], alpha: [0.16, 0.24], contrast: [1.04, 1.36], brightness: [0.68, 0.9] } },
+  "Cinder Scar": { feather: [0.3, 0.46], baseLayer: { tileSize: [108, 152], alpha: [0.15, 0.23], contrast: [1.02, 1.34], brightness: [0.72, 0.94] } },
+  "Thornwild Verge": { feather: [0.28, 0.42], baseLayer: { tileSize: [124, 176], alpha: [0.12, 0.18], jitter: [0.1, 0.2], brightness: [0.8, 1.04] } },
+  "Ivory Saltpan": { feather: [0.18, 0.28], baseLayer: { tileSize: [154, 232], alpha: [0.07, 0.11], contrast: [0.96, 1.1], brightness: [0.98, 1.18] } },
+  "Saffron Breakers": { feather: [0.22, 0.34], baseLayer: { tileSize: [142, 210], alpha: [0.09, 0.14], jitter: [0.08, 0.16], brightness: [0.92, 1.12] } },
+  "Moonroot Hollow": { feather: [0.36, 0.52], baseLayer: { tileSize: [102, 146], alpha: [0.15, 0.22], jitter: [0.14, 0.28], brightness: [0.74, 0.98] } },
+  "Stormglass Shelf": { feather: [0.36, 0.56], baseLayer: { tileSize: [96, 136], alpha: [0.16, 0.25], jitter: [0.12, 0.22], contrast: [1.04, 1.4], brightness: [0.7, 0.92], rotation: [-0.14, 0.14] } },
 };
 const ARENA_TEXTURE_PROFILE_BY_NAME = {
   "Sunlit Vale": "meadow",
@@ -933,18 +962,22 @@ function createArenaTheme(name, top, bottom, glow, ground, commonProps = {}, rar
 function createArenaTextureProfile(name) {
   const presetKey = ARENA_TEXTURE_PROFILE_BY_NAME[name] || "meadow";
   const preset = GROUND_TEXTURE_PROFILE_PRESETS[presetKey] || GROUND_TEXTURE_PROFILE_PRESETS.meadow;
+  const override = ARENA_TEXTURE_PROFILE_OVERRIDES[name] || {};
+  const weights = { ...preset.weights, ...(override.weights || {}) };
+  const baseTexture = override.baseTexture || getDominantWeightedTextureId(weights, "grass");
+  const replacementWeights = Object.keys(override.replacementWeights || {}).length
+    ? { ...override.replacementWeights }
+    : removeTextureFromWeights(weights, baseTexture);
+  const tileSize = cloneNumberRange(override.tileSize || override.baseLayer?.tileSize || preset.tileSize || preset.baseLayer?.tileSize, [96, 132]);
   return {
     key: presetKey,
-    weights: { ...preset.weights },
-    patchLayers: preset.patchLayers.map((layer) => ({
-      ...layer,
-      count: [...layer.count],
-      radiusX: [...layer.radiusX],
-      radiusY: [...layer.radiusY],
-      harmonics: layer.harmonics.map((harmonic) => [...harmonic]),
-    })),
-    softLightAlpha: preset.softLightAlpha,
-    multiplyAlpha: preset.multiplyAlpha,
+    weights,
+    baseTexture,
+    replacementWeights,
+    tileSize,
+    materialMasks: createTerrainMaterialMaskConfigs(name, tileSize, replacementWeights, override.materialMasks),
+    softLightAlpha: override.softLightAlpha ?? preset.softLightAlpha,
+    multiplyAlpha: override.multiplyAlpha ?? preset.multiplyAlpha,
   };
 }
 
@@ -1220,6 +1253,7 @@ const state = {
   roundsApplied: 0,
   speedIndex: 2,
   useRiggedSprites: true,
+  useTerrainTexturing: true,
   audio: createAudioState(),
   camera: {
     x: FIELD.width / 2,
@@ -1291,6 +1325,7 @@ const els = {
   battleHealthChart: document.getElementById("battleHealthChart"),
   battleHealthChartCanvas: document.getElementById("battleHealthChartCanvas"),
   useRiggedSpritesToggle: document.getElementById("useRiggedSpritesToggle"),
+  useTerrainTexturingToggle: document.getElementById("useTerrainTexturingToggle"),
   knockoutAnnouncement: document.getElementById("knockoutAnnouncement"),
   bossAnnouncement: document.getElementById("bossAnnouncement"),
   winnerCard: document.getElementById("winnerCard"),
@@ -1406,6 +1441,7 @@ function bootstrap() {
     }
     bindUi();
     setUseRiggedSprites(state.useRiggedSprites);
+    setUseTerrainTexturing(state.useTerrainTexturing);
     initializeBattleAudio();
     renderSpeedControls();
     syncCsvInput();
@@ -1445,6 +1481,9 @@ function bindUi() {
   els.cancelCompositionBtn.addEventListener("click", closeCompositionModal);
   els.useRiggedSpritesToggle?.addEventListener("change", () => {
     setUseRiggedSprites(Boolean(els.useRiggedSpritesToggle.checked));
+  });
+  els.useTerrainTexturingToggle?.addEventListener("change", () => {
+    setUseTerrainTexturing(Boolean(els.useTerrainTexturingToggle.checked));
   });
   els.compositionSearch.addEventListener("input", () => {
     state.compositionModal.search = els.compositionSearch.value;
@@ -3535,6 +3574,7 @@ function loadState() {
     state.factions = (saved.factions || []).map(withFactionDefaults);
     state.roundsApplied = saved.roundsApplied || 0;
     state.useRiggedSprites = saved.useRiggedSprites !== false;
+    state.useTerrainTexturing = saved.useTerrainTexturing !== false;
   } catch {
     state.factions = [];
   }
@@ -3545,6 +3585,7 @@ function saveState() {
     factions: state.factions,
     roundsApplied: state.roundsApplied,
     useRiggedSprites: state.useRiggedSprites,
+    useTerrainTexturing: state.useTerrainTexturing,
   }));
   syncTournamentViewState(true);
 }
@@ -3563,6 +3604,28 @@ function setUseRiggedSprites(enabled) {
   }
   if (!state.useRiggedSprites) {
     clearRiggedUnitCaches();
+  }
+  saveState();
+}
+
+function invalidateBattleTerrainTexture() {
+  if (!state.battle?.terrainTexture) return;
+  state.battle.terrainTexture.canvas = null;
+  state.battle.terrainTexture.pending = false;
+  state.battle.terrainTexture.ready = false;
+}
+
+function setUseTerrainTexturing(enabled) {
+  state.useTerrainTexturing = Boolean(enabled);
+  if (els.useTerrainTexturingToggle) {
+    els.useTerrainTexturingToggle.checked = state.useTerrainTexturing;
+  }
+  if (!state.useTerrainTexturing) {
+    clearBattleTerrainTextureQueue(state.battle?.terrainTexture);
+    invalidateBattleTerrainTexture();
+  } else if (state.battle) {
+    state.battle.terrainTexture = createBattleTerrainTextureState(state.battle.field, state.battle.arena);
+    queueBattleTerrainTextureGeneration(state.battle, 40);
   }
   saveState();
 }
@@ -4025,6 +4088,7 @@ function resetBattle() {
   closeTournamentStoryModal();
   state.tournament = shouldUseTournament(state.factions) ? createTournament(state.factions) : null;
   state.battle = buildActiveBattle();
+  queueBattleTerrainTextureGeneration(state.battle);
   clearKnockoutAnnouncement();
   clearBossAnnouncement();
   resetCamera();
@@ -4568,6 +4632,7 @@ function applyArenaToBattle(battle, arena) {
   battle.arena = arena;
   battle.weatherField = createWeatherField(arena.weather);
   battle.terrainTexture = createBattleTerrainTextureState(battle.field, arena);
+  queueBattleTerrainTextureGeneration(battle);
   battle.props = buildFieldProps(battle.field, arena);
 }
 
@@ -5342,24 +5407,89 @@ function chooseWeightedTextureId(rand, weights) {
   return entries[entries.length - 1][0];
 }
 
+function getDominantWeightedTextureId(weights, fallback = "grass") {
+  let selectedId = fallback;
+  let selectedWeight = -Infinity;
+  Object.entries(weights || {}).forEach(([textureId, weight]) => {
+    if (weight > selectedWeight) {
+      selectedId = textureId;
+      selectedWeight = weight;
+    }
+  });
+  return selectedId;
+}
+
+function removeTextureFromWeights(weights, textureId) {
+  return Object.fromEntries(
+    Object.entries(weights || {}).filter(([candidateId, weight]) => candidateId !== textureId && weight > 0),
+  );
+}
+
+function cloneNumberRange(range, fallback) {
+  if (Array.isArray(range) && range.length >= 2) return [range[0], range[1]];
+  return [fallback[0], fallback[1]];
+}
+
+function createTerrainMaterialMaskConfigs(name, tileSize, replacementWeights, overrides = {}) {
+  const entries = Object.entries(replacementWeights || {}).filter(([, weight]) => weight > 0).sort((a, b) => b[1] - a[1]);
+  return entries.map(([textureId, weight], index) => {
+    const key = `${name}|${textureId}|${index}`;
+    const seedRand = createSeededRandom(hashStringToSeed(key));
+    const bandBase = 0.2 + index * 0.14 + seedRand() * 0.04;
+    const bandWidth = 0.18 + seedRand() * 0.08;
+    const defaultConfig = {
+      textureId,
+      scaleMultiplier: 7.5 + index * 2.1 + seedRand() * 2.4,
+      thresholdLow: bandBase,
+      thresholdHigh: Math.min(0.92, bandBase + bandWidth),
+      feather: 0.035 + seedRand() * 0.04,
+      octaves: 3 + Math.floor(seedRand() * 2),
+      persistence: 0.48 + seedRand() * 0.18,
+      lacunarity: 1.9 + seedRand() * 0.45,
+      warp: 0.12 + seedRand() * 0.18,
+      alpha: 0.72 + Math.min(0.16, weight * 0.025),
+    };
+    const override = overrides[textureId] || {};
+    const thresholdLow = override.thresholdLow ?? defaultConfig.thresholdLow;
+    const thresholdHigh = Math.max(thresholdLow + 0.04, override.thresholdHigh ?? defaultConfig.thresholdHigh);
+    return {
+      ...defaultConfig,
+      ...override,
+      thresholdLow,
+      thresholdHigh,
+    };
+  });
+}
+
 function createBattleTerrainTextureState(field, arena) {
   const seedBase = `${arena?.name || "arena"}|${arena?.weather || "clear"}|${Date.now()}|${Math.random()}`;
   return {
-    width: field.width,
-    height: field.height,
+    width: Math.max(1, Math.round(field.width * TERRAIN_TEXTURE_RESOLUTION_SCALE)),
+    height: Math.max(1, Math.round(field.height * TERRAIN_TEXTURE_RESOLUTION_SCALE)),
+    worldWidth: field.width,
+    worldHeight: field.height,
+    resolutionScale: TERRAIN_TEXTURE_RESOLUTION_SCALE,
     seed: hashStringToSeed(seedBase),
     profile: arena?.textureProfile ? cloneData(arena.textureProfile) : createArenaTextureProfile(arena?.name || ""),
     canvas: null,
     pending: false,
     ready: false,
+    queued: false,
+    queueHandle: null,
   };
 }
 
 function ensureBattleTerrainTexture(battle) {
+  if (!state.useTerrainTexturing) return;
   if (!battle?.terrainTexture || battle.terrainTexture.ready || battle.terrainTexture.pending) return;
-  const requiredTextureIds = Object.keys(battle.terrainTexture.profile?.weights || {});
+  const requiredTextureIds = new Set(Object.keys(battle.terrainTexture.profile?.weights || {}));
+  if (battle.terrainTexture.profile?.baseTexture) requiredTextureIds.add(battle.terrainTexture.profile.baseTexture);
+  Object.keys(battle.terrainTexture.profile?.replacementWeights || {}).forEach((textureId) => requiredTextureIds.add(textureId));
+  (battle.terrainTexture.profile?.materialMasks || []).forEach((material) => {
+    if (material.textureId) requiredTextureIds.add(material.textureId);
+  });
   const images = {};
-  const unresolved = requiredTextureIds.some((textureId) => {
+  const unresolved = [...requiredTextureIds].some((textureId) => {
     const image = getGroundTextureImage(textureId);
     if (!image || !image.complete || image.naturalWidth <= 0) return true;
     images[textureId] = image;
@@ -5372,76 +5502,186 @@ function ensureBattleTerrainTexture(battle) {
   battle.terrainTexture.pending = false;
 }
 
+function clearBattleTerrainTextureQueue(terrainTexture) {
+  if (!terrainTexture?.queueHandle) return;
+  if (terrainTexture.queueHandle.kind === "idle" && typeof window.cancelIdleCallback === "function") {
+    window.cancelIdleCallback(terrainTexture.queueHandle.id);
+  } else {
+    clearTimeout(terrainTexture.queueHandle.id);
+  }
+  terrainTexture.queueHandle = null;
+  terrainTexture.queued = false;
+}
+
+function queueBattleTerrainTextureGeneration(battle, delayMs = 90) {
+  if (!state.useTerrainTexturing || !battle?.terrainTexture || battle.terrainTexture.ready || battle.terrainTexture.pending || battle.terrainTexture.queued) return;
+  const terrainTexture = battle.terrainTexture;
+  const runGeneration = () => {
+    terrainTexture.queueHandle = null;
+    terrainTexture.queued = false;
+    if (!state.useTerrainTexturing || state.battle !== battle || battle.terrainTexture !== terrainTexture) return;
+    ensureBattleTerrainTexture(battle);
+  };
+  terrainTexture.queued = true;
+  if (typeof window.requestIdleCallback === "function") {
+    terrainTexture.queueHandle = {
+      kind: "idle",
+      id: window.requestIdleCallback(runGeneration, { timeout: Math.max(120, delayMs * 4) }),
+    };
+    return;
+  }
+  terrainTexture.queueHandle = {
+    kind: "timeout",
+    id: window.setTimeout(runGeneration, delayMs),
+  };
+}
+
 function buildBattleTerrainTextureCanvas(terrainTexture, arena, images) {
   const canvas = document.createElement("canvas");
   canvas.width = terrainTexture.width;
   canvas.height = terrainTexture.height;
   const textureCtx = canvas.getContext("2d");
   const rand = createSeededRandom(terrainTexture.seed);
+  const profile = terrainTexture.profile || createArenaTextureProfile(arena?.name || "");
+  const resolutionScale = terrainTexture.resolutionScale || 1;
   textureCtx.clearRect(0, 0, canvas.width, canvas.height);
+  const sharedTileSize = randomRange(rand, profile.tileSize[0], profile.tileSize[1]) * 0.2 * resolutionScale;
+  profile.renderedTileSize = sharedTileSize;
+  const texturePlanes = buildTerrainTexturePlanes(images, profile, canvas.width, canvas.height, sharedTileSize);
+  const basePlane = texturePlanes[profile.baseTexture];
+  if (basePlane) textureCtx.drawImage(basePlane, 0, 0);
 
-  terrainTexture.profile.patchLayers.forEach((layer, layerIndex) => {
-    const patchCount = randomIntRange(rand, layer.count[0], layer.count[1]);
-    for (let patchIndex = 0; patchIndex < patchCount; patchIndex += 1) {
-      drawTerrainTexturePatch(textureCtx, rand, images, terrainTexture.profile.weights, layer, layerIndex, canvas.width, canvas.height);
-    }
+  profile.materialMasks.forEach((material, materialIndex) => {
+    drawTerrainTextureMaterialMask(textureCtx, texturePlanes, profile, material, materialIndex, canvas.width, canvas.height);
   });
   return canvas;
 }
 
-function drawTerrainTexturePatch(textureCtx, rand, images, weights, layer, layerIndex, width, height) {
-  const textureId = chooseWeightedTextureId(rand, weights || {});
-  const image = images[textureId];
-  if (!image) return;
-  const centerX = randomRange(rand, -width * 0.08, width * 1.08);
-  const centerY = randomRange(rand, -height * 0.08, height * 1.08);
-  const radiusX = randomRange(rand, layer.radiusX[0], layer.radiusX[1]);
-  const radiusY = randomRange(rand, layer.radiusY[0], layer.radiusY[1]);
-  const rotation = randomRange(rand, -Math.PI, Math.PI);
-
-  textureCtx.save();
-  textureCtx.translate(centerX, centerY);
-  textureCtx.rotate(rotation);
-  textureCtx.beginPath();
-  textureCtx.ellipse(0, 0, radiusX, radiusY, 0, 0, Math.PI * 2);
-  textureCtx.clip();
-
-  const harmonicRotation = randomRange(rand, -0.22, 0.22);
-  textureCtx.rotate(harmonicRotation);
-  const patchLeft = -radiusX - 36;
-  const patchTop = -radiusY - 36;
-  const patchRight = radiusX + 36;
-  const patchBottom = radiusY + 36;
-
-  layer.harmonics.forEach(([tileMin, tileMax, alphaBase], harmonicIndex) => {
-    const tileSize = randomRange(rand, tileMin, tileMax);
-    const frequencyScale = 0.75 + rand() * 0.65;
-    const stepX = tileSize * frequencyScale;
-    const stepY = tileSize * (0.68 + rand() * 0.58);
-    const startX = patchLeft - stepX * 1.5 + randomRange(rand, -tileSize, tileSize);
-    const startY = patchTop - stepY * 1.5 + randomRange(rand, -tileSize, tileSize);
-    textureCtx.save();
-    textureCtx.globalAlpha = alphaBase * (0.84 + rand() * 0.4) * (1 - layerIndex * 0.08) * (1 - harmonicIndex * 0.06);
-    textureCtx.filter = `contrast(${0.92 + rand() * 0.55}) brightness(${0.78 + rand() * 0.45})`;
-    for (let y = startY; y < patchBottom + stepY * 1.5; y += stepY) {
-      for (let x = startX; x < patchRight + stepX * 1.5; x += stepX) {
-        const drawSize = tileSize * (0.72 + rand() * 0.9);
-        const drawW = drawSize * (image.naturalWidth / Math.max(1, image.naturalHeight));
-        const drawH = drawSize;
-        const jitterX = randomRange(rand, -drawSize * 0.35, drawSize * 0.35);
-        const jitterY = randomRange(rand, -drawSize * 0.35, drawSize * 0.35);
-        textureCtx.save();
-        textureCtx.translate(x + jitterX, y + jitterY);
-        textureCtx.rotate(randomRange(rand, -0.4, 0.4));
-        textureCtx.scale(rand() > 0.5 ? -1 : 1, rand() > 0.72 ? -1 : 1);
-        textureCtx.drawImage(image, -drawW / 2, -drawH / 2, drawW, drawH);
-        textureCtx.restore();
-      }
-    }
-    textureCtx.restore();
+function buildTerrainTexturePlanes(images, profile, width, height, tileSize) {
+  const textureIds = new Set([profile.baseTexture, ...Object.keys(profile.replacementWeights || {})]);
+  (profile.materialMasks || []).forEach((material) => {
+    if (material.textureId) textureIds.add(material.textureId);
   });
+  const planes = {};
+  textureIds.forEach((textureId) => {
+    const image = images[textureId];
+    if (!image) return;
+    planes[textureId] = buildTiledTerrainPlane(image, width, height, tileSize);
+  });
+  return planes;
+}
 
-  textureCtx.restore();
+function buildTiledTerrainPlane(image, width, height, tileSize) {
+  const plane = document.createElement("canvas");
+  plane.width = width;
+  plane.height = height;
+  const planeCtx = plane.getContext("2d");
+  const tileHeight = tileSize;
+  const tileWidth = tileHeight * (image.naturalWidth / Math.max(1, image.naturalHeight));
+  for (let y = 0; y < height + tileHeight; y += tileHeight) {
+    for (let x = 0; x < width + tileWidth; x += tileWidth) {
+      planeCtx.drawImage(image, x, y, tileWidth, tileHeight);
+    }
+  }
+  return plane;
+}
+
+function smoothstep(min, max, value) {
+  if (max <= min) return value >= max ? 1 : 0;
+  const t = Math.max(0, Math.min(1, (value - min) / (max - min)));
+  return t * t * (3 - 2 * t);
+}
+
+function lerp(a, b, t) {
+  return a + (b - a) * t;
+}
+
+function hashGridNoise(seed, x, y) {
+  let hash = seed ^ Math.imul(x, 374761393) ^ Math.imul(y, 668265263);
+  hash = (hash ^ (hash >>> 13)) >>> 0;
+  hash = Math.imul(hash, 1274126177) >>> 0;
+  return ((hash ^ (hash >>> 16)) >>> 0) / 4294967295;
+}
+
+function sampleValueNoise(seed, x, y) {
+  const x0 = Math.floor(x);
+  const y0 = Math.floor(y);
+  const x1 = x0 + 1;
+  const y1 = y0 + 1;
+  const tx = x - x0;
+  const ty = y - y0;
+  const sx = tx * tx * (3 - 2 * tx);
+  const sy = ty * ty * (3 - 2 * ty);
+  const n00 = hashGridNoise(seed, x0, y0);
+  const n10 = hashGridNoise(seed, x1, y0);
+  const n01 = hashGridNoise(seed, x0, y1);
+  const n11 = hashGridNoise(seed, x1, y1);
+  return lerp(lerp(n00, n10, sx), lerp(n01, n11, sx), sy);
+}
+
+function sampleFractalTerrainNoise(seed, x, y, config) {
+  let amplitude = 1;
+  let frequency = 1;
+  let total = 0;
+  let totalAmplitude = 0;
+  const octaves = Math.max(1, Math.round(config.octaves || 4));
+  const persistence = config.persistence || 0.5;
+  const lacunarity = config.lacunarity || 2;
+  for (let octave = 0; octave < octaves; octave += 1) {
+    total += sampleValueNoise(seed + octave * 1013, x * frequency, y * frequency) * amplitude;
+    totalAmplitude += amplitude;
+    amplitude *= persistence;
+    frequency *= lacunarity;
+  }
+  return totalAmplitude > 0 ? total / totalAmplitude : 0;
+}
+
+function buildTerrainMaterialNoiseMask(width, height, material, seed, renderedTileSize) {
+  const maskCanvas = document.createElement("canvas");
+  maskCanvas.width = width;
+  maskCanvas.height = height;
+  const maskCtx = maskCanvas.getContext("2d");
+  const imageData = maskCtx.createImageData(width, height);
+  const data = imageData.data;
+  const scale = Math.max(18, material.scale || ((material.scaleMultiplier || 9) * renderedTileSize));
+  const warpAmount = material.warp || 0;
+  const feather = Math.max(0.01, material.feather || 0.08);
+  const low = material.thresholdLow ?? 0.56;
+  const high = material.thresholdHigh ?? 0.68;
+  const alphaScale = material.alpha ?? 1;
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const nx = x / scale;
+      const ny = y / scale;
+      const warpX = (sampleFractalTerrainNoise(seed + 17, nx * 0.9, ny * 0.9, material) - 0.5) * warpAmount;
+      const warpY = (sampleFractalTerrainNoise(seed + 29, nx * 0.9 + 11.3, ny * 0.9 + 7.1, material) - 0.5) * warpAmount;
+      const value = sampleFractalTerrainNoise(seed, nx + warpX, ny + warpY, material);
+      const lowerBlend = smoothstep(low - feather, low + feather, value);
+      const upperBlend = 1 - smoothstep(high - feather, high + feather, value);
+      const alpha = lowerBlend * upperBlend * alphaScale;
+      const pixelIndex = (y * width + x) * 4;
+      data[pixelIndex] = 0;
+      data[pixelIndex + 1] = 0;
+      data[pixelIndex + 2] = 0;
+      data[pixelIndex + 3] = Math.round(Math.max(0, Math.min(1, alpha)) * 255);
+    }
+  }
+  maskCtx.putImageData(imageData, 0, 0);
+  return maskCanvas;
+}
+
+function drawTerrainTextureMaterialMask(textureCtx, texturePlanes, profile, material, materialIndex, width, height) {
+  const plane = texturePlanes[material.textureId];
+  if (!plane) return;
+  const patchCanvas = document.createElement("canvas");
+  patchCanvas.width = width;
+  patchCanvas.height = height;
+  const patchCtx = patchCanvas.getContext("2d");
+  patchCtx.drawImage(plane, 0, 0);
+  patchCtx.globalCompositeOperation = "destination-in";
+  const maskSeed = hashStringToSeed(`${profile.key}|${profile.baseTexture}|${material.textureId}|${materialIndex}`);
+  patchCtx.drawImage(buildTerrainMaterialNoiseMask(width, height, material, maskSeed, profile.renderedTileSize || 24), 0, 0);
+  textureCtx.drawImage(patchCanvas, 0, 0);
 }
 
 function getUnitSpriteSource(unitId) {
@@ -10341,8 +10581,7 @@ function drawField(viewport, battle) {
   glow.addColorStop(1, "rgba(0,0,0,0)");
   ctx.fillStyle = glow;
   ctx.fillRect(0, 0, viewport.width, viewport.height);
-  ensureBattleTerrainTexture(battle);
-  if (battle.terrainTexture?.canvas) {
+  if (state.useTerrainTexturing && battle.terrainTexture?.canvas) {
     const profile = battle.terrainTexture.profile || arena.textureProfile || createArenaTextureProfile(arena.name);
     ctx.save();
     ctx.globalCompositeOperation = "soft-light";
