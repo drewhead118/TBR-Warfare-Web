@@ -11,6 +11,34 @@
 </head>
 <body>
   <div class="app-shell">
+    <section id="devPanel" class="panel-section dev-panel" hidden>
+      <div class="dev-panel-header">
+        <div>
+          <p class="eyebrow">Developer Tools</p>
+          <h2>Hidden Control Shelf</h2>
+        </div>
+        <p class="hint">Press <code>Ctrl+1</code> to toggle this panel.</p>
+      </div>
+      <div class="dev-panel-controls">
+        <label class="battle-render-toggle checkbox-row">
+          <input id="useTerrainTexturingToggle" type="checkbox" checked>
+          <span>Enable terrain texturing</span>
+        </label>
+        <label class="battle-render-toggle checkbox-row">
+          <input id="useRiggedSpritesToggle" type="checkbox" checked>
+          <span>Use rigged units when available</span>
+        </label>
+        <label class="battle-render-toggle checkbox-row">
+          <input id="showRenderDebugToggle" type="checkbox">
+          <span>Show FPS and culling overlay</span>
+        </label>
+        <label class="battle-render-toggle checkbox-row">
+          <input id="propResizeToggle" type="checkbox">
+          <span>Prop resize mode</span>
+        </label>
+        <a class="ghost small tool-link" href="sprite-workshop.html">Open Sprite Workshop</a>
+      </div>
+    </section>
     <div class="top-shell">
       <aside class="control-panel">
         <div class="panel-section hero-panel">
@@ -25,7 +53,6 @@
             <button id="advanceQueueBtn" class="accent">Apply Winner To Queue</button>
             <button id="randomizeArenaBtn" class="secondary">Randomize Arena + Weather</button>
             <button id="seedSampleBtn" class="ghost">Load Sample Armies</button>
-            <a class="ghost small tool-link" href="sprite-workshop.html">Open Sprite Workshop</a>
           </div>
         </div>
 
@@ -84,14 +111,6 @@
               <span class="speed-label">Combat Speed</span>
               <div id="speedControls" class="speed-controls"></div>
             </div>
-            <label class="battle-render-toggle checkbox-row">
-              <input id="useTerrainTexturingToggle" type="checkbox" checked>
-              <span>Enable terrain texturing</span>
-            </label>
-            <label class="battle-render-toggle checkbox-row">
-              <input id="useRiggedSpritesToggle" type="checkbox" checked>
-              <span>Use rigged units when available</span>
-            </label>
           </div>
         </div>
         <div class="battle-stage">

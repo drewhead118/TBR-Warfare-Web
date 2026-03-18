@@ -75,12 +75,13 @@ const STATUS_BADGE_CANDIDATE_PATHS = [
   (statusId) => `${statusId}.png`,
 ];
 const GROUND_PROP_ASSET_BASE_URL = "assets/Props/";
+const GROUND_PROP_SCALE_OVERRIDES_FILE = "prop-scales.json";
 const GROUND_PROP_FILENAME_DIGITS = 4;
 const GROUND_PROP_MAX_SCAN_INDEX = 9999;
 const GROUND_PROP_SCAN_MISS_LIMIT = 60;
 const GROUND_PROP_IMAGE_SCALE = 0.12;
-const GROUND_PROP_RANDOM_SCALE_MIN = 0.8;
-const GROUND_PROP_RANDOM_SCALE_MAX = 1;
+const GROUND_PROP_RANDOM_SCALE_MIN = 0.95;
+const GROUND_PROP_RANDOM_SCALE_MAX = 1.05;
 const GROUND_PROP_PADDING_X = 70;
 const GROUND_PROP_PADDING_Y = 82;
 const GROUND_PROP_JITTER_MIN = 0.18;
@@ -1265,6 +1266,11 @@ const state = {
     items: [],
     promise: null,
   },
+  groundPropScaleFile: {
+    loaded: false,
+    directoryHandle: null,
+    promptAttempted: false,
+  },
   terrainBuildUi: {
     visible: false,
     label: "Building terrain texture...",
@@ -1277,6 +1283,11 @@ const state = {
   speedIndex: 2,
   useRiggedSprites: true,
   useTerrainTexturing: true,
+  showRenderDebug: false,
+  propResizeMode: false,
+  selectedPropId: null,
+  propScaleOverrides: {},
+  devPanelVisible: false,
   audio: createAudioState(),
   camera: {
     x: FIELD.width / 2,
@@ -1351,8 +1362,11 @@ const els = {
   terrainBuildLabel: document.getElementById("terrainBuildLabel"),
   terrainBuildFill: document.getElementById("terrainBuildFill"),
   terrainBuildPercent: document.getElementById("terrainBuildPercent"),
+  devPanel: document.getElementById("devPanel"),
   useRiggedSpritesToggle: document.getElementById("useRiggedSpritesToggle"),
   useTerrainTexturingToggle: document.getElementById("useTerrainTexturingToggle"),
+  showRenderDebugToggle: document.getElementById("showRenderDebugToggle"),
+  propResizeToggle: document.getElementById("propResizeToggle"),
   knockoutAnnouncement: document.getElementById("knockoutAnnouncement"),
   bossAnnouncement: document.getElementById("bossAnnouncement"),
   winnerCard: document.getElementById("winnerCard"),
@@ -1462,6 +1476,7 @@ bootstrap();
 async function bootstrap() {
   if (HAS_BATTLE_PAGE) {
     loadState();
+    await loadGroundPropScaleOverrides();
     if (!state.factions.length) {
       state.factions = cloneData(SAMPLE_BOOKS).map(withFactionDefaults);
       saveState();
@@ -1470,6 +1485,9 @@ async function bootstrap() {
     bindUi();
     setUseRiggedSprites(state.useRiggedSprites);
     setUseTerrainTexturing(state.useTerrainTexturing);
+    setShowRenderDebug(state.showRenderDebug);
+    setPropResizeMode(state.propResizeMode);
+    setDevPanelVisible(false);
     initializeBattleAudio();
     renderSpeedControls();
     syncCsvInput();
@@ -1512,6 +1530,12 @@ function bindUi() {
   });
   els.useTerrainTexturingToggle?.addEventListener("change", () => {
     setUseTerrainTexturing(Boolean(els.useTerrainTexturingToggle.checked));
+  });
+  els.showRenderDebugToggle?.addEventListener("change", () => {
+    setShowRenderDebug(Boolean(els.showRenderDebugToggle.checked));
+  });
+  els.propResizeToggle?.addEventListener("change", () => {
+    setPropResizeMode(Boolean(els.propResizeToggle.checked));
   });
   els.compositionSearch.addEventListener("input", () => {
     state.compositionModal.search = els.compositionSearch.value;
@@ -3603,6 +3627,11 @@ function loadState() {
     state.roundsApplied = saved.roundsApplied || 0;
     state.useRiggedSprites = saved.useRiggedSprites !== false;
     state.useTerrainTexturing = saved.useTerrainTexturing !== false;
+    state.showRenderDebug = saved.showRenderDebug === true;
+    state.propResizeMode = saved.propResizeMode === true;
+    state.propScaleOverrides = typeof saved.propScaleOverrides === "object" && saved.propScaleOverrides
+      ? saved.propScaleOverrides
+      : {};
   } catch {
     state.factions = [];
   }
@@ -3614,6 +3643,9 @@ function saveState() {
     roundsApplied: state.roundsApplied,
     useRiggedSprites: state.useRiggedSprites,
     useTerrainTexturing: state.useTerrainTexturing,
+    showRenderDebug: state.showRenderDebug,
+    propResizeMode: state.propResizeMode,
+    propScaleOverrides: state.propScaleOverrides,
   }));
   syncTournamentViewState(true);
 }
@@ -3657,6 +3689,264 @@ function setUseTerrainTexturing(enabled) {
     queueBattleTerrainTextureGeneration(state.battle, 40);
   }
   saveState();
+}
+
+function setShowRenderDebug(enabled) {
+  state.showRenderDebug = Boolean(enabled);
+  if (els.showRenderDebugToggle) {
+    els.showRenderDebugToggle.checked = state.showRenderDebug;
+  }
+  saveState();
+}
+
+function setPropResizeMode(enabled) {
+  state.propResizeMode = Boolean(enabled);
+  if (els.propResizeToggle) {
+    els.propResizeToggle.checked = state.propResizeMode;
+  }
+  state.selectedPropId = null;
+  if (state.propResizeMode) {
+    maybeEnableGroundPropScalePersistencePrompt();
+    if (state.battle) {
+      state.battle.props = buildPropScaleWorkshopProps(state.battle.field, state.battle.arena);
+    }
+  } else {
+    if (state.battle) {
+      state.battle.props = buildFieldProps(state.battle.field, state.battle.arena);
+    }
+  }
+  saveState();
+}
+
+function setDevPanelVisible(visible) {
+  state.devPanelVisible = Boolean(visible);
+  if (els.devPanel) {
+    els.devPanel.hidden = !state.devPanelVisible;
+  }
+}
+
+function getPropScaleKey(prop) {
+  if (!prop) return "";
+  if (prop.renderMode === "image") {
+    return `image:${prop.asset?.file || prop.asset?.url || "unknown"}`;
+  }
+  return `svg:${prop.type || "unknown"}`;
+}
+
+function getPropScalePreference(scaleKey) {
+  const value = Number(state.propScaleOverrides?.[scaleKey]);
+  return Number.isFinite(value) && value > 0 ? value : 1;
+}
+
+function getPropBaseSpawnScale() {
+  return GROUND_PROP_RANDOM_SCALE_MIN
+    + (GROUND_PROP_RANDOM_SCALE_MAX - GROUND_PROP_RANDOM_SCALE_MIN) * Math.random();
+}
+
+function buildGroundProp(point, index, arena, themeWeights, count, availableGroundProps, options = {}) {
+  const asset = options.asset || (availableGroundProps.length
+    ? availableGroundProps[Math.floor(Math.random() * availableGroundProps.length)]
+    : null);
+  const renderMode = asset ? "image" : "svg";
+  const type = options.type || (asset ? null : chooseArenaPropType(themeWeights, index, count));
+  const scaleKey = asset ? `image:${asset.file || asset.url || "unknown"}` : `svg:${type || "unknown"}`;
+  const spawnScaleVariance = getPropBaseSpawnScale();
+  return {
+    id: `prop-${index}-${Math.random().toString(36).slice(2, 7)}`,
+    ...(asset
+      ? {
+          renderMode,
+          asset,
+          imageScale: GROUND_PROP_IMAGE_SCALE,
+        }
+      : {
+          renderMode,
+          type,
+          tint: Math.random(),
+          imageScale: 1,
+        }),
+    x: point.x,
+    y: point.y,
+    scaleKey,
+    spawnScaleVariance,
+    scale: spawnScaleVariance * getPropScalePreference(scaleKey),
+    rotation: (Math.random() - 0.5) * 0.35,
+    tintColor: arena?.ground || arena?.top || "#8fa27f",
+    tintAlpha: GROUND_PROP_TINT_ALPHA,
+  };
+}
+
+function getSelectedBattleProp() {
+  const props = state.battle?.props || [];
+  if (!state.selectedPropId) return null;
+  return props.find((prop) => prop.id === state.selectedPropId) || null;
+}
+
+function setSelectedBattleProp(prop) {
+  state.selectedPropId = prop?.id || null;
+}
+
+function clearSelectedBattleProp() {
+  state.selectedPropId = null;
+}
+
+function getGroundPropScreenMetrics(prop, viewport) {
+  const point = worldToScreen(prop.x, prop.y, viewport);
+  if (prop.renderMode === "image" && prop.asset) {
+    const imageWidth = Math.max(1, prop.asset.width || 1);
+    const imageHeight = Math.max(1, prop.asset.height || 1);
+    const renderScale = Math.min(1, prop.imageScale || GROUND_PROP_IMAGE_SCALE) * point.scale * prop.scale;
+    const width = imageWidth * renderScale;
+    const height = imageHeight * renderScale;
+    return {
+      point,
+      left: point.x - width / 2,
+      right: point.x + width / 2,
+      top: point.y - height,
+      bottom: point.y,
+      width,
+      height,
+    };
+  }
+  const renderScale = point.scale * prop.scale;
+  const width = 34 * renderScale / 2.1;
+  const height = 30 * renderScale / 2.1;
+  return {
+    point,
+    left: point.x - width / 2,
+    right: point.x + width / 2,
+    top: point.y - height,
+    bottom: point.y + 8 * renderScale / 2.1,
+    width,
+    height,
+  };
+}
+
+function findHoveredBattleProp(battle, viewport, canvasX, canvasY) {
+  if (!battle?.props?.length) return null;
+  const props = battle.props.slice().sort((a, b) => a.y - b.y);
+  for (let index = props.length - 1; index >= 0; index -= 1) {
+    const prop = props[index];
+    const metrics = getGroundPropScreenMetrics(prop, viewport);
+    if (
+      canvasX >= metrics.left
+      && canvasX <= metrics.right
+      && canvasY >= metrics.top
+      && canvasY <= metrics.bottom
+    ) {
+      return prop;
+    }
+  }
+  return null;
+}
+
+function resizeSelectedBattleProp(direction) {
+  const prop = getSelectedBattleProp();
+  if (!prop) return false;
+  const scaleKey = prop.scaleKey || getPropScaleKey(prop);
+  prop.scaleKey = scaleKey;
+  prop.spawnScaleVariance = Math.max(0.01, Number(prop.spawnScaleVariance) || 1);
+  const currentPreference = clamp(prop.scale / prop.spawnScaleVariance, 0.18, 6);
+  const nextPreference = clamp(currentPreference * (direction > 0 ? 1.08 : 1 / 1.08), 0.18, 6);
+  state.propScaleOverrides[scaleKey] = nextPreference;
+  (state.battle?.props || []).forEach((battleProp) => {
+    const battlePropScaleKey = battleProp.scaleKey || getPropScaleKey(battleProp);
+    if (battlePropScaleKey !== scaleKey) return;
+    battleProp.scaleKey = battlePropScaleKey;
+    battleProp.spawnScaleVariance = Math.max(0.01, Number(battleProp.spawnScaleVariance) || 1);
+    battleProp.scale = clamp(battleProp.spawnScaleVariance * nextPreference, 0.18, 6);
+  });
+  saveState();
+  void persistGroundPropScaleOverrides();
+  return true;
+}
+
+function buildSerializablePropScaleOverrides() {
+  return Object.fromEntries(Object.entries(state.propScaleOverrides || {})
+    .filter(([, value]) => Number.isFinite(Number(value)) && Number(value) > 0)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, value]) => [key, Number(Number(value).toFixed(4))]));
+}
+
+async function loadGroundPropScaleOverrides() {
+  if (state.groundPropScaleFile.loaded) return state.propScaleOverrides;
+  try {
+    const response = await fetch(resolveGroundPropAssetUrl(GROUND_PROP_SCALE_OVERRIDES_FILE), { cache: "no-store" });
+    if (response.ok) {
+      const saved = await response.json();
+      if (saved && typeof saved === "object") {
+        state.propScaleOverrides = {
+          ...state.propScaleOverrides,
+          ...saved,
+        };
+      }
+    }
+  } catch {}
+  state.groundPropScaleFile.loaded = true;
+  return state.propScaleOverrides;
+}
+
+async function ensureGroundPropScaleDirectoryHandle({ prompt = false } = {}) {
+  if (state.groundPropScaleFile.directoryHandle) return state.groundPropScaleFile.directoryHandle;
+  if (!prompt || !window.showDirectoryPicker) return null;
+  state.groundPropScaleFile.promptAttempted = true;
+  try {
+    const directoryHandle = await window.showDirectoryPicker({ mode: "readwrite" });
+    state.groundPropScaleFile.directoryHandle = directoryHandle;
+    return directoryHandle;
+  } catch (error) {
+    if (error?.name !== "AbortError") {
+      console.warn("Could not choose the prop scale directory.", error);
+    }
+    return null;
+  }
+}
+
+async function persistGroundPropScaleOverrides() {
+  const directoryHandle = await ensureGroundPropScaleDirectoryHandle();
+  if (!directoryHandle) return false;
+  try {
+    const fileHandle = await directoryHandle.getFileHandle(GROUND_PROP_SCALE_OVERRIDES_FILE, { create: true });
+    const writable = await fileHandle.createWritable();
+    await writable.write(`${JSON.stringify(buildSerializablePropScaleOverrides(), null, 2)}\n`);
+    await writable.close();
+    return true;
+  } catch (error) {
+    console.warn("Could not persist prop scale overrides.", error);
+    return false;
+  }
+}
+
+function maybeEnableGroundPropScalePersistencePrompt() {
+  if (state.groundPropScaleFile.directoryHandle || state.groundPropScaleFile.promptAttempted) return;
+  void ensureGroundPropScaleDirectoryHandle({ prompt: true });
+}
+
+function shuffleArray(values) {
+  const result = values.slice();
+  for (let index = result.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [result[index], result[swapIndex]] = [result[swapIndex], result[index]];
+  }
+  return result;
+}
+
+function buildPropScaleWorkshopProps(field, arena) {
+  const availableGroundProps = getAvailableGroundPropAssets();
+  if (!availableGroundProps.length) return buildFieldProps(field, arena);
+  const points = sampleBlueNoisePropPoints(field, availableGroundProps.length);
+  const orderedAssets = shuffleArray(availableGroundProps);
+  return points
+    .map((point, index) => buildGroundProp(
+      point,
+      index,
+      arena,
+      { common: DEFAULT_PROP_WEIGHTS, rare: {} },
+      orderedAssets.length,
+      [],
+      { asset: orderedAssets[index] },
+    ))
+    .sort((a, b) => a.y - b.y);
 }
 
 function syncCsvInput() {
@@ -4115,6 +4405,7 @@ function resetBattle() {
   clearBattleHover();
   closeResetTournamentModal();
   closeTournamentStoryModal();
+  clearSelectedBattleProp();
   state.tournament = shouldUseTournament(state.factions) ? createTournament(state.factions) : null;
   state.battle = buildActiveBattle();
   queueBattleTerrainTextureGeneration(state.battle);
@@ -4663,6 +4954,7 @@ function applyArenaToBattle(battle, arena) {
   battle.terrainTexture = createBattleTerrainTextureState(battle.field, arena);
   queueBattleTerrainTextureGeneration(battle);
   battle.props = buildFieldProps(battle.field, arena);
+  clearSelectedBattleProp();
 }
 
 function randomizeArenaAndWeather() {
@@ -10115,6 +10407,11 @@ function refreshFocusedBattleUnitFromPointer() {
 }
 
 function onWindowKeyDown(event) {
+  if (event.ctrlKey && !event.altKey && !event.metaKey && event.code === "Digit1") {
+    event.preventDefault();
+    setDevPanelVisible(!state.devPanelVisible);
+    return;
+  }
   if (event.key !== "Shift") return;
   if (!state.hover.inspectSlowActive) {
     state.hover.inspectSlowActive = true;
@@ -10146,6 +10443,19 @@ function onWindowBlur() {
 }
 
 function onCanvasPointerDown(event) {
+  updateBattleHoverPointer(event);
+  if (state.propResizeMode && state.battle && state.hover.insideCanvas) {
+    const viewport = getViewport();
+    const clickedProp = findHoveredBattleProp(state.battle, viewport, state.hover.canvasX, state.hover.canvasY);
+    if (clickedProp?.id === state.selectedPropId) {
+      clearSelectedBattleProp();
+    } else if (clickedProp) {
+      setSelectedBattleProp(clickedProp);
+    } else {
+      clearSelectedBattleProp();
+    }
+    return;
+  }
   markCameraManual();
   state.camera.isDragging = true;
   state.camera.lastPointerX = event.clientX;
@@ -10176,9 +10486,26 @@ function onCanvasPointerUp() {
 }
 
 function onCanvasWheel(event) {
+  if (state.propResizeMode && getSelectedBattleProp() && resizeSelectedBattleProp(Math.sign(event.deltaY) < 0 ? 1 : -1)) {
+    event.preventDefault();
+    return;
+  }
   event.preventDefault();
   markCameraManual();
-  state.camera.zoom = clamp(state.camera.zoom * (Math.sign(event.deltaY) > 0 ? 0.9 : 1.1), 0.28, 4.2);
+  const viewport = getViewport();
+  const rect = els.canvas.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  const cursorCanvasX = (event.clientX - rect.left) * dpr;
+  const cursorCanvasY = (event.clientY - rect.top) * dpr;
+  const baseScale = getBaseScale(viewport);
+  const currentScale = baseScale * state.camera.zoom;
+  const cursorWorldX = state.camera.x + ((cursorCanvasX - viewport.width / 2) / Math.max(currentScale, 0.0001));
+  const cursorWorldY = state.camera.y + ((cursorCanvasY - viewport.height / 2) / Math.max(currentScale, 0.0001));
+  const nextZoom = clamp(state.camera.zoom * (Math.sign(event.deltaY) > 0 ? 0.9 : 1.1), 0.28, 4.2);
+  const nextScale = baseScale * nextZoom;
+  state.camera.zoom = nextZoom;
+  state.camera.x = cursorWorldX - ((cursorCanvasX - viewport.width / 2) / Math.max(nextScale, 0.0001));
+  state.camera.y = cursorWorldY - ((cursorCanvasY - viewport.height / 2) / Math.max(nextScale, 0.0001));
   state.camera.targetZoom = state.camera.zoom;
   clampCameraToField();
 }
@@ -10501,6 +10828,9 @@ function render() {
   if (!state.battle) return;
   const viewport = getViewport();
   const hoveredUnit = refreshBattleHover(viewport);
+  if (state.selectedPropId && !getSelectedBattleProp()) {
+    clearSelectedBattleProp();
+  }
   ctx.clearRect(0, 0, viewport.width, viewport.height);
   drawField(viewport, state.battle);
   drawGroundDecor(viewport, state.battle);
@@ -10518,9 +10848,10 @@ function render() {
   drawSpells(viewport, state.battle);
   drawParticles(viewport, state.battle.particles);
   drawWeather(viewport, state.battle);
+  drawSelectedGroundPropIndicator(viewport);
   drawBattleHealthChart(state.battle);
   renderBattleUnitTooltip(hoveredUnit, state.battle, viewport);
-  drawRenderDebugOverlay();
+  if (state.showRenderDebug) drawRenderDebugOverlay();
 }
 
 function initializeBattleHealthTimeline(battle) {
@@ -10704,27 +11035,9 @@ function buildFieldProps(field, arena) {
   const themeWeights = arena?.propWeights || { common: DEFAULT_PROP_WEIGHTS, rare: {} };
   const availableGroundProps = getAvailableGroundPropAssets();
   const points = sampleBlueNoisePropPoints(field, count);
-  return points.map((point, index) => ({
-    id: `prop-${index}-${Math.random().toString(36).slice(2, 7)}`,
-    ...(availableGroundProps.length
-        ? {
-            renderMode: "image",
-            asset: availableGroundProps[Math.floor(Math.random() * availableGroundProps.length)],
-            imageScale: GROUND_PROP_IMAGE_SCALE * (GROUND_PROP_RANDOM_SCALE_MIN + (GROUND_PROP_RANDOM_SCALE_MAX - GROUND_PROP_RANDOM_SCALE_MIN) * Math.random()),
-        }
-      : {
-          renderMode: "svg",
-          type: chooseArenaPropType(themeWeights, index, count),
-          tint: Math.random(),
-          imageScale: 1,
-        }),
-    x: point.x,
-    y: point.y,
-    scale: 0.82 + Math.random() * 0.75,
-    rotation: (Math.random() - 0.5) * 0.35,
-    tintColor: arena?.ground || arena?.top || "#8fa27f",
-    tintAlpha: GROUND_PROP_TINT_ALPHA,
-  })).sort((a, b) => a.y - b.y);
+  return points
+    .map((point, index) => buildGroundProp(point, index, arena, themeWeights, count, availableGroundProps))
+    .sort((a, b) => a.y - b.y);
 }
 
 function sampleBlueNoisePropPoints(field, targetCount) {
@@ -10881,7 +11194,7 @@ function drawSingleGroundProp(viewport, prop) {
   if (imageProp) {
     const imageWidth = Math.max(1, imageProp.width || 1);
     const imageHeight = Math.max(1, imageProp.height || 1);
-    const renderScale = Math.min(1, prop.imageScale || GROUND_PROP_IMAGE_SCALE) * point.scale;
+    const renderScale = Math.min(1, prop.imageScale || GROUND_PROP_IMAGE_SCALE) * point.scale * prop.scale;
     drawWidth = imageWidth * renderScale;
     drawHeight = imageHeight * renderScale;
   }
@@ -10894,6 +11207,33 @@ function drawSingleGroundProp(viewport, prop) {
   } else {
     PROP_RENDERERS[prop.type]?.(scale, prop.tint);
   }
+  ctx.restore();
+}
+
+function drawSelectedGroundPropIndicator(viewport) {
+  if (!state.propResizeMode) return;
+  const selectedProp = getSelectedBattleProp();
+  if (!selectedProp) return;
+  const metrics = getGroundPropScreenMetrics(selectedProp, viewport);
+  const arrowX = metrics.point.x;
+  const arrowY = metrics.top - 12;
+  const size = Math.max(5, metrics.point.scale * 4.5);
+  ctx.save();
+  ctx.translate(arrowX, arrowY);
+  ctx.fillStyle = "#ffe6a4";
+  ctx.strokeStyle = "rgba(50, 28, 11, 0.9)";
+  ctx.lineWidth = Math.max(1, metrics.point.scale * 0.75);
+  ctx.beginPath();
+  ctx.moveTo(0, size * 1.3);
+  ctx.lineTo(-size, 0);
+  ctx.lineTo(size, 0);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(0, 0);
+  ctx.lineTo(0, -size * 1.7);
+  ctx.stroke();
   ctx.restore();
 }
 

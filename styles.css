@@ -24,6 +24,7 @@ body {
 }
 
 button, input, select, textarea { font: inherit; }
+[hidden] { display: none !important; }
 
 .app-shell {
   display: grid;
@@ -77,6 +78,33 @@ button, input, select, textarea { font: inherit; }
 }
 
 .panel-section { padding: 18px; }
+
+.dev-panel {
+  display: grid;
+  gap: 14px;
+  padding: 16px 18px;
+}
+
+.dev-panel-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.dev-panel-header h2 {
+  margin: 0;
+  font-family: "Cinzel", serif;
+  font-size: 1.2rem;
+  letter-spacing: 0.03em;
+}
+
+.dev-panel-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
 
 .hero-panel h1, .battle-header h2 {
   margin: 0;
@@ -395,6 +423,9 @@ label span {
   gap: 12px;
 }
 .battle-render-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   padding: 8px 12px;
   border-radius: 999px;
   background: rgba(255, 239, 211, 0.09);
@@ -836,6 +867,9 @@ canvas.is-dragging { cursor: grabbing; }
   .speed-panel {
     align-items: flex-start;
     justify-content: flex-start;
+  }
+  .dev-panel-header {
+    flex-direction: column;
   }
   .speed-controls {
     flex-wrap: wrap;
