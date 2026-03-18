@@ -30,6 +30,24 @@ That script:
 
 At runtime, the game scans `assets/Props` for numbered PNGs and prefers those generated props for new maps. If no generated prop assets are available, it falls back to the built-in SVG-style decor renderers.
 
+Prop scale overrides are loaded from `assets/Props/prop-scales.json`. In the hidden dev panel you can enable prop resize mode, click a prop to select it, and use the mousewheel to resize every instance of that prop family on the current map. Those overrides are written back to `prop-scales.json` when the browser has been granted write access to the `assets/Props` directory through the File System Access API.
+
+## Dev Tools
+
+Press `Ctrl+1` to toggle the hidden dev panel at the top of the page.
+
+The panel currently includes:
+
+- `Enable terrain texturing`
+- `Use rigged units when available`
+- `Show FPS and culling overlay`
+- `Prop resize mode`
+- `Open Sprite Workshop`
+
+The FPS/culling overlay is off by default. When enabled, it shows a compact render-debug panel with FPS, units drawn, units culled, and total units.
+
+Prop resize mode swaps the battlefield into a prop workshop layout that spawns every available prop asset once in a shuffled, evenly distributed arrangement away from the field edges. While a prop is selected, the mousewheel resizes that prop family instead of zooming. With no prop selected, mousewheel keeps the normal cursor-centered camera zoom behavior.
+
 ## CSV format
 
 `title,coverUrl,armySize,submissionType,composition,fledReserve`

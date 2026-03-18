@@ -75,6 +75,7 @@ const STATUS_BADGE_CANDIDATE_PATHS = [
   (statusId) => `${statusId}.png`,
 ];
 const GROUND_PROP_ASSET_BASE_URL = "assets/Props/";
+const GRAVE_ASSET_BASE_URL = "assets/Props/graves/";
 const GROUND_PROP_SCALE_OVERRIDES_FILE = "prop-scales.json";
 const GROUND_PROP_FILENAME_DIGITS = 4;
 const GROUND_PROP_MAX_SCAN_INDEX = 9999;
@@ -82,6 +83,7 @@ const GROUND_PROP_SCAN_MISS_LIMIT = 60;
 const GROUND_PROP_IMAGE_SCALE = 0.12;
 const GROUND_PROP_RANDOM_SCALE_MIN = 0.95;
 const GROUND_PROP_RANDOM_SCALE_MAX = 1.05;
+const GRAVE_RENDER_SCALE = 0.6;
 const GROUND_PROP_PADDING_X = 70;
 const GROUND_PROP_PADDING_Y = 82;
 const GROUND_PROP_JITTER_MIN = 0.18;
@@ -1257,11 +1259,18 @@ const state = {
   battle: null,
   tournament: null,
   tournamentResult: null,
+  tournamentTerrainTextureCache: null,
+  lastTerrainMirrorKey: "",
   images: new Map(),
   unitSpriteSources: new Map(),
   riggedUnitSpriteSources: new Map(),
   statusBadgeSources: new Map(),
   groundPropCatalog: {
+    status: "idle",
+    items: [],
+    promise: null,
+  },
+  graveCatalog: {
     status: "idle",
     items: [],
     promise: null,
@@ -1482,6 +1491,7 @@ async function bootstrap() {
       saveState();
     }
     await preloadGroundPropAssets();
+    await preloadGraveAssets();
     bindUi();
     setUseRiggedSprites(state.useRiggedSprites);
     setUseTerrainTexturing(state.useTerrainTexturing);
@@ -4401,6 +4411,7 @@ function resetBattle() {
   state.running = false;
   state.lastBattleHighlightAt = -Infinity;
   state.tournamentResult = null;
+  state.tournamentTerrainTextureCache = null;
   endBattleAudio();
   clearBattleHover();
   closeResetTournamentModal();
@@ -4584,6 +4595,13 @@ function buildBattle(factionPool = state.factions, arena = createArenaVariant(0,
       image: getFactionImage(faction.coverUrl),
     };
   });
+  const terrainTexture = createBattleTerrainTextureState(field, arena);
+  if (state.tournamentTerrainTextureCache?.canvas) {
+    terrainTexture.canvas = state.tournamentTerrainTextureCache.canvas;
+    terrainTexture.ready = true;
+    terrainTexture.pending = false;
+    terrainTexture.queued = false;
+  }
   const battle = {
     field,
     factions,
@@ -4598,7 +4616,7 @@ function buildBattle(factionPool = state.factions, arena = createArenaVariant(0,
     bombs: [],
     arena,
     weatherField: createWeatherField(arena.weather),
-    terrainTexture: createBattleTerrainTextureState(field, arena),
+    terrainTexture,
     props: buildFieldProps(field, arena),
     pendingWinner: null,
     completed: false,
@@ -4655,6 +4673,7 @@ function hasLivingNeutralThreat(battle) {
 
 function createGrave(unit, battle) {
   const variant = GRAVE_VARIANTS[Math.floor(Math.random() * GRAVE_VARIANTS.length)];
+  const graveAsset = getRandomGraveAsset();
   return {
     id: `grave-${unit.id}-${Math.random().toString(36).slice(2, 7)}`,
     x: unit.x,
@@ -4663,6 +4682,8 @@ function createGrave(unit, battle) {
     unitType: unit.type,
     variantId: variant.id,
     variantKind: variant.kind,
+    renderMode: graveAsset ? "image" : "svg",
+    asset: graveAsset,
     raisedById: null,
   };
 }
@@ -4952,7 +4973,14 @@ function applyArenaToBattle(battle, arena) {
   battle.arena = arena;
   battle.weatherField = createWeatherField(arena.weather);
   battle.terrainTexture = createBattleTerrainTextureState(battle.field, arena);
-  queueBattleTerrainTextureGeneration(battle);
+  if (state.tournamentTerrainTextureCache?.canvas) {
+    battle.terrainTexture.canvas = state.tournamentTerrainTextureCache.canvas;
+    battle.terrainTexture.ready = true;
+    battle.terrainTexture.pending = false;
+    battle.terrainTexture.queued = false;
+  } else {
+    queueBattleTerrainTextureGeneration(battle);
+  }
   battle.props = buildFieldProps(battle.field, arena);
   clearSelectedBattleProp();
 }
@@ -5784,6 +5812,7 @@ function createTerrainMaterialMaskConfigs(name, tileSize, replacementWeights, ov
 
 function createBattleTerrainTextureState(field, arena) {
   const seedBase = `${arena?.name || "arena"}|${arena?.weather || "clear"}|${Date.now()}|${Math.random()}`;
+  const mirror = getNextTerrainMirrorFlags();
   return {
     width: Math.max(1, Math.round(field.width * TERRAIN_TEXTURE_RESOLUTION_SCALE)),
     height: Math.max(1, Math.round(field.height * TERRAIN_TEXTURE_RESOLUTION_SCALE)),
@@ -5799,7 +5828,22 @@ function createBattleTerrainTextureState(field, arena) {
     queueHandle: null,
     progress: 0,
     statusLabel: "Preparing terrain texture...",
+    mirrorX: mirror.x,
+    mirrorY: mirror.y,
   };
+}
+
+function getNextTerrainMirrorFlags() {
+  const options = [
+    { x: false, y: false, key: "none" },
+    { x: true, y: false, key: "x" },
+    { x: false, y: true, key: "y" },
+    { x: true, y: true, key: "xy" },
+  ];
+  const filtered = options.filter((option) => option.key !== state.lastTerrainMirrorKey);
+  const selected = filtered[Math.floor(Math.random() * filtered.length)] || options[0];
+  state.lastTerrainMirrorKey = selected.key;
+  return selected;
 }
 
 async function ensureBattleTerrainTexture(battle) {
@@ -5825,6 +5869,11 @@ async function ensureBattleTerrainTexture(battle) {
   battle.terrainTexture.ready = Boolean(battle.terrainTexture.canvas);
   battle.terrainTexture.pending = false;
   if (battle.terrainTexture.ready) {
+    if (state.tournament && !state.tournamentTerrainTextureCache?.canvas) {
+      state.tournamentTerrainTextureCache = {
+        canvas: battle.terrainTexture.canvas,
+      };
+    }
     updateTerrainBuildStatus(1, "Terrain texture ready.");
     window.setTimeout(() => {
       if (state.battle === battle && battle.terrainTexture?.ready) hideTerrainBuildStatus();
@@ -10834,9 +10883,7 @@ function render() {
   ctx.clearRect(0, 0, viewport.width, viewport.height);
   drawField(viewport, state.battle);
   drawGroundDecor(viewport, state.battle);
-  drawGraves(viewport, state.battle.graves || []);
   drawStuckArrows(viewport, state.battle.stuckArrows);
-  drawBanners(viewport, state.battle.factions);
   drawProjectiles(viewport, state.battle.projectiles);
   drawBodyguardAuras(viewport, state.battle.factions);
   drawBardAuras(viewport, state.battle.factions);
@@ -11010,12 +11057,19 @@ function drawField(viewport, battle) {
   if (state.useTerrainTexturing && battle.terrainTexture?.canvas) {
     const profile = battle.terrainTexture.profile || arena.textureProfile || createArenaTextureProfile(arena.name);
     ctx.save();
+    const terrainWidth = bottom.x - top.x;
+    const terrainHeight = bottom.y - top.y;
+    const centerX = top.x + terrainWidth / 2;
+    const centerY = top.y + terrainHeight / 2;
+    ctx.translate(centerX, centerY);
+    ctx.scale(battle.terrainTexture.mirrorX ? -1 : 1, battle.terrainTexture.mirrorY ? -1 : 1);
+    ctx.translate(-centerX, -centerY);
     ctx.globalCompositeOperation = "soft-light";
     ctx.globalAlpha = profile.softLightAlpha || 0.42;
-    ctx.drawImage(battle.terrainTexture.canvas, top.x, top.y, bottom.x - top.x, bottom.y - top.y);
+    ctx.drawImage(battle.terrainTexture.canvas, top.x, top.y, terrainWidth, terrainHeight);
     ctx.globalCompositeOperation = "multiply";
     ctx.globalAlpha = profile.multiplyAlpha || 0.18;
-    ctx.drawImage(battle.terrainTexture.canvas, top.x, top.y, bottom.x - top.x, bottom.y - top.y);
+    ctx.drawImage(battle.terrainTexture.canvas, top.x, top.y, terrainWidth, terrainHeight);
     ctx.restore();
   }
 }
@@ -11185,6 +11239,39 @@ function drawGroundProps(viewport, props) {
   props.forEach((prop) => drawSingleGroundProp(viewport, prop));
 }
 
+function drawSingleGrave(viewport, grave) {
+  const point = worldToScreen(grave.x, grave.y, viewport);
+  const imageGrave = grave.renderMode === "image" ? grave.asset : null;
+  if (imageGrave?.image?.complete) {
+    const renderScale = Math.min(1, grave.imageScale || GROUND_PROP_IMAGE_SCALE) * point.scale * (grave.scale || 1) * GRAVE_RENDER_SCALE;
+    const drawWidth = Math.max(1, imageGrave.width || 1) * renderScale;
+    const drawHeight = Math.max(1, imageGrave.height || 1) * renderScale;
+    ctx.save();
+    ctx.translate(point.x, point.y);
+    ctx.drawImage(imageGrave.image, -drawWidth / 2, -drawHeight, drawWidth, drawHeight);
+    ctx.restore();
+    return;
+  }
+  const variant = getGraveVariant(grave);
+  const scale = (point.scale / 2.1) * GRAVE_RENDER_SCALE;
+  const bodyPath = new Path2D(variant.bodyPath);
+  const accentPath = variant.accentPath ? new Path2D(variant.accentPath) : null;
+  ctx.save();
+  ctx.translate(point.x, point.y + 2 * point.scale / 2.1);
+  ctx.fillStyle = "rgba(0,0,0,0.18)";
+  ctx.beginPath();
+  ctx.ellipse(0, 6 * scale, variant.kind === "remains" ? 9 * scale : 11 * scale, variant.kind === "remains" ? 4 * scale : 5 * scale, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.scale(scale, scale);
+  ctx.fillStyle = variant.kind === "remains" ? "rgba(204, 198, 184, 0.92)" : "rgba(128, 124, 118, 0.94)";
+  ctx.fill(bodyPath);
+  if (accentPath) {
+    ctx.fillStyle = variant.kind === "remains" ? "rgba(126, 117, 102, 0.42)" : "rgba(168, 164, 158, 0.7)";
+    ctx.fill(accentPath);
+  }
+  ctx.restore();
+}
+
 function drawSingleGroundProp(viewport, prop) {
   const point = worldToScreen(prop.x, prop.y, viewport);
   const scale = point.scale * prop.scale;
@@ -11259,6 +11346,34 @@ function getAvailableGroundPropAssets() {
   return Array.isArray(state.groundPropCatalog.items) ? state.groundPropCatalog.items : [];
 }
 
+function getAvailableGraveAssets() {
+  return Array.isArray(state.graveCatalog.items) ? state.graveCatalog.items : [];
+}
+
+function getRandomGraveAsset() {
+  const items = getAvailableGraveAssets();
+  if (!items.length) return null;
+  return items[Math.floor(Math.random() * items.length)];
+}
+
+function getImageLowestOpaquePixel(image) {
+  if (!image || !image.complete) return 0;
+  const width = image.naturalWidth || image.width || 1;
+  const height = image.naturalHeight || image.height || 1;
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const scanCtx = canvas.getContext("2d", { willReadFrequently: true });
+  scanCtx.drawImage(image, 0, 0, width, height);
+  const { data } = scanCtx.getImageData(0, 0, width, height);
+  for (let y = height - 1; y >= 0; y -= 1) {
+    for (let x = 0; x < width; x += 1) {
+      if (data[((y * width) + x) * 4 + 3] > 12) return y;
+    }
+  }
+  return height - 1;
+}
+
 async function preloadGroundPropAssets() {
   if (!HAS_BATTLE_PAGE) return [];
   if (state.groundPropCatalog.status === "loaded" || state.groundPropCatalog.status === "missing") {
@@ -11303,11 +11418,64 @@ async function preloadGroundPropAssets() {
   return state.groundPropCatalog.promise;
 }
 
+async function preloadGraveAssets() {
+  if (!HAS_BATTLE_PAGE) return [];
+  if (state.graveCatalog.status === "loaded" || state.graveCatalog.status === "missing") {
+    return getAvailableGraveAssets();
+  }
+  if (state.graveCatalog.promise) return state.graveCatalog.promise;
+
+  state.graveCatalog.status = "loading";
+  state.graveCatalog.promise = (async () => {
+    try {
+      const items = [];
+      let consecutiveMisses = 0;
+      for (let index = 1; index <= GROUND_PROP_MAX_SCAN_INDEX; index += 1) {
+        const file = `${String(index).padStart(GROUND_PROP_FILENAME_DIGITS, "0")}.png`;
+        const url = resolveGraveAssetUrl(file);
+        try {
+          const image = await loadImageAsset(url);
+          items.push({
+            file,
+            width: image.naturalWidth || image.width || 1,
+            height: image.naturalHeight || image.height || 1,
+            image,
+            url,
+            lowestOpaquePixel: getImageLowestOpaquePixel(image),
+          });
+          consecutiveMisses = 0;
+        } catch (error) {
+          consecutiveMisses += 1;
+          if (items.length && consecutiveMisses >= GROUND_PROP_SCAN_MISS_LIMIT) break;
+        }
+      }
+      state.graveCatalog.items = items;
+      state.graveCatalog.status = state.graveCatalog.items.length ? "loaded" : "missing";
+    } catch (error) {
+      state.graveCatalog.items = [];
+      state.graveCatalog.status = "missing";
+    } finally {
+      state.graveCatalog.promise = null;
+    }
+    return getAvailableGraveAssets();
+  })();
+
+  return state.graveCatalog.promise;
+}
+
 function resolveGroundPropAssetUrl(fileName) {
   try {
     return new URL(fileName, new URL(GROUND_PROP_ASSET_BASE_URL, window.location.href)).toString();
   } catch (error) {
     return `${GROUND_PROP_ASSET_BASE_URL}${fileName}`;
+  }
+}
+
+function resolveGraveAssetUrl(fileName) {
+  try {
+    return new URL(fileName, new URL(GRAVE_ASSET_BASE_URL, window.location.href)).toString();
+  } catch (error) {
+    return `${GRAVE_ASSET_BASE_URL}${fileName}`;
   }
 }
 
@@ -11579,64 +11747,61 @@ function drawPropSignpost(scale, tint) {
   ctx.fillRect(-7 * scale / 2.1, -1 * scale / 2.1, 16 * scale / 2.1, 7 * scale / 2.1);
 }
 
-function drawBanners(viewport, factions) {
-  factions.forEach((faction) => {
-    if (!faction.alive || faction.excludeFromResults) return;
-    const point = worldToScreen(faction.bannerPos.x, faction.bannerPos.y, viewport);
-    const scale = point.scale;
-    const poleHeight = 96 * scale / 2.1;
-    const clothWidth = 44 * scale / 2.1;
-    const clothHeight = 92 * scale / 2.1;
-    const clothLeft = point.x + 6 * scale / 2.1;
-    const clothTop = point.y - 2 * scale / 2.1;
-    const clothBottom = clothTop + clothHeight;
+function drawSingleBanner(viewport, faction) {
+  const point = worldToScreen(faction.bannerPos.x, faction.bannerPos.y, viewport);
+  const scale = point.scale;
+  const poleHeight = 96 * scale / 2.1;
+  const clothWidth = 44 * scale / 2.1;
+  const clothHeight = 92 * scale / 2.1;
+  const clothLeft = point.x + 6 * scale / 2.1;
+  const clothTop = point.y - 2 * scale / 2.1;
+  const clothBottom = clothTop + clothHeight;
 
-    ctx.strokeStyle = "rgba(50, 28, 16, 0.84)";
-    ctx.lineWidth = Math.max(2, 4 * scale / 2.1);
-    ctx.beginPath();
-    ctx.moveTo(point.x, point.y - 8 * scale / 2.1);
-    ctx.lineTo(point.x, point.y + poleHeight);
-    ctx.stroke();
-    ctx.fillStyle = "#d8c6a2";
-    ctx.beginPath();
-    ctx.arc(point.x, point.y - 10 * scale / 2.1, 4.2 * scale / 2.1, 0, Math.PI * 2);
-    ctx.fill();
+  ctx.strokeStyle = "rgba(50, 28, 16, 0.84)";
+  ctx.lineWidth = Math.max(2, 4 * scale / 2.1);
+  ctx.beginPath();
+  ctx.moveTo(point.x, point.y - 8 * scale / 2.1);
+  ctx.lineTo(point.x, point.y + poleHeight);
+  ctx.stroke();
+  ctx.fillStyle = "#d8c6a2";
+  ctx.beginPath();
+  ctx.arc(point.x, point.y - 10 * scale / 2.1, 4.2 * scale / 2.1, 0, Math.PI * 2);
+  ctx.fill();
 
-    ctx.save();
-    traceBannerCloth(clothLeft, clothTop, clothWidth, clothBottom, scale);
-    ctx.fillStyle = faction.color;
-    ctx.fill();
-    ctx.clip();
+  ctx.save();
+  traceBannerCloth(clothLeft, clothTop, clothWidth, clothBottom, scale);
+  ctx.fillStyle = faction.color;
+  ctx.fill();
+  ctx.clip();
 
-    if (faction.image && faction.image.complete) {
-      const imageTop = clothTop + 6 * scale / 2.1;
-      const imageHeight = 52 * scale / 2.1;
-      ctx.drawImage(faction.image, clothLeft + 3 * scale / 2.1, imageTop, clothWidth - 6 * scale / 2.1, imageHeight);
-    } else {
-      const bannerGradient = ctx.createLinearGradient(clothLeft, clothTop, clothLeft, clothBottom);
-      bannerGradient.addColorStop(0, shadeColor(faction.color, 0.2));
-      bannerGradient.addColorStop(1, shadeColor(faction.color, -0.18));
-      ctx.fillStyle = bannerGradient;
-      ctx.fillRect(clothLeft, clothTop, clothWidth, clothHeight);
-    }
+  if (faction.image && faction.image.complete) {
+    const imageTop = clothTop + 6 * scale / 2.1;
+    const imageHeight = 52 * scale / 2.1;
+    ctx.drawImage(faction.image, clothLeft + 3 * scale / 2.1, imageTop, clothWidth - 6 * scale / 2.1, imageHeight);
+  } else {
+    const bannerGradient = ctx.createLinearGradient(clothLeft, clothTop, clothLeft, clothBottom);
+    bannerGradient.addColorStop(0, shadeColor(faction.color, 0.2));
+    bannerGradient.addColorStop(1, shadeColor(faction.color, -0.18));
+    ctx.fillStyle = bannerGradient;
+    ctx.fillRect(clothLeft, clothTop, clothWidth, clothHeight);
+  }
 
-    ctx.fillStyle = "rgba(255, 246, 223, 0.88)";
-    ctx.fillRect(clothLeft + 4 * scale / 2.1, clothTop + 60 * scale / 2.1, clothWidth - 8 * scale / 2.1, 20 * scale / 2.1);
-    ctx.restore();
+  ctx.fillStyle = "rgba(255, 246, 223, 0.88)";
+  ctx.fillRect(clothLeft + 4 * scale / 2.1, clothTop + 60 * scale / 2.1, clothWidth - 8 * scale / 2.1, 20 * scale / 2.1);
+  ctx.restore();
 
-    ctx.strokeStyle = "rgba(54, 35, 22, 0.72)";
-    ctx.lineWidth = Math.max(1.8, 2.8 * scale / 2.1);
-    traceBannerCloth(clothLeft, clothTop, clothWidth, clothBottom, scale);
-    ctx.stroke();
+  ctx.strokeStyle = "rgba(54, 35, 22, 0.72)";
+  ctx.lineWidth = Math.max(1.8, 2.8 * scale / 2.1);
+  traceBannerCloth(clothLeft, clothTop, clothWidth, clothBottom, scale);
+  ctx.stroke();
 
-    ctx.fillStyle = "#3b2718";
-    ctx.font = `${Math.max(8, 10 * scale / 2.1)}px "Cinzel", serif`;
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    const bannerLines = formatBannerTitle(faction.title);
-    bannerLines.forEach((line, index) => {
-      ctx.fillText(line, clothLeft + clothWidth / 2, clothTop + (67 + index * 9) * scale / 2.1, clothWidth - 10 * scale / 2.1);
-    });
+  ctx.fillStyle = "#3b2718";
+  ctx.font = `${Math.max(8, 10 * scale / 2.1)}px "Cinzel", serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  const bannerLines = formatBannerTitle(faction.title);
+  bannerLines.forEach((line, index) => {
+    ctx.fillText(line, clothLeft + clothWidth / 2, clothTop + (67 + index * 9) * scale / 2.1, clothWidth - 10 * scale / 2.1);
   });
 }
 
@@ -11889,6 +12054,13 @@ function drawUnits(viewport, factions) {
 
 function drawDepthSortedGroundEntities(viewport, battle) {
   const cullBounds = getViewportWorldBounds(viewport, 150);
+  const visibleBanners = battle.factions.filter((faction) =>
+    faction.alive
+    && !faction.excludeFromResults
+    && faction.bannerPos.x >= cullBounds.minX - 60
+    && faction.bannerPos.x <= cullBounds.maxX + 60
+    && faction.bannerPos.y >= cullBounds.minY - 120
+    && faction.bannerPos.y <= cullBounds.maxY + 120);
   const livingUnits = battle.factions.flatMap((faction) => faction.units
     .filter((unit) => !unit.dead && !unit.fled && !(unit.type === "phantom" && unit.possessedUnitId))
     .map((unit) => ({ ...unit, factionColor: getUnitDisplayFactionColor(unit, battle) || faction.color })));
@@ -11898,22 +12070,36 @@ function drawDepthSortedGroundEntities(viewport, battle) {
     && prop.x <= cullBounds.maxX + 60
     && prop.y >= cullBounds.minY - 60
     && prop.y <= cullBounds.maxY + 60);
+  const visibleGraves = (battle.graves || []).filter((grave) =>
+    grave.x >= cullBounds.minX - 60
+    && grave.x <= cullBounds.maxX + 60
+    && grave.y >= cullBounds.minY - 60
+    && grave.y <= cullBounds.maxY + 60);
   state.renderDebug.totalUnits = livingUnits.length;
   state.renderDebug.visibleUnits = visibleUnits.length;
   state.renderDebug.culledUnits = Math.max(0, livingUnits.length - visibleUnits.length);
 
   const drawEntries = [
     ...visibleProps.map((prop, index) => ({ kind: "prop", sortY: getGroundPropSortDepth(viewport, prop), index, prop })),
+    ...visibleGraves.map((grave, index) => ({ kind: "grave", sortY: getGraveSortDepth(viewport, grave), index, grave })),
+    ...visibleBanners.map((faction, index) => ({ kind: "banner", sortY: getBannerSortDepth(viewport, faction), index, faction })),
     ...visibleUnits.map((unit, index) => ({ kind: "unit", sortY: getUnitSortDepth(viewport, unit), index, unit })),
   ].sort((a, b) => {
     if (a.sortY !== b.sortY) return a.sortY - b.sortY;
-    if (a.kind !== b.kind) return a.kind === "prop" ? -1 : 1;
+    if (a.kind !== b.kind) {
+      const priority = { prop: 0, grave: 1, banner: 2, unit: 3 };
+      return (priority[a.kind] ?? 99) - (priority[b.kind] ?? 99);
+    }
     return a.index - b.index;
   });
 
   drawEntries.forEach((entry) => {
     if (entry.kind === "prop") {
       drawSingleGroundProp(viewport, entry.prop);
+    } else if (entry.kind === "grave") {
+      drawSingleGrave(viewport, entry.grave);
+    } else if (entry.kind === "banner") {
+      drawSingleBanner(viewport, entry.faction);
     } else {
       drawSingleUnit(viewport, entry.unit);
     }
@@ -11960,6 +12146,27 @@ function drawSingleUnit(viewport, unit) {
 
 function getGroundPropSortDepth(viewport, prop) {
   return worldToScreen(prop.x, prop.y, viewport).y;
+}
+
+function getGraveSortDepth(viewport, grave) {
+  const point = worldToScreen(grave.x, grave.y, viewport);
+  const imageGrave = grave.renderMode === "image" ? grave.asset : null;
+  if (imageGrave?.image?.complete) {
+    const renderScale = Math.min(1, grave.imageScale || GROUND_PROP_IMAGE_SCALE) * point.scale * (grave.scale || 1) * GRAVE_RENDER_SCALE;
+    const lowestOpaquePixel = imageGrave.lowestOpaquePixel ?? Math.max(0, (imageGrave.height || 1) - 1);
+    const imageHeight = Math.max(1, imageGrave.height || 1) * renderScale;
+    const lowestOpaqueOffset = Math.max(0, Math.min(imageHeight, (lowestOpaquePixel + 1) * renderScale));
+    return (point.y - imageHeight) + lowestOpaqueOffset;
+  }
+  return point.y + 2 * point.scale / 2.1 * GRAVE_RENDER_SCALE;
+}
+
+function getBannerSortDepth(viewport, faction) {
+  const point = worldToScreen(faction.bannerPos.x, faction.bannerPos.y, viewport);
+  const scale = point.scale;
+  const clothHeight = 92 * scale / 2.1;
+  const clothTop = point.y - 2 * scale / 2.1;
+  return clothTop + clothHeight;
 }
 
 function getUnitSortDepth(viewport, unit) {
@@ -12356,33 +12563,6 @@ function drawBardAuras(viewport, factions) {
       ctx.restore();
     });
   });
-}
-
-function drawGraves(viewport, graves) {
-  graves
-    .slice()
-    .sort((a, b) => a.y - b.y)
-    .forEach((grave) => {
-      const point = worldToScreen(grave.x, grave.y, viewport);
-      const variant = getGraveVariant(grave);
-      const scale = point.scale / 2.1;
-      const bodyPath = new Path2D(variant.bodyPath);
-      const accentPath = variant.accentPath ? new Path2D(variant.accentPath) : null;
-      ctx.save();
-      ctx.translate(point.x, point.y + 2 * point.scale / 2.1);
-      ctx.fillStyle = "rgba(0,0,0,0.18)";
-      ctx.beginPath();
-      ctx.ellipse(0, 6 * scale, variant.kind === "remains" ? 9 * scale : 11 * scale, variant.kind === "remains" ? 4 * scale : 5 * scale, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.scale(scale, scale);
-      ctx.fillStyle = variant.kind === "remains" ? "rgba(204, 198, 184, 0.92)" : "rgba(128, 124, 118, 0.94)";
-      ctx.fill(bodyPath);
-      if (accentPath) {
-        ctx.fillStyle = variant.kind === "remains" ? "rgba(126, 117, 102, 0.42)" : "rgba(168, 164, 158, 0.7)";
-        ctx.fill(accentPath);
-      }
-      ctx.restore();
-    });
 }
 
 function drawNecromancerLinks(viewport, battle) {
