@@ -1249,6 +1249,8 @@ function createSpriteRigEditorState() {
     previewMode: "composite",
     previewAutoplay: true,
     previewTime: 0,
+    previewMotionX: 1,
+    previewMotionY: 0,
     selectedAnimationId: "walk",
     keyframePose: createDefaultSpriteRigKeyframePoseState(),
     exportDirectoryHandle: null,
@@ -1346,6 +1348,7 @@ const state = {
     draft: null,
     search: "",
     pendingTransfer: null,
+    visualRetryQueued: false,
   },
   renderDebug: {
     visibleUnits: 0,
@@ -1463,6 +1466,9 @@ const els = {
   spriteRigPreviewAutoplay: document.getElementById("spriteRigPreviewAutoplay"),
   spriteRigPreviewTime: document.getElementById("spriteRigPreviewTime"),
   spriteRigPreviewBlend: document.getElementById("spriteRigPreviewBlend"),
+  spriteRigWalkVectorControls: document.getElementById("spriteRigWalkVectorControls"),
+  spriteRigPreviewMotionX: document.getElementById("spriteRigPreviewMotionX"),
+  spriteRigPreviewMotionY: document.getElementById("spriteRigPreviewMotionY"),
   spriteRigPreviewLabel: document.getElementById("spriteRigPreviewLabel"),
   spriteRigAnimationSelect: document.getElementById("spriteRigAnimationSelect"),
   spriteRigAnimationSummary: document.getElementById("spriteRigAnimationSummary"),
@@ -1611,6 +1617,8 @@ function initializeSpriteRigEditor() {
   els.spriteRigHealthBarOffsetX.value = `${state.spriteRigEditor.healthBarOffsetX}`;
   els.spriteRigHealthBarOffsetY.value = `${state.spriteRigEditor.healthBarOffsetY}`;
   els.spriteRigPreviewBlend.value = `${Math.round(state.spriteRigEditor.previewBlend * 100)}`;
+  if (els.spriteRigPreviewMotionX) els.spriteRigPreviewMotionX.value = `${state.spriteRigEditor.previewMotionX}`;
+  if (els.spriteRigPreviewMotionY) els.spriteRigPreviewMotionY.value = `${state.spriteRigEditor.previewMotionY}`;
   renderSpriteRigPartPicker();
   syncSpriteRigFields();
   syncSpriteRigWeaponFields();
@@ -1668,6 +1676,13 @@ function bindSpriteRigEditorUi() {
     syncSpriteRigAnimationControls();
     renderSpriteRigPreview();
   });
+  [els.spriteRigPreviewMotionX, els.spriteRigPreviewMotionY]
+    .filter(Boolean)
+    .forEach((input) => input.addEventListener("input", () => {
+      state.spriteRigEditor.previewMotionX = clamp(Number(els.spriteRigPreviewMotionX?.value) || 0, -1, 1);
+      state.spriteRigEditor.previewMotionY = clamp(Number(els.spriteRigPreviewMotionY?.value) || 0, -1, 1);
+      renderSpriteRigPreview();
+    }));
   els.spriteRigAnimationSelect?.addEventListener("change", () => {
     state.spriteRigEditor.selectedAnimationId = els.spriteRigAnimationSelect.value;
     syncSpriteRigAnimationControls();
@@ -1917,6 +1932,11 @@ function syncSpriteRigAnimationControls() {
   if (els.spriteRigPreviewMode) els.spriteRigPreviewMode.value = state.spriteRigEditor.previewMode;
   if (els.spriteRigPreviewAutoplay) els.spriteRigPreviewAutoplay.checked = Boolean(state.spriteRigEditor.previewAutoplay);
   if (els.spriteRigPreviewTime) els.spriteRigPreviewTime.value = `${Math.round(getSpriteRigCurrentKeyframeTime() * 100)}`;
+  if (els.spriteRigPreviewMotionX) els.spriteRigPreviewMotionX.value = `${state.spriteRigEditor.previewMotionX}`;
+  if (els.spriteRigPreviewMotionY) els.spriteRigPreviewMotionY.value = `${state.spriteRigEditor.previewMotionY}`;
+  const showWalkVectorControls = state.spriteRigEditor.selectedAnimationId === "walk"
+    || state.spriteRigEditor.previewMode === "composite";
+  els.spriteRigWalkVectorControls?.classList.toggle("hidden", !showWalkVectorControls);
   renderSpriteRigAnimationFieldEditors();
   syncSpriteRigKeyframePoseFields();
   renderSpriteRigKeyframeList();
@@ -2692,6 +2712,12 @@ function buildSpriteRigPreviewState(manifest, now) {
   const config = getRigAnimationConfigFromManifest(manifest);
   const selectedClipId = editor.selectedAnimationId || "walk";
   const selectedClip = config.clips[selectedClipId] || getSelectedSpriteRigAnimationClip();
+  const previewMotionX = clamp(Number(editor.previewMotionX) || 0, -1, 1);
+  const previewMotionY = clamp(Number(editor.previewMotionY) || 0, -1, 1);
+  const previewMotionLength = Math.hypot(previewMotionX, previewMotionY);
+  const normalizedMotionX = previewMotionLength > 0.001 ? previewMotionX / previewMotionLength : 1;
+  const normalizedMotionY = previewMotionLength > 0.001 ? previewMotionY / previewMotionLength : 0;
+  const previewFacingX = Math.abs(normalizedMotionX) > 0.001 ? Math.sign(normalizedMotionX) : 1;
   const scrubTime = editor.previewAutoplay
     ? null
     : getSpriteRigCurrentKeyframeTime();
@@ -2709,9 +2735,13 @@ function buildSpriteRigPreviewState(manifest, now) {
     stride: 0,
     bob: 0,
     attackSwing: 0,
-    displayFacingX: 1,
+    displayFacingX: previewFacingX,
     walkTilt: 0,
     rotation: 0,
+    vx: 0,
+    vy: 0,
+    locomotionVectorX: normalizedMotionX,
+    locomotionVectorY: normalizedMotionY,
     locomotionSpeed: 0,
     gaitAngularVelocity: Math.PI * 2 * (config.clips.walk?.speed || 1) * 0.72,
   };
@@ -2733,7 +2763,9 @@ function buildSpriteRigPreviewState(manifest, now) {
       stride: Math.sin(now * 4.2 * walkSpeed) * blend,
       bob: (0.5 - Math.cos(now * 8.4 * walkSpeed) * 0.5) * blend,
       attackSwing: Math.max(0, Math.sin(now * 2.8 * attackSpeed)) * (0.35 + blend * 0.65),
-      walkTilt: Math.sin(now * 1.5 * walkSpeed) * 0.035 * blend,
+      walkTilt: Math.sin(now * 1.5 * walkSpeed) * 0.035 * blend * Math.abs(normalizedMotionX),
+      vx: normalizedMotionX * (24 + blend * 18),
+      vy: normalizedMotionY * (24 + blend * 18),
       locomotionSpeed: 24 + blend * 18,
       gaitAngularVelocity: Math.PI * 2 * walkSpeed * 0.72,
     };
@@ -2771,7 +2803,9 @@ function buildSpriteRigPreviewState(manifest, now) {
       ...previewUnit,
       stride: Math.sin(walkTime * Math.PI * 2),
       bob: 0.5 - Math.cos(walkTime * Math.PI * 4) * 0.5,
-      walkTilt: Math.sin(walkTime * Math.PI * 2) * 0.035,
+      walkTilt: Math.sin(walkTime * Math.PI * 2) * 0.035 * Math.abs(normalizedMotionX),
+      vx: normalizedMotionX * 40,
+      vy: normalizedMotionY * 40,
       locomotionSpeed: 40,
       gaitAngularVelocity: Math.PI * 2 * (config.clips.walk?.speed || 1) * 0.72,
     };
@@ -2806,13 +2840,13 @@ function renderBattleAccurateSpriteRigPreview(previewCtx, canvas, artifact, prev
   const groundY = canvas.height * 0.7;
   const gaitBob = previewUnit.bob * 5.5 * pointScale / 2.1;
   const bodyY = groundY - gaitBob;
-  const strideOffset = previewUnit.stride * 2.8 * pointScale / 2.1;
+  const strideMotion = getUnitStrideMotionOffset(previewUnit, pointScale);
 
   drawBattleAccuratePreviewShadow(previewCtx, groundX, groundY, pointScale, renderScale, previewUnit);
   drawBattleAccuratePreviewReference(previewCtx, bodyY, pointScale);
 
   previewCtx.save();
-  previewCtx.translate(groundX + strideOffset * previewUnit.displayFacingX * 0.35, bodyY);
+  previewCtx.translate(groundX + strideMotion.x, bodyY + strideMotion.y);
   previewCtx.rotate((previewUnit.walkTilt || 0) + (previewUnit.rotation || 0));
   previewCtx.scale(previewUnit.displayFacingX || 1, 1);
   const scene = drawRiggedSpriteFromManifest(previewCtx, artifact.manifest, artifact.canvas, previewUnit, pointScale * getUnitRenderScale(previewUnit), {
@@ -2959,6 +2993,8 @@ function buildSpriteRigWorkshopProject() {
       selectedAnimationId: editor.selectedAnimationId,
       previewMode: editor.previewMode,
       previewBlend: editor.previewBlend,
+      previewMotionX: editor.previewMotionX,
+      previewMotionY: editor.previewMotionY,
     },
     weaponAttachment: cloneData(editor.weaponAttachment),
     parts: cloneData(editor.parts),
@@ -2996,6 +3032,12 @@ async function loadSpriteRigWorkshopProject(project) {
   editor.selectedAnimationId = project.preview?.selectedAnimationId || "walk";
   editor.previewMode = project.preview?.previewMode || "composite";
   editor.previewBlend = clamp(Number(project.preview?.previewBlend) || 0.55, 0, 1);
+  editor.previewMotionX = Number.isFinite(Number(project.preview?.previewMotionX))
+    ? clamp(Number(project.preview.previewMotionX), -1, 1)
+    : 1;
+  editor.previewMotionY = Number.isFinite(Number(project.preview?.previewMotionY))
+    ? clamp(Number(project.preview.previewMotionY), -1, 1)
+    : 0;
   editor.previewAutoplay = true;
   editor.previewTime = 0;
   editor.activePartId = "body";
@@ -3008,6 +3050,8 @@ async function loadSpriteRigWorkshopProject(project) {
   els.spriteRigHealthBarOffsetX.value = `${editor.healthBarOffsetX}`;
   els.spriteRigHealthBarOffsetY.value = `${editor.healthBarOffsetY}`;
   els.spriteRigPreviewBlend.value = `${Math.round(editor.previewBlend * 100)}`;
+  if (els.spriteRigPreviewMotionX) els.spriteRigPreviewMotionX.value = `${editor.previewMotionX}`;
+  if (els.spriteRigPreviewMotionY) els.spriteRigPreviewMotionY.value = `${editor.previewMotionY}`;
   renderSpriteRigPartPicker();
   syncSpriteRigFields();
   syncSpriteRigWeaponFields();
@@ -3413,6 +3457,14 @@ function getUnitIconMarkup(unitId) {
     <svg class="unit-icon-svg unit-${unitId}" viewBox="-24 -24 48 48" aria-hidden="true" focusable="false">
       ${getUnitIconSvgPaths(unitId)}
     </svg>
+  `;
+}
+
+function getUnitVisualMarkup(unitId) {
+  return `
+    <div class="unit-icon-visual" data-unit-visual="${unitId}">
+      ${getUnitIconMarkup(unitId)}
+    </div>
   `;
 }
 
@@ -4328,6 +4380,7 @@ function openCompositionModal(factionId) {
   state.compositionModal.draft = { ...faction.composition };
   state.compositionModal.search = "";
   state.compositionModal.pendingTransfer = null;
+  state.compositionModal.visualRetryQueued = false;
   els.compositionSearch.value = "";
   renderCompositionModal();
   els.compositionModal.classList.remove("hidden");
@@ -4338,6 +4391,7 @@ function closeCompositionModal() {
   state.compositionModal.factionId = null;
   state.compositionModal.draft = null;
   state.compositionModal.pendingTransfer = null;
+  state.compositionModal.visualRetryQueued = false;
 }
 
 function persistCompositionDraft() {
@@ -4421,6 +4475,8 @@ function renderCompositionModal() {
     }
     state.compositionModal.pendingTransfer = null;
   }
+
+  renderCompositionUnitVisuals();
 }
 
 function buildCompositionUnitCard(unit, mode, weight = null, pendingTransfer = null, canAddUnit = true) {
@@ -4446,7 +4502,7 @@ function buildCompositionUnitCard(unit, mode, weight = null, pendingTransfer = n
   return `
     <div class="${cardClass}${isPendingTarget ? " unit-card-entering" : ""}" data-unit-card="${unit.id}">
       <div class="unit-panel-main">
-        <div class="unit-icon unit-icon-${unit.id}">${getUnitIconMarkup(unit.id)}</div>
+        <div class="unit-icon unit-icon-${unit.id}">${getUnitVisualMarkup(unit.id)}</div>
         <div class="unit-copy">
           <div class="unit-header">
             <strong>${unit.name}</strong>
@@ -6358,8 +6414,8 @@ function getUnitSpriteSource(unitId) {
   return state.unitSpriteSources.get(unitId);
 }
 
-function getRiggedUnitSpriteSource(unitId) {
-  if (!unitId || !state.useRiggedSprites) return null;
+function getRiggedUnitSpriteSource(unitId, options = {}) {
+  if (!unitId || (!state.useRiggedSprites && !options.forceLoad)) return null;
   if (!state.riggedUnitSpriteSources.has(unitId)) {
     const entry = {
       unitId,
@@ -6454,6 +6510,96 @@ function loadImageAsset(url) {
     image.onerror = reject;
     image.src = url;
   });
+}
+
+function getCompositionRiggedUnitSpriteSource(unitId) {
+  return getRiggedUnitSpriteSource(unitId, { forceLoad: true });
+}
+
+function buildCompositionPreviewAnimationState(unitId) {
+  const seed = hashStringToSeed(`composition-preview|${unitId}`);
+  return {
+    stride: 0,
+    bob: 0,
+    attack: 0,
+    idle: Math.sin(seed) * 0.01,
+    clipTimes: {
+      idle: (seed % 1000) / 1000,
+      walk: 0.12,
+      attack: 1,
+    },
+    clipWeights: {
+      idle: 1,
+      walk: 0,
+      attack: 0,
+    },
+  };
+}
+
+function drawCompositionRigPreview(target, unitId, source) {
+  if (!target || !unitId || source?.status !== "loaded" || !source.manifest || !source.image?.complete) return false;
+  const width = Math.max(1, Math.round(target.clientWidth || 64));
+  const height = Math.max(1, Math.round(target.clientHeight || 64));
+  const dpr = window.devicePixelRatio || 1;
+  const canvas = document.createElement("canvas");
+  canvas.className = "unit-icon-rig-canvas";
+  canvas.width = Math.max(1, Math.round(width * dpr));
+  canvas.height = Math.max(1, Math.round(height * dpr));
+  canvas.style.width = `${width}px`;
+  canvas.style.height = `${height}px`;
+  const previewCtx = canvas.getContext("2d");
+  if (!previewCtx) return false;
+  previewCtx.scale(dpr, dpr);
+  previewCtx.clearRect(0, 0, width, height);
+  const layout = source.manifest.layout || UNIT_SPRITE_LAYOUTS[unitId] || DEFAULT_RIG_LAYOUT;
+  const targetHeight = height * 0.74;
+  const previewScale = (targetHeight * 2.1) / Math.max(1, layout.height || DEFAULT_RIG_LAYOUT.height);
+  previewCtx.fillStyle = "rgba(0,0,0,0.14)";
+  previewCtx.beginPath();
+  previewCtx.ellipse(width * 0.5, height * 0.86, width * 0.18, height * 0.055, 0, 0, Math.PI * 2);
+  previewCtx.fill();
+  previewCtx.save();
+  previewCtx.translate(width * 0.5, height * 0.84);
+  drawRiggedSpriteFromManifest(
+    previewCtx,
+    source.manifest,
+    source.image,
+    { type: unitId, displayFacingX: 1, statusVisualSeed: (hashStringToSeed(unitId) % 1000) / 1000 },
+    previewScale,
+    { animationState: buildCompositionPreviewAnimationState(unitId) },
+  );
+  previewCtx.restore();
+  target.replaceChildren(canvas);
+  target.dataset.renderMode = "rig";
+  return true;
+}
+
+function renderCompositionUnitVisuals() {
+  const visuals = Array.from(document.querySelectorAll("[data-unit-visual]"));
+  let hasPendingRigLoads = false;
+  visuals.forEach((visual) => {
+    const unitId = visual.dataset.unitVisual;
+    if (!unitId) return;
+    const source = getCompositionRiggedUnitSpriteSource(unitId);
+    if (source?.status === "loaded") {
+      drawCompositionRigPreview(visual, unitId, source);
+      return;
+    }
+    if (source?.status === "pending") {
+      hasPendingRigLoads = true;
+    }
+    if (visual.dataset.renderMode !== "svg") {
+      visual.innerHTML = getUnitIconMarkup(unitId);
+      visual.dataset.renderMode = "svg";
+    }
+  });
+  if (hasPendingRigLoads && !state.compositionModal.visualRetryQueued) {
+    state.compositionModal.visualRetryQueued = true;
+    window.setTimeout(() => {
+      state.compositionModal.visualRetryQueued = false;
+      if (!els.compositionModal?.classList.contains("hidden")) renderCompositionUnitVisuals();
+    }, 140);
+  }
 }
 
 function getRigAnimationClipSpeedForUnit(unitOrType, clipId) {
@@ -6672,6 +6818,49 @@ function wrap01(value) {
   return ((value % 1) + 1) % 1;
 }
 
+function getUnitLocomotionProfile(unit) {
+  const fallbackFacingX = unit?.displayFacingX || (Math.cos(unit?.facing || 0) >= 0 ? 1 : -1) || 1;
+  const rawX = Number.isFinite(unit?.locomotionVectorX) ? unit.locomotionVectorX : Number(unit?.vx) || 0;
+  const rawY = Number.isFinite(unit?.locomotionVectorY) ? unit.locomotionVectorY : Number(unit?.vy) || 0;
+  const speed = Math.hypot(rawX, rawY);
+  if (speed <= 0.001) {
+    return {
+      dirX: fallbackFacingX,
+      dirY: 0,
+      speed: 0,
+      horizontal: 1,
+      vertical: 0,
+      diagonal: 0,
+    };
+  }
+  const dirX = rawX / speed;
+  const dirY = rawY / speed;
+  const horizontal = clamp(Math.abs(dirX), 0, 1);
+  const vertical = clamp(Math.abs(dirY), 0, 1);
+  return {
+    dirX,
+    dirY,
+    speed,
+    horizontal,
+    vertical,
+    diagonal: Math.min(horizontal, vertical),
+  };
+}
+
+function getUnitStrideMotionOffset(unit, scale) {
+  const proceduralStrideOffset = Number.isFinite(unit?.proceduralWalk?.bodyAdvance)
+    ? unit.proceduralWalk.bodyAdvance * 9.5 * scale / 2.1
+    : null;
+  const strideOffset = (proceduralStrideOffset ?? ((unit?.stride || 0) * 2.8 * scale / 2.1));
+  const locomotion = getUnitLocomotionProfile(unit);
+  const travelScaleX = lerp(0.08, 0.35, locomotion.horizontal);
+  const travelScaleY = lerp(0.12, 0.24, locomotion.vertical);
+  return {
+    x: strideOffset * locomotion.dirX * travelScaleX,
+    y: strideOffset * locomotion.dirY * travelScaleY,
+  };
+}
+
 function getRigAnimationConfigFromManifest(manifest) {
   if (!manifest) return createDefaultRigAnimationConfig();
   if (!manifest.__normalizedAnimationConfig) {
@@ -6688,13 +6877,16 @@ function buildRigAnimationState(unit, manifest) {
   const attack = clamp(unit?.attackSwing || 0, 0, 1);
   const walkBlend = clamp(unit?.walkBlend ?? smoothStep(0.08, 0.92, Math.max(Math.abs(stride), bob)), 0, 1);
   const idle = Math.sin((now * 2.1 * (config.clips.idle?.speed || 1)) + (unit?.statusVisualSeed || 0)) * 0.02;
-  const walkTime = wrap01((unit?.gaitPhase || now * 7) / (Math.PI * 2));
+  const walkTime = wrap01(Number.isFinite(unit?.proceduralWalk?.phase)
+    ? unit.proceduralWalk.phase
+    : ((unit?.gaitPhase || now * 7) / (Math.PI * 2)));
   const attackTime = clamp(attack > 0 ? 1 - attack : 1, 0, 1);
   return {
     stride,
     bob,
     attack,
     idle,
+    locomotion: getUnitLocomotionProfile(unit),
     clipTimes: {
       idle: wrap01(now * 0.35 * (config.clips.idle?.speed || 1)),
       walk: walkTime,
@@ -6725,6 +6917,152 @@ function updateUnitWalkBlend(unit, targetBlend, dt) {
   const currentBlend = clamp(unit?.walkBlend || 0, 0, 1);
   const nextBlend = currentBlend + (clamp(targetBlend, 0, 1) - currentBlend) * Math.min(1, dt * 1.15);
   unit.walkBlend = clamp(nextBlend, 0, 1);
+}
+
+function createProceduralWalkFootState(initialX) {
+  return {
+    x: initialX,
+    lift: 0,
+    progress: 1,
+    stepping: false,
+    startX: initialX,
+    targetX: initialX,
+    duration: 0.2,
+    elapsed: 0,
+  };
+}
+
+const PROCEDURAL_WALK_PLANT_DISTANCE_SCALE = 1.3;
+const PROCEDURAL_WALK_BOB_FOOT_LOCK = 5.5 / 2.1;
+const PROCEDURAL_WALK_REPLANT_THRESHOLD = 0.52;
+const PROCEDURAL_WALK_ACTIVE_SPEED = 2.75;
+const PROCEDURAL_WALK_VISIBLE_SPEED = 4.5;
+
+function ensureUnitProceduralWalkState(unit) {
+  if (!unit) return null;
+  if (!unit.proceduralWalk) {
+    const phaseSeed = Math.random();
+    unit.proceduralWalk = {
+      headingX: unit.displayFacingX || 1,
+      headingY: 0,
+      phase: phaseSeed,
+      lastStepLeg: phaseSeed > 0.5 ? "front" : "back",
+      bodyAdvance: 0,
+      bodyBob: 0,
+      front: createProceduralWalkFootState(0.18),
+      back: createProceduralWalkFootState(-0.18),
+    };
+  }
+  return unit.proceduralWalk;
+}
+
+function startProceduralWalkStep(walkState, legKey, targetX, duration) {
+  const foot = walkState?.[legKey];
+  if (!foot) return;
+  foot.stepping = true;
+  foot.startX = foot.x;
+  foot.targetX = targetX;
+  foot.duration = Math.max(0.08, duration);
+  foot.elapsed = 0;
+  foot.progress = 0;
+  foot.lift = 0;
+  walkState.lastStepLeg = legKey;
+}
+
+function updateUnitProceduralWalk(unit, dt, locomotion, speed, gaitSpeed) {
+  const walkState = ensureUnitProceduralWalkState(unit);
+  if (!walkState) return null;
+  const active = speed > PROCEDURAL_WALK_ACTIVE_SPEED;
+  const desiredHeadingX = active ? locomotion.dirX : (walkState.headingX || unit.displayFacingX || 1);
+  const desiredHeadingY = active ? locomotion.dirY : (walkState.headingY || 0);
+  const headingBlend = Math.min(1, dt * (active ? 10 : 5));
+  walkState.headingX += (desiredHeadingX - walkState.headingX) * headingBlend;
+  walkState.headingY += (desiredHeadingY - walkState.headingY) * headingBlend;
+  const headingLength = Math.hypot(walkState.headingX, walkState.headingY) || 1;
+  walkState.headingX /= headingLength;
+  walkState.headingY /= headingLength;
+
+  const cadence = active ? Math.max(0, unit.gaitAngularVelocity || 0) / (Math.PI * 2) : 0;
+  walkState.phase = wrap01((walkState.phase || 0) + dt * cadence);
+  const baseStepHalf = clamp(0.12 + gaitSpeed * 0.07 + Math.min(speed / 120, 0.08), 0.12, 0.34);
+  const stepHalf = baseStepHalf * PROCEDURAL_WALK_PLANT_DISTANCE_SCALE;
+  const stanceTravel = active ? cadence * baseStepHalf * 4 * dt : 0;
+  const stepDuration = clamp(0.3 - gaitSpeed * 0.05, 0.12, 0.28);
+  const feet = [walkState.front, walkState.back];
+  feet.forEach((foot) => {
+    if (foot.stepping) {
+      foot.elapsed += dt;
+      foot.progress = clamp(foot.elapsed / Math.max(foot.duration, 0.001), 0, 1);
+      const eased = smoothStep(0, 1, foot.progress);
+      foot.x = lerp(foot.startX, foot.targetX, eased);
+      foot.lift = Math.sin(foot.progress * Math.PI);
+      if (foot.progress >= 1) {
+        foot.stepping = false;
+        foot.x = foot.targetX;
+        foot.progress = 1;
+        foot.lift = 0;
+      }
+      return;
+    }
+    foot.x = clamp(foot.x - stanceTravel, -stepHalf * 1.45, stepHalf * 1.1);
+    foot.lift += (0 - foot.lift) * Math.min(1, dt * 14);
+  });
+
+  if (active && !walkState.front.stepping && !walkState.back.stepping) {
+    const preferredLeg = walkState.lastStepLeg === "front" ? "back" : "front";
+    const alternateLeg = preferredLeg === "front" ? "back" : "front";
+    let legToStep = preferredLeg;
+    if (walkState[legToStep].x > -stepHalf * 0.52 && walkState[alternateLeg].x < walkState[legToStep].x) {
+      legToStep = alternateLeg;
+    }
+    if (walkState[legToStep].x < -stepHalf * PROCEDURAL_WALK_REPLANT_THRESHOLD) {
+      startProceduralWalkStep(
+        walkState,
+        legToStep,
+        stepHalf * (0.96 + Math.min(speed / 220, 0.14)),
+        stepDuration,
+      );
+    }
+  }
+
+  if (!active) {
+    walkState.front.x += (0.12 - walkState.front.x) * Math.min(1, dt * 5.5);
+    walkState.back.x += (-0.12 - walkState.back.x) * Math.min(1, dt * 5.5);
+  }
+
+  const frontSupport = 1 - clamp(walkState.front.lift, 0, 1);
+  const backSupport = 1 - clamp(walkState.back.lift, 0, 1);
+  const supportWeight = Math.max(0.001, frontSupport + backSupport);
+  const supportCenter = ((walkState.front.x * frontSupport) + (walkState.back.x * backSupport)) / supportWeight;
+  const supportBias = (frontSupport - backSupport) / supportWeight;
+  const averageLift = (walkState.front.lift + walkState.back.lift) * 0.5;
+  const phaseAngle = walkState.phase * Math.PI * 2;
+  const strideWave = Math.sin(phaseAngle);
+  const bobWave = 0.5 - Math.cos(phaseAngle * 2) * 0.5;
+  const swayWave = Math.sin(phaseAngle);
+  const targetAdvance = active ? clamp(supportCenter * 0.5, -0.2, 0.2) : 0;
+  const targetBodyBob = active
+    ? clamp((averageLift * (0.48 + locomotion.vertical * 0.18)) + (Math.abs(walkState.front.x - walkState.back.x) * 0.12), 0, 1.15)
+    : 0;
+  const targetGaitStride = active
+    ? clamp((strideWave * (0.46 + gaitSpeed * 0.18)) + (supportCenter * 2.35), -1.2, 1.2)
+    : 0;
+  const targetGaitBob = active
+    ? clamp((bobWave * (0.44 + gaitSpeed * 0.14)) + (averageLift * 0.4) + (Math.abs(supportBias) * 0.06), 0, 1.2)
+    : 0;
+  const targetBodySway = active
+    ? clamp(
+      ((supportBias * 0.016) + (swayWave * 0.012 * locomotion.horizontal)) * (0.45 + gaitSpeed * 0.2),
+      -0.05,
+      0.05,
+    )
+    : 0;
+  walkState.bodyAdvance += (targetAdvance - walkState.bodyAdvance) * Math.min(1, dt * (active ? 10 : 6));
+  walkState.bodyBob += (targetBodyBob - walkState.bodyBob) * Math.min(1, dt * (active ? 12 : 7));
+  walkState.gaitStride = (walkState.gaitStride || 0) + (targetGaitStride - (walkState.gaitStride || 0)) * Math.min(1, dt * (active ? 12 : 7));
+  walkState.gaitBob = (walkState.gaitBob || 0) + (targetGaitBob - (walkState.gaitBob || 0)) * Math.min(1, dt * (active ? 12 : 7));
+  walkState.bodySway = (walkState.bodySway || 0) + (targetBodySway - (walkState.bodySway || 0)) * Math.min(1, dt * (active ? 10 : 6));
+  return walkState;
 }
 
 function getRigProceduralFootVector(shinPart, thighLength) {
@@ -6803,34 +7141,99 @@ function getRigProceduralLegPoseForPart(partId, animation, manifest, unit = null
   const phase = wrap01(walkTime + (isBackLeg ? 0.5 : 0));
   const stanceRatio = 0.58;
   const totalLength = legMetrics.thighLength + legMetrics.shinLength;
+  const locomotion = animation.locomotion || getUnitLocomotionProfile(unit);
+  const verticalDirection = (locomotion.dirY || 0) >= 0 ? 1 : -1;
+  const horizontalWeight = clamp(locomotion.horizontal ?? 1, 0, 1);
+  const verticalWeight = clamp(locomotion.vertical ?? 0, 0, 1);
+  const verticalLiftWeight = verticalWeight * Math.abs(locomotion.dirY || 0);
+  const verticalPhase = verticalDirection > 0 ? wrap01(1 - phase) : phase;
+  const directionalPhase = lerp(phase, verticalPhase, verticalLiftWeight);
   const locomotionSpeed = Math.hypot(unit?.vx || 0, unit?.vy || 0) || Math.max(0, Number(unit?.locomotionSpeed) || 0);
   const gaitAngularVelocity = Math.max(0.001, Number(unit?.gaitAngularVelocity) || 0);
   const distancePerCycle = gaitAngularVelocity > 0
     ? locomotionSpeed * ((Math.PI * 2) / gaitAngularVelocity)
     : locomotionSpeed * 0.42;
   const distanceScale = clamp(0.85 + distancePerCycle / 14, 0.85, 2.1);
-  const stepHalf = totalLength * (0.12 + gaitAmount * 0.11) * distanceScale;
-  const liftHeight = totalLength * (0.055 + gaitAmount * 0.045);
-  const stanceSink = totalLength * 0.014;
+  const sideSign = isFrontLeg ? 1 : -1;
+  const horizontalStepHalf = totalLength * (0.12 + gaitAmount * 0.11) * distanceScale;
+  const verticalStepHalf = totalLength * (0.004 + gaitAmount * 0.008) * distanceScale;
+  const stepHalf = lerp(verticalStepHalf, horizontalStepHalf, horizontalWeight);
+  const horizontalLiftHeight = totalLength * (0.055 + gaitAmount * 0.045);
+  const verticalLiftHeight = totalLength * (0.475 + gaitAmount * 0.275);
+  const liftHeight = lerp(horizontalLiftHeight, verticalLiftHeight, verticalLiftWeight);
+  const verticalPlantLift = totalLength * (0.11 + gaitAmount * 0.065);
+  const stanceSink = totalLength * lerp(0.038, 0.014, horizontalWeight);
+  const plantedCompression = totalLength * verticalLiftWeight * 0.07;
+  const verticalLaneX = totalLength * 0.05 * sideSign;
+  const lanePulse = totalLength * 0.01 * sideSign;
+  const verticalPlantX = verticalLaneX + lanePulse * 0.22;
+  const verticalRecoverX = verticalLaneX - lanePulse * 0.14;
   const groundY = Math.min(totalLength * 0.94, totalLength - 1.5);
+  const bodyBobCompensation = Math.max(0, Number(unit?.bob) || 0) * PROCEDURAL_WALK_BOB_FOOT_LOCK;
+  const walkState = unit?.proceduralWalk || null;
+  const footState = walkState ? (isFrontLeg ? walkState.front : walkState.back) : null;
   let footX;
   let footY;
-  if (phase < stanceRatio) {
-    const stanceT = phase / stanceRatio;
-    footX = lerp(stepHalf, -stepHalf, stanceT);
-    footY = groundY + Math.sin(stanceT * Math.PI) * stanceSink;
+  if (footState) {
+    const normalizedFootX = clamp(footState.x, -0.42, 0.42);
+    const plantedWeight = 1 - clamp(footState.lift, 0, 1);
+    const forwardReach = totalLength * lerp(0.95, 0.36, verticalLiftWeight);
+    const laneBias = totalLength * sideSign * lerp(0.01, 0.045, verticalLiftWeight);
+    const footLiftHeight = lerp(horizontalLiftHeight, totalLength * (0.18 + gaitAmount * 0.08), verticalLiftWeight);
+    const compression = stanceSink * plantedWeight * 0.7;
+    footX = (normalizedFootX * forwardReach) + laneBias;
+    footY = groundY + bodyBobCompensation - (clamp(footState.lift, 0, 1) * footLiftHeight) + compression;
   } else {
-    const swingT = smoothStep(0, 1, (phase - stanceRatio) / Math.max(1 - stanceRatio, 0.001));
-    footX = lerp(-stepHalf, stepHalf, swingT);
-    footY = groundY - Math.sin(swingT * Math.PI) * liftHeight;
+    if (directionalPhase < stanceRatio) {
+      const stanceT = directionalPhase / stanceRatio;
+      const stanceWave = Math.sin(stanceT * Math.PI);
+      const horizontalStanceX = lerp(stepHalf, -stepHalf, stanceT);
+      const verticalStanceX = lerp(verticalPlantX, verticalRecoverX, smoothStep(0, 1, stanceT));
+      const horizontalStanceY = groundY + bodyBobCompensation + stanceWave * stanceSink + (1 - Math.cos(stanceT * Math.PI * 2)) * 0.5 * plantedCompression;
+      const verticalLowerT = smoothStep(0, 1, Math.min(1, stanceT / 0.82));
+      const verticalStanceY = lerp(groundY - verticalPlantLift, groundY, verticalLowerT) + bodyBobCompensation + stanceWave * stanceSink * 0.35;
+      footX = lerp(horizontalStanceX, verticalStanceX, verticalLiftWeight);
+      footY = lerp(horizontalStanceY, verticalStanceY, verticalLiftWeight);
+    } else {
+      const swingT = smoothStep(0, 1, (directionalPhase - stanceRatio) / Math.max(1 - stanceRatio, 0.001));
+      const swingWave = Math.sin(swingT * Math.PI);
+      const swingLift = Math.sin(swingT * Math.PI) ** 0.82;
+      const horizontalSwingX = lerp(-stepHalf, stepHalf, swingT);
+      const verticalSwingX = lerp(verticalRecoverX, verticalPlantX, swingT);
+      const horizontalSwingY = groundY + bodyBobCompensation - swingLift * liftHeight + verticalLiftWeight * swingWave * totalLength * 0.016;
+      const verticalApproach = Math.sin(swingT * Math.PI * 0.5);
+      const extraArcLift = Math.max(0, liftHeight - verticalPlantLift);
+      const verticalSwingY = groundY + bodyBobCompensation - (verticalPlantLift * verticalApproach) - (extraArcLift * swingWave);
+      footX = lerp(horizontalSwingX, verticalSwingX, verticalLiftWeight);
+      footY = lerp(horizontalSwingY, verticalSwingY, verticalLiftWeight);
+    }
   }
   const solved = solveRigTwoBoneIK(legMetrics.thighLength, legMetrics.shinLength, footX, footY);
   if (!solved) return null;
-  const thighRotation = (solved.thighAngle - legMetrics.thighRestAngle) * walkWeight;
-  const shinRotation = (solved.shinAngle - legMetrics.shinRestAngle - thighRotation) * walkWeight;
-  return partId === legMetrics.thighId
-    ? { rotationDeg: radToDeg(thighRotation), x: 0, y: 0 }
-    : { rotationDeg: radToDeg(shinRotation), x: 0, y: 0 };
+  const liftAmount = clamp((groundY - footY) / Math.max(verticalLiftHeight, 0.001), 0, 1);
+  const liftBlend = smoothStep(0.06, 0.94, liftAmount);
+  const thighRotationBias = lerp(1, 0.24, verticalLiftWeight * liftBlend);
+  const rawThighRotation = solved.thighAngle - legMetrics.thighRestAngle;
+  const rawShinRotation = solved.shinAngle - legMetrics.shinRestAngle - (rawThighRotation * thighRotationBias);
+  const thighRotation = rawThighRotation * thighRotationBias * walkWeight;
+  const shinRotation = rawShinRotation * walkWeight;
+  const foreshorten = verticalLiftWeight * liftBlend * walkWeight;
+  if (partId === legMetrics.thighId) {
+    return {
+      rotationDeg: radToDeg(thighRotation),
+      x: 0,
+      y: -0.014 * foreshorten,
+      scaleX: 0.06 * foreshorten,
+      scaleY: -0.28 * foreshorten,
+    };
+  }
+  return {
+    rotationDeg: radToDeg(shinRotation),
+    x: 0,
+    y: -0.01 * foreshorten,
+    scaleX: 0.025 * foreshorten,
+    scaleY: -0.08 * foreshorten,
+  };
 }
 
 function getRigPartTransform(partId, animation, unit, manifest) {
@@ -6870,11 +7273,12 @@ function getRigPartTransform(partId, animation, unit, manifest) {
     : getRigProceduralLegPoseForPart(partId, animation, manifest, unit);
   const strideContributionDriver = proceduralWalkPose ? 0 : strideDriver;
   const walkPoseWeight = proceduralWalkPose ? 0 : (animation.clipWeights?.walk ?? 0);
+  const bobDriver = proceduralWalkPose ? 0 : (animation.bob || 0);
   const rotationDeg = (
     (Number(basePart?.rotationOffsetDeg) || 0)
     + (tuning.rotation.stride || 0) * strideContributionDriver
     + (proceduralWalkPose?.rotationDeg || 0)
-    + (tuning.rotation.bob || 0) * (animation.bob || 0)
+    + (tuning.rotation.bob || 0) * bobDriver
     + (tuning.rotation.attack || 0) * (animation.attack || 0)
     + (tuning.rotation.idle || 0) * (animation.idle || 0)
     + idlePose.rotationDeg * (animation.clipWeights?.idle ?? 0)
@@ -6884,7 +7288,7 @@ function getRigPartTransform(partId, animation, unit, manifest) {
   const x = (
     (tuning.x.stride || 0) * strideContributionDriver
     + (proceduralWalkPose?.x || 0)
-    + (tuning.x.bob || 0) * (animation.bob || 0)
+    + (tuning.x.bob || 0) * bobDriver
     + (tuning.x.attack || 0) * (animation.attack || 0)
     + (tuning.x.idle || 0) * (animation.idle || 0)
     + idlePose.x * (animation.clipWeights?.idle ?? 0)
@@ -6894,7 +7298,7 @@ function getRigPartTransform(partId, animation, unit, manifest) {
   const y = (
     (tuning.y.stride || 0) * strideContributionDriver
     + (proceduralWalkPose?.y || 0)
-    + (tuning.y.bob || 0) * (animation.bob || 0)
+    + (tuning.y.bob || 0) * bobDriver
     + (tuning.y.attack || 0) * (animation.attack || 0)
     + (tuning.y.idle || 0) * (animation.idle || 0)
     + idlePose.y * (animation.clipWeights?.idle ?? 0)
@@ -6903,7 +7307,8 @@ function getRigPartTransform(partId, animation, unit, manifest) {
   );
   const scaleX = (
     (tuning.scaleX.stride || 0) * strideContributionDriver
-    + (tuning.scaleX.bob || 0) * (animation.bob || 0)
+    + (proceduralWalkPose?.scaleX || 0)
+    + (tuning.scaleX.bob || 0) * bobDriver
     + (tuning.scaleX.attack || 0) * (animation.attack || 0)
     + (tuning.scaleX.idle || 0) * (animation.idle || 0)
     + idlePose.scaleX * (animation.clipWeights?.idle ?? 0)
@@ -6912,7 +7317,8 @@ function getRigPartTransform(partId, animation, unit, manifest) {
   );
   const scaleY = (
     (tuning.scaleY.stride || 0) * strideContributionDriver
-    + (tuning.scaleY.bob || 0) * (animation.bob || 0)
+    + (proceduralWalkPose?.scaleY || 0)
+    + (tuning.scaleY.bob || 0) * bobDriver
     + (tuning.scaleY.attack || 0) * (animation.attack || 0)
     + (tuning.scaleY.idle || 0) * (animation.idle || 0)
     + idlePose.scaleY * (animation.clipWeights?.idle ?? 0)
@@ -7088,6 +7494,7 @@ function stepBattle(battle, dt) {
     const winner = contenders[0];
     battle.pendingWinner = winner ? winner.id : null;
     battle.completed = true;
+    stopInkLordEvent(battle);
     endBattleAudio();
     els.battleState.textContent = state.tournament ? `${getCurrentMatchLabel(state.tournament)} complete` : "Complete";
     els.winnerLabel.textContent = winner.title;
@@ -7102,6 +7509,7 @@ function stepBattle(battle, dt) {
     const winner = contenders[0];
     battle.pendingWinner = winner ? winner.id : null;
     battle.completed = true;
+    stopInkLordEvent(battle);
     endBattleAudio();
     els.battleState.textContent = state.tournament ? `${getCurrentMatchLabel(state.tournament)} complete` : "Complete";
     if (winner) {
@@ -7196,6 +7604,11 @@ function updateInkLordEvent(battle, dt) {
   unit.liftedBySpellId = null;
   unit.spawnInvulnerable = false;
   resolveInkLordArrivalImpact(unit, battle);
+}
+
+function stopInkLordEvent(battle) {
+  if (!battle?.inklordEvent) return;
+  battle.inklordEvent.phase = "complete";
 }
 
 function spawnInkLord(battle) {
@@ -7490,6 +7903,7 @@ function updateUnit(unit, faction, battle, dt) {
     updateUnitActivity(unit, "Suspended by hostile magic.");
     unit.vx = 0;
     unit.vy = 0;
+    updateUnitProceduralWalk(unit, dt, getUnitLocomotionProfile(unit), 0, 0);
     updateUnitWalkBlend(unit, 0, dt);
     unit.walkTilt += (0 - unit.walkTilt) * 0.24;
     unit.stride += (0 - unit.stride) * 0.24;
@@ -7500,6 +7914,7 @@ function updateUnit(unit, faction, battle, dt) {
     updateUnitActivity(unit, "Being hurled by hostile magic.");
     unit.vx = 0;
     unit.vy = 0;
+    updateUnitProceduralWalk(unit, dt, getUnitLocomotionProfile(unit), 0, 0);
     updateUnitWalkBlend(unit, 0, dt);
     unit.walkTilt += (0 - unit.walkTilt) * 0.24;
     unit.stride += (0 - unit.stride) * 0.24;
@@ -7965,13 +8380,15 @@ function handleAssassinAfterMove({ unit, battle, dt }) {
 
 function updateWalkTilt(unit, dt) {
   const speed = Math.hypot(unit.vx, unit.vy);
+  const locomotion = getUnitLocomotionProfile(unit);
   const targetTilt = speed > 10 ? clamp(unit.vx / 80, -1, 1) * 0.12 : 0;
   const gaitSpeed = clamp(speed / 38, 0, 2.4);
   unit.gaitAngularVelocity = (7 + gaitSpeed * 7.5) * getRigAnimationClipSpeedForUnit(unit, "walk");
   unit.gaitPhase += dt * unit.gaitAngularVelocity;
-  const targetStride = speed > 8 ? Math.sin(unit.gaitPhase) * Math.min(1, gaitSpeed) : 0;
-  const targetBob = speed > 8 ? (0.5 - Math.cos(unit.gaitPhase * 2) * 0.5) * Math.min(1, gaitSpeed) : 0;
-  const targetWalkBlend = speed > 8 ? smoothStep(0.12, 0.9, Math.min(1, gaitSpeed)) : 0;
+  updateUnitProceduralWalk(unit, dt, locomotion, speed, gaitSpeed);
+  const targetStride = speed > PROCEDURAL_WALK_VISIBLE_SPEED ? Math.sin(unit.gaitPhase) * Math.min(1, gaitSpeed) : 0;
+  const targetBob = speed > PROCEDURAL_WALK_VISIBLE_SPEED ? (0.5 - Math.cos(unit.gaitPhase * 2) * 0.5) * Math.min(1, gaitSpeed) : 0;
+  const targetWalkBlend = speed > PROCEDURAL_WALK_VISIBLE_SPEED ? smoothStep(0.06, 0.55, Math.min(1, gaitSpeed)) : 0;
   unit.walkTilt += (targetTilt - unit.walkTilt) * Math.min(1, dt * 10);
   unit.stride += (targetStride - unit.stride) * Math.min(1, dt * 12);
   unit.bob += (targetBob - unit.bob) * Math.min(1, dt * 12);
@@ -8343,6 +8760,7 @@ function performArtificerAttack({ unit, target, battle, unitDef }) {
 function updateTurretState({ unit, battle, enemies, dt }) {
   unit.vx = 0;
   unit.vy = 0;
+  updateUnitProceduralWalk(unit, dt, getUnitLocomotionProfile(unit), 0, 0);
   updateUnitWalkBlend(unit, 0, dt);
   unit.walkTilt += (0 - unit.walkTilt) * Math.min(1, dt * 12);
   unit.stride += (0 - unit.stride) * Math.min(1, dt * 12);
@@ -12578,7 +12996,7 @@ function drawSingleUnit(viewport, unit) {
   const unitDef = getUnitDefinition(unit);
   const { pose, renderScale, healthBarY, healthBarX, hpWidth } = getUnitHoverMetrics(unit, viewport);
   const { point, scale, bodyY } = pose;
-  const strideOffset = unit.stride * 2.8 * scale / 2.1;
+  const strideMotion = getUnitStrideMotionOffset(unit, scale);
   const main = unit.factionColor;
   const dark = shadeColor(main, -0.28);
   const light = shadeColor(main, 0.26);
@@ -12596,7 +13014,7 @@ function drawSingleUnit(viewport, unit) {
   if (isHovered) drawHoveredUnitGlow(unit, pose, renderScale, light);
   ctx.save();
   ctx.globalAlpha = unitDef.getRenderAlpha ? unitDef.getRenderAlpha(unit, unitDef) : 1;
-  ctx.translate(point.x + strideOffset * unit.displayFacingX * 0.35, bodyY);
+  ctx.translate(point.x + strideMotion.x, bodyY + strideMotion.y);
   ctx.rotate((unit.walkTilt || 0) + (unit.rotation || 0));
   ctx.scale(unit.displayFacingX, 1);
   if (!drawUnitSprite(unit, main, scale)) {
