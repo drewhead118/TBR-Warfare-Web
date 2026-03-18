@@ -5146,6 +5146,14 @@ function createWeatherField(weather) {
     slant: (Math.random() - 0.5) * 3.2,
     seed: Math.random().toString(36).slice(2, 10),
   }));
+  const createRainWind = (options = {}) => ({
+    amplitude: (options.minAmplitude ?? 0.03) + Math.random() * ((options.maxAmplitude ?? 0.08) - (options.minAmplitude ?? 0.03)),
+    swayFrequency: (options.minSwayFrequency ?? 0.2) + Math.random() * ((options.maxSwayFrequency ?? 0.45) - (options.minSwayFrequency ?? 0.2)),
+    burstFrequency: (options.minBurstFrequency ?? 0.08) + Math.random() * ((options.maxBurstFrequency ?? 0.16) - (options.minBurstFrequency ?? 0.08)),
+    burstSharpness: options.burstSharpness ?? 3,
+    swayPhase: Math.random() * Math.PI * 2,
+    burstPhase: Math.random() * Math.PI * 2,
+  });
   if (weather === "mist") {
     return Array.from({ length: 8 }, () => ({
       x: Math.random(),
@@ -5166,6 +5174,15 @@ function createWeatherField(weather) {
         angle: (-0.12 - Math.random() * 0.08) * slantSign,
         offsetX: Math.random() * 1024,
         offsetY: Math.random() * 1024,
+        wind: createRainWind({
+          minAmplitude: 0.018,
+          maxAmplitude: 0.05,
+          minSwayFrequency: 0.16,
+          maxSwayFrequency: 0.28,
+          minBurstFrequency: 0.045,
+          maxBurstFrequency: 0.09,
+          burstSharpness: 4.4,
+        }),
       })),
       splashes: createRainSplashes(26, { minCycle: 0.55, maxCycle: 1.25, minRadius: 4, maxRadius: 7.5, minAlpha: 0.12, maxAlpha: 0.22, objectChance: 0.12 }),
     };
@@ -5191,6 +5208,15 @@ function createWeatherField(weather) {
         angle: (-0.16 - Math.random() * 0.09) * slantSign,
         offsetX: Math.random() * 1024,
         offsetY: Math.random() * 1024,
+        wind: createRainWind({
+          minAmplitude: 0.05,
+          maxAmplitude: 0.14,
+          minSwayFrequency: 0.28,
+          maxSwayFrequency: 0.55,
+          minBurstFrequency: 0.1,
+          maxBurstFrequency: 0.2,
+          burstSharpness: 2.6,
+        }),
       })),
       splashes: createRainSplashes(68, { minCycle: 0.32, maxCycle: 0.72, minRadius: 5.5, maxRadius: 10, minAlpha: 0.16, maxAlpha: 0.32, objectChance: 0.2 }),
     };
@@ -11980,22 +12006,33 @@ function chooseWeightedKey(weights) {
   return entries[entries.length - 1][0];
 }
 
+function getRainLayerAngle(layer, time) {
+  const neutralAngle = Number(layer?.angle) || 0;
+  const wind = layer?.wind;
+  if (!wind) return neutralAngle;
+  const burst = Math.max(0, Math.sin(time * wind.burstFrequency + wind.burstPhase));
+  const gustStrength = Math.pow(burst, wind.burstSharpness);
+  const sway = Math.sin(time * wind.swayFrequency + wind.swayPhase);
+  return neutralAngle + sway * wind.amplitude * gustStrength;
+}
+
 function drawWeatherRainLayers(viewport, battle, layers, assetUrl) {
   const image = getFactionImage(assetUrl);
   if (!image?.complete || !image.naturalWidth || !image.naturalHeight) return false;
   const maxViewportSpan = Math.max(viewport.width, viewport.height);
   layers.forEach((layer) => {
+    const angle = getRainLayerAngle(layer, battle.time);
     const drawWidth = image.naturalWidth * layer.scale;
     const drawHeight = image.naturalHeight * layer.scale;
-    const travelX = Math.sin(layer.angle) * layer.speed * battle.time;
-    const travelY = Math.cos(layer.angle) * layer.speed * battle.time;
-    const offsetX = ((layer.offsetX + travelX) % drawWidth + drawWidth) % drawWidth;
-    const offsetY = ((layer.offsetY + travelY) % drawHeight + drawHeight) % drawHeight;
+    const offsetX = ((layer.offsetX % drawWidth) + drawWidth) % drawWidth;
+    // The canvas is already rotated to the rain tilt, so scrolling along local Y
+    // keeps the streak motion aligned with the visual slant instead of doubling it.
+    const offsetY = ((layer.offsetY + layer.speed * battle.time) % drawHeight + drawHeight) % drawHeight;
     const padding = maxViewportSpan * 0.7 + Math.max(drawWidth, drawHeight);
     ctx.save();
     ctx.globalAlpha = layer.alpha;
     ctx.translate(viewport.width / 2, viewport.height / 2);
-    ctx.rotate(layer.angle);
+    ctx.rotate(angle);
     ctx.translate(-viewport.width / 2, -viewport.height / 2);
     for (let x = -padding - drawWidth + offsetX; x < viewport.width + padding; x += drawWidth) {
       for (let y = -padding - drawHeight + offsetY; y < viewport.height + padding; y += drawHeight) {
