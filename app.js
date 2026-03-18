@@ -32,6 +32,8 @@ const AUDIO_TRACKS = {
 };
 const BANNER_FLOAT_OFFSET = 76;
 const MAX_BATTLE_FACTIONS = 10;
+const MAX_TOURNAMENT_HEAT_FACTIONS = 32;
+const MAX_BATTLEFIELD_UNIT_CAP = 5000;
 const INKLORD_DEBUG_DELAY = 60;
 const HEALTH_CHART_SAMPLE_INTERVAL = 0.16;
 const HEALTH_CHART_VISIBLE_SECONDS = 30;
@@ -52,6 +54,12 @@ const INKLORD_TAUNTS = [
   "You are but a footnote in my shadow!",
   "You're on my T.B.R.: To Be Removed!",
 ];
+const DEFAULT_TOURNAMENT_CONFIG = Object.freeze({
+  collapsed: true,
+  minFactionsPerHeat: 2,
+  maxFactionsPerHeat: MAX_BATTLE_FACTIONS,
+  maxUnitsOnBattlefield: 0,
+});
 const DEFAULT_COMPOSITION = { archer: 1, mage: 1, knight: 1, paladin: 0, bodyguard: 0, medic: 0, bard: 0, bomber: 0, assassin: 0, mountainman: 0, catapult: 0, poisoner: 0, firebreather: 0, necromancer: 0, graverobber: 0, arachnomist: 0, krieger: 0, huntsman: 0, phantom: 0 };
 const MAX_COMPOSITION_UNIT_TYPES = 5;
 const UNIT_SPRITE_CANDIDATE_PATHS = [
@@ -1289,6 +1297,7 @@ const state = {
   tintedGroundProps: new Map(),
   running: false,
   roundsApplied: 0,
+  tournamentConfig: normalizeTournamentConfig(),
   speedIndex: 2,
   useRiggedSprites: true,
   useTerrainTexturing: true,
@@ -1364,6 +1373,12 @@ const els = {
   arenaLabel: document.getElementById("arenaLabel"),
   bracketSummary: document.getElementById("bracketSummary"),
   bracketTracker: document.getElementById("bracketTracker"),
+  toggleTournamentConfigBtn: document.getElementById("toggleTournamentConfigBtn"),
+  tournamentConfigBody: document.getElementById("tournamentConfigBody"),
+  tournamentMinFactionsInput: document.getElementById("tournamentMinFactionsInput"),
+  tournamentMaxFactionsInput: document.getElementById("tournamentMaxFactionsInput"),
+  tournamentMaxUnitsInput: document.getElementById("tournamentMaxUnitsInput"),
+  tournamentConfigSummary: document.getElementById("tournamentConfigSummary"),
   battleTicker: document.getElementById("battleTicker"),
   battleHealthChart: document.getElementById("battleHealthChart"),
   battleHealthChartCanvas: document.getElementById("battleHealthChartCanvas"),
@@ -1502,6 +1517,7 @@ async function bootstrap() {
     renderSpeedControls();
     syncCsvInput();
     renderArmyEditors();
+    renderTournamentConfigPanel();
     resetBattle();
   }
   if (HAS_SPRITE_RIG_PAGE) {
@@ -1517,6 +1533,10 @@ function bindUi() {
   els.advanceQueueBtn.addEventListener("click", applyWinnerToQueue);
   els.randomizeArenaBtn.addEventListener("click", randomizeArenaAndWeather);
   els.viewTournamentStoryBtn.addEventListener("click", openTournamentPage);
+  els.toggleTournamentConfigBtn?.addEventListener("click", toggleTournamentConfigPanel);
+  [els.tournamentMinFactionsInput, els.tournamentMaxFactionsInput, els.tournamentMaxUnitsInput]
+    .filter(Boolean)
+    .forEach((input) => input.addEventListener("change", commitTournamentConfigFromInputs));
   els.seedSampleBtn.addEventListener("click", () => {
     state.factions = cloneData(SAMPLE_BOOKS).map(withFactionDefaults);
     state.roundsApplied = 0;
@@ -3629,12 +3649,35 @@ function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
 
+function normalizeTournamentConfig(config = {}) {
+  const maxFactionsPerHeat = clampInt(
+    config.maxFactionsPerHeat ?? DEFAULT_TOURNAMENT_CONFIG.maxFactionsPerHeat,
+    2,
+    MAX_TOURNAMENT_HEAT_FACTIONS,
+  );
+  return {
+    collapsed: config.collapsed !== false,
+    minFactionsPerHeat: clampInt(
+      config.minFactionsPerHeat ?? DEFAULT_TOURNAMENT_CONFIG.minFactionsPerHeat,
+      2,
+      maxFactionsPerHeat,
+    ),
+    maxFactionsPerHeat,
+    maxUnitsOnBattlefield: clampInt(
+      config.maxUnitsOnBattlefield ?? DEFAULT_TOURNAMENT_CONFIG.maxUnitsOnBattlefield,
+      0,
+      MAX_BATTLEFIELD_UNIT_CAP,
+    ),
+  };
+}
+
 function loadState() {
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
     if (!saved) return;
     state.factions = (saved.factions || []).map(withFactionDefaults);
     state.roundsApplied = saved.roundsApplied || 0;
+    state.tournamentConfig = normalizeTournamentConfig(saved.tournamentConfig);
     state.useRiggedSprites = saved.useRiggedSprites !== false;
     state.useTerrainTexturing = saved.useTerrainTexturing !== false;
     state.showRenderDebug = saved.showRenderDebug === true;
@@ -3651,6 +3694,7 @@ function saveState() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify({
     factions: state.factions,
     roundsApplied: state.roundsApplied,
+    tournamentConfig: state.tournamentConfig,
     useRiggedSprites: state.useRiggedSprites,
     useTerrainTexturing: state.useTerrainTexturing,
     showRenderDebug: state.showRenderDebug,
@@ -3658,6 +3702,57 @@ function saveState() {
     propScaleOverrides: state.propScaleOverrides,
   }));
   syncTournamentViewState(true);
+}
+
+function toggleTournamentConfigPanel() {
+  state.tournamentConfig = normalizeTournamentConfig({
+    ...state.tournamentConfig,
+    collapsed: !state.tournamentConfig.collapsed,
+  });
+  renderTournamentConfigPanel();
+  saveState();
+}
+
+function commitTournamentConfigFromInputs() {
+  const nextConfig = normalizeTournamentConfig({
+    ...state.tournamentConfig,
+    minFactionsPerHeat: els.tournamentMinFactionsInput?.value,
+    maxFactionsPerHeat: els.tournamentMaxFactionsInput?.value,
+    maxUnitsOnBattlefield: els.tournamentMaxUnitsInput?.value,
+  });
+  const changed = JSON.stringify(nextConfig) !== JSON.stringify(state.tournamentConfig);
+  state.tournamentConfig = nextConfig;
+  renderTournamentConfigPanel();
+  saveState();
+  if (changed) resetBattle();
+}
+
+function renderTournamentConfigPanel() {
+  if (!els.toggleTournamentConfigBtn) return;
+  const config = normalizeTournamentConfig(state.tournamentConfig);
+  state.tournamentConfig = config;
+  els.toggleTournamentConfigBtn.textContent = config.collapsed ? "Expand" : "Collapse";
+  els.toggleTournamentConfigBtn.setAttribute("aria-expanded", String(!config.collapsed));
+  els.tournamentConfigBody?.classList.toggle("hidden", config.collapsed);
+  if (els.tournamentMinFactionsInput) {
+    els.tournamentMinFactionsInput.value = String(config.minFactionsPerHeat);
+    els.tournamentMinFactionsInput.max = String(config.maxFactionsPerHeat);
+  }
+  if (els.tournamentMaxFactionsInput) {
+    els.tournamentMaxFactionsInput.value = String(config.maxFactionsPerHeat);
+  }
+  if (els.tournamentMaxUnitsInput) {
+    els.tournamentMaxUnitsInput.value = String(config.maxUnitsOnBattlefield);
+  }
+  if (els.tournamentConfigSummary) {
+    const heatText = config.minFactionsPerHeat === config.maxFactionsPerHeat
+      ? `${config.maxFactionsPerHeat} factions per heat`
+      : `${config.minFactionsPerHeat}-${config.maxFactionsPerHeat} factions per heat`;
+    const unitText = config.maxUnitsOnBattlefield > 0
+      ? `Battlefields are capped at ${config.maxUnitsOnBattlefield} total units.`
+      : "Battlefields use full army sizes with no unit cap.";
+    els.tournamentConfigSummary.textContent = `${heatText}. ${unitText}`;
+  }
 }
 
 function clearRiggedUnitCaches() {
@@ -4423,6 +4518,7 @@ function resetBattle() {
   clearKnockoutAnnouncement();
   clearBossAnnouncement();
   resetCamera();
+  renderTournamentConfigPanel();
   els.battleState.textContent = state.tournament ? getCurrentMatchLabel(state.tournament) : "Ready";
   els.winnerLabel.textContent = "None yet";
   closeWinnerModal();
@@ -4494,6 +4590,7 @@ function buildTournamentViewSnapshot() {
   return {
     updatedAt: Date.now(),
     factions: Array.from(factionMap.values()),
+    tournamentConfig: cloneData(state.tournamentConfig),
     tournament: tournamentSource ? cloneData(tournamentSource) : null,
     completedTournament: state.tournamentResult ? cloneData(state.tournamentResult) : null,
     battle: state.battle ? {
@@ -4557,7 +4654,7 @@ function startBattle() {
 }
 
 function shouldUseTournament(factions) {
-  return factions.length > MAX_BATTLE_FACTIONS;
+  return factions.length > state.tournamentConfig.maxFactionsPerHeat;
 }
 
 function getReadyMessage() {
@@ -4595,6 +4692,7 @@ function buildBattle(factionPool = state.factions, arena = createArenaVariant(0,
       image: getFactionImage(faction.coverUrl),
     };
   });
+  const unitCapSummary = applyBattlefieldUnitCap(factions, state.tournamentConfig.maxUnitsOnBattlefield);
   const terrainTexture = createBattleTerrainTextureState(field, arena);
   if (state.tournamentTerrainTextureCache?.canvas) {
     terrainTexture.canvas = state.tournamentTerrainTextureCache.canvas;
@@ -4620,7 +4718,9 @@ function buildBattle(factionPool = state.factions, arena = createArenaVariant(0,
     props: buildFieldProps(field, arena),
     pendingWinner: null,
     completed: false,
-    meta,
+    meta: unitCapSummary.totalRemoved > 0
+      ? { ...(meta || {}), unitCapSummary }
+      : meta,
     time: 0,
     notes: { dwindled: {}, slaughter: {}, killstreaks: {}, extinguished: {} },
     knockoutQueue: [],
@@ -4637,6 +4737,85 @@ function buildBattle(factionPool = state.factions, arena = createArenaVariant(0,
   };
   initializeBattleHealthTimeline(battle);
   return battle;
+}
+
+function applyBattlefieldUnitCap(factions, maxUnitsOnBattlefield) {
+  const cap = clampInt(maxUnitsOnBattlefield, 0, MAX_BATTLEFIELD_UNIT_CAP);
+  const entries = factions
+    .map((faction) => ({ faction, count: faction.units.length }))
+    .filter((entry) => entry.count > 0);
+  const totalUnits = entries.reduce((sum, entry) => sum + entry.count, 0);
+  if (!cap || totalUnits <= cap) {
+    factions.forEach((faction) => {
+      faction.alive = faction.units.length > 0;
+    });
+    return { cap, totalBefore: totalUnits, totalAfter: totalUnits, totalRemoved: 0, removedByFaction: {} };
+  }
+
+  const guaranteedUnits = cap >= entries.length ? 1 : 0;
+  const availableWeightedUnits = entries.map((entry) => Math.max(0, entry.count - guaranteedUnits));
+  const proportionalTargets = allocateProportionalIntegers(availableWeightedUnits, Math.max(0, cap - (guaranteedUnits * entries.length)));
+  const removedByFaction = {};
+  let totalAfter = 0;
+  entries.forEach((entry, index) => {
+    const target = Math.min(entry.count, guaranteedUnits + proportionalTargets[index]);
+    shuffleInPlace(entry.faction.units);
+    const removed = Math.max(0, entry.count - target);
+    entry.faction.units = entry.faction.units.slice(0, target);
+    entry.faction.alive = target > 0;
+    removedByFaction[entry.faction.id] = removed;
+    totalAfter += target;
+  });
+  factions.forEach((faction) => {
+    if (!entries.some((entry) => entry.faction.id === faction.id)) {
+      faction.alive = faction.units.length > 0;
+      removedByFaction[faction.id] = 0;
+    }
+  });
+  return {
+    cap,
+    totalBefore: totalUnits,
+    totalAfter,
+    totalRemoved: Math.max(0, totalUnits - totalAfter),
+    removedByFaction,
+  };
+}
+
+function allocateProportionalIntegers(weights, targetTotal) {
+  if (!Array.isArray(weights) || !weights.length || targetTotal <= 0) {
+    return (weights || []).map(() => 0);
+  }
+  const cappedTarget = Math.min(
+    targetTotal,
+    weights.reduce((sum, weight) => sum + Math.max(0, weight), 0),
+  );
+  const safeWeights = weights.map((weight) => Math.max(0, weight));
+  const weightTotal = safeWeights.reduce((sum, weight) => sum + weight, 0);
+  if (weightTotal <= 0 || cappedTarget <= 0) return safeWeights.map(() => 0);
+
+  const allocations = safeWeights.map((weight) => Math.floor((cappedTarget * weight) / weightTotal));
+  let allocated = allocations.reduce((sum, value) => sum + value, 0);
+  const remainders = safeWeights.map((weight, index) => ({
+    index,
+    remainder: ((cappedTarget * weight) / weightTotal) - allocations[index],
+  }));
+  remainders.sort((a, b) => {
+    if (b.remainder !== a.remainder) return b.remainder - a.remainder;
+    return Math.random() - 0.5;
+  });
+  for (let i = 0; i < remainders.length && allocated < cappedTarget; i += 1) {
+    allocations[remainders[i].index] += 1;
+    allocated += 1;
+  }
+  return allocations;
+}
+
+function shuffleInPlace(items) {
+  for (let i = items.length - 1; i > 0; i -= 1) {
+    const swapIndex = Math.floor(Math.random() * (i + 1));
+    [items[i], items[swapIndex]] = [items[swapIndex], items[i]];
+  }
+  return items;
 }
 
 function createInkLordFaction() {
@@ -4708,7 +4887,10 @@ function removeGrave(battle, graveId) {
 }
 
 function getGraveVariant(grave) {
-  return GRAVE_VARIANTS.find((variant) => variant.id === grave?.variantId) || GRAVE_VARIANTS[0];
+  const variant = GRAVE_VARIANTS.find((entry) => entry.id === grave?.variantId) || GRAVE_VARIANTS[0];
+  if (!variant.__bodyPath) variant.__bodyPath = new Path2D(variant.bodyPath);
+  if (variant.accentPath && !variant.__accentPath) variant.__accentPath = new Path2D(variant.accentPath);
+  return variant;
 }
 
 function findSourceFaction(factionId) {
@@ -4731,9 +4913,10 @@ function createTournament(factions) {
   return {
     originalFactionIds: factionIds,
     entrantData,
+    config: normalizeTournamentConfig(state.tournamentConfig),
     currentRoundIndex: 0,
     currentMatchIndex: 0,
-    rounds: [createTournamentRound(factionIds, 0)],
+    rounds: [createTournamentRound(factionIds, 0, state.tournamentConfig)],
     eliminated: Object.fromEntries(factionIds.map((id) => [id, { fled: 0, growth: 0, eliminated: false }])),
     stats: createTournamentStats(entrantData),
     championId: null,
@@ -4802,8 +4985,8 @@ function buildTournamentResult(tournament, championId) {
   };
 }
 
-function createTournamentRound(factionIds, roundIndex) {
-  const groups = chunkEvenly(factionIds, Math.ceil(factionIds.length / MAX_BATTLE_FACTIONS));
+function createTournamentRound(factionIds, roundIndex, config = state.tournamentConfig) {
+  const groups = createTournamentHeatGroups(factionIds, config);
   return {
     index: roundIndex,
     label: getRoundLabel(roundIndex, groups.length, factionIds.length),
@@ -5833,6 +6016,19 @@ function createBattleTerrainTextureState(field, arena) {
   };
 }
 
+function createTournamentHeatGroups(factionIds, config = state.tournamentConfig) {
+  const normalized = normalizeTournamentConfig(config);
+  const factionCount = factionIds.length;
+  if (factionCount <= 0) return [];
+  if (factionCount <= normalized.maxFactionsPerHeat) return [factionIds.slice()];
+  const minGroupCount = Math.ceil(factionCount / normalized.maxFactionsPerHeat);
+  const maxGroupCount = Math.max(1, Math.floor(factionCount / normalized.minFactionsPerHeat));
+  const groupCount = minGroupCount <= maxGroupCount
+    ? minGroupCount
+    : minGroupCount;
+  return chunkEvenly(factionIds, groupCount);
+}
+
 function getNextTerrainMirrorFlags() {
   const options = [
     { x: false, y: false, key: "none" },
@@ -6716,6 +6912,106 @@ function drawStatusBadgeSprite(statusId, scale) {
   return true;
 }
 
+const BATTLE_SPATIAL_HASH_CELL_SIZE = 96;
+
+function getBattleSpatialHashCell(x, y, cellSize = BATTLE_SPATIAL_HASH_CELL_SIZE) {
+  return {
+    x: Math.floor(x / cellSize),
+    y: Math.floor(y / cellSize),
+  };
+}
+
+function getBattleSpatialHashKey(cellX, cellY) {
+  return `${cellX},${cellY}`;
+}
+
+function rebuildBattleTransientCaches(battle) {
+  if (!battle) return null;
+  const livingUnits = [];
+  const unitById = new Map();
+  const factionById = new Map();
+  const relations = new Map();
+  const spatialHash = {
+    cellSize: BATTLE_SPATIAL_HASH_CELL_SIZE,
+    cells: new Map(),
+  };
+
+  battle.factions.forEach((faction) => {
+    factionById.set(faction.id, faction);
+    faction.units.forEach((unit) => {
+      unitById.set(unit.id, unit);
+      if (unit.dead || unit.fled) return;
+      livingUnits.push(unit);
+      relations.set(unit.id, { allies: [unit], enemies: [] });
+      const cell = getBattleSpatialHashCell(unit.x, unit.y, spatialHash.cellSize);
+      const key = getBattleSpatialHashKey(cell.x, cell.y);
+      if (!spatialHash.cells.has(key)) spatialHash.cells.set(key, []);
+      spatialHash.cells.get(key).push(unit);
+    });
+  });
+
+  for (let i = 0; i < livingUnits.length; i += 1) {
+    const left = livingUnits[i];
+    const leftRelations = relations.get(left.id);
+    for (let j = i + 1; j < livingUnits.length; j += 1) {
+      const right = livingUnits[j];
+      const rightRelations = relations.get(right.id);
+      if (areUnitsHostile(left, right, battle)) {
+        if (canUnitBeTargeted(right, left)) leftRelations.enemies.push(right);
+        if (canUnitBeTargeted(left, right)) rightRelations.enemies.push(left);
+      } else if (areUnitsAllied(left, right, battle)) {
+        leftRelations.allies.push(right);
+        rightRelations.allies.push(left);
+      }
+    }
+  }
+
+  battle.transientCache = {
+    livingUnits,
+    inspectableUnitsSorted: livingUnits
+      .filter((unit) => !(unit.type === "phantom" && unit.possessedUnitId))
+      .slice()
+      .sort((a, b) => a.y - b.y),
+    unitById,
+    factionById,
+    relations,
+    spatialHash,
+  };
+  return battle.transientCache;
+}
+
+function ensureBattleTransientCaches(battle) {
+  return battle?.transientCache || rebuildBattleTransientCaches(battle);
+}
+
+function getCachedBattleRelations(battle, unit) {
+  return ensureBattleTransientCaches(battle)?.relations?.get(unit?.id) || null;
+}
+
+function getNearbyLivingUnits(battle, x, y, radius) {
+  const cache = ensureBattleTransientCaches(battle);
+  if (!cache?.spatialHash) return [];
+  const { cellSize, cells } = cache.spatialHash;
+  const minCell = getBattleSpatialHashCell(x - radius, y - radius, cellSize);
+  const maxCell = getBattleSpatialHashCell(x + radius, y + radius, cellSize);
+  const nearby = [];
+  for (let cellY = minCell.y; cellY <= maxCell.y; cellY += 1) {
+    for (let cellX = minCell.x; cellX <= maxCell.x; cellX += 1) {
+      const bucket = cells.get(getBattleSpatialHashKey(cellX, cellY));
+      if (bucket?.length) nearby.push(...bucket);
+    }
+  }
+  return nearby;
+}
+
+function getLivingBattleUnits(battle) {
+  return ensureBattleTransientCaches(battle)?.livingUnits || [];
+}
+
+function getInspectableBattleUnitsSorted(battle) {
+  return ensureBattleTransientCaches(battle)?.inspectableUnitsSorted || [];
+}
+
 function loop(timestamp) {
   const dt = Math.min(0.033, (timestamp - lastFrame) / 1000);
   lastFrame = timestamp;
@@ -6737,6 +7033,7 @@ function loop(timestamp) {
 
 function stepBattle(battle, dt) {
   battle.time += dt;
+  rebuildBattleTransientCaches(battle);
   updateInkLordEvent(battle, dt);
   updateBodyguardAuras(battle);
   updateBardAuras(battle);
@@ -6746,6 +7043,7 @@ function stepBattle(battle, dt) {
     faction.alive = faction.units.some((unit) => !unit.dead && !unit.fled);
     faction.units.forEach((unit) => updateUnit(unit, faction, battle, dt));
   });
+  rebuildBattleTransientCaches(battle);
   updateBodyguardAuras(battle);
   updateBardAuras(battle);
   updateProjectiles(battle, dt);
@@ -6929,13 +7227,11 @@ function updateBodyguardAuras(battle) {
     if (!bodyguards.length) return;
     bodyguards.forEach((bodyguard) => {
       const stats = getUnitStats(bodyguard);
-      battle.factions.forEach((entry) => {
-        entry.units.forEach((ally) => {
-          if (ally.dead || ally.fled || !areUnitsAllied(bodyguard, ally, battle)) return;
-          if (Math.hypot(ally.x - bodyguard.x, ally.y - bodyguard.y) <= stats.auraRadius) {
-            applyStatus(ally, "shielded", 1, 0.3, bodyguard, battle);
-          }
-        });
+      getNearbyLivingUnits(battle, bodyguard.x, bodyguard.y, stats.auraRadius).forEach((ally) => {
+        if (!areUnitsAllied(bodyguard, ally, battle)) return;
+        if (Math.hypot(ally.x - bodyguard.x, ally.y - bodyguard.y) <= stats.auraRadius) {
+          applyStatus(ally, "shielded", 1, 0.3, bodyguard, battle);
+        }
       });
     });
   });
@@ -6949,13 +7245,11 @@ function updateBardAuras(battle) {
     bards.forEach((bard) => {
       const stats = getUnitStats(bard);
       const songKind = bard.activeSongKind || "bardichaste";
-      battle.factions.forEach((entry) => {
-        entry.units.forEach((ally) => {
-          if (ally.dead || ally.fled || !areUnitsAllied(bard, ally, battle)) return;
-          if (Math.hypot(ally.x - bard.x, ally.y - bard.y) <= stats.auraRadius) {
-            applyStatus(ally, songKind, 1, 0.35, bard, battle);
-          }
-        });
+      getNearbyLivingUnits(battle, bard.x, bard.y, stats.auraRadius).forEach((ally) => {
+        if (!areUnitsAllied(bard, ally, battle)) return;
+        if (Math.hypot(ally.x - bard.x, ally.y - bard.y) <= stats.auraRadius) {
+          applyStatus(ally, songKind, 1, 0.35, bard, battle);
+        }
       });
     });
   });
@@ -7182,10 +7476,10 @@ function updateUnit(unit, faction, battle, dt) {
   }
 
   unit.z += (0 - unit.z) * 0.18;
-  const allies = battle.factions
-    .flatMap((entry) => entry.units)
-    .filter((ally) => !ally.dead && !ally.fled && areUnitsAllied(unit, ally, battle));
-  const enemies = getTargetableEnemies(battle, faction.id, unit);
+  const cachedRelations = getCachedBattleRelations(battle, unit);
+  const allies = cachedRelations?.allies?.filter((ally) => !ally.dead && !ally.fled && areUnitsAllied(unit, ally, battle)) || [unit];
+  const enemies = cachedRelations?.enemies?.filter((enemy) => !enemy.dead && !enemy.fled && canUnitBeTargeted(enemy, unit) && areUnitsHostile(unit, enemy, battle))
+    || getTargetableEnemies(battle, faction.id, unit);
   const possessed = Boolean(getPossessionStatus(unit, battle));
   const forcedPossessedFlee = possessed && isFinalLivingUnitForFaction(unit, battle);
   unitDef.beforeStep?.({ unit, faction, battle, allies, enemies, graves, unitDef, dt });
@@ -7268,6 +7562,16 @@ function updateUnit(unit, faction, battle, dt) {
 }
 
 function getTargetableEnemies(battle, factionId, attacker) {
+  const cachedEnemies = getCachedBattleRelations(battle, attacker)?.enemies;
+  if (cachedEnemies) {
+    return cachedEnemies.filter((enemy) => (
+      !enemy.dead
+      && !enemy.fled
+      && enemy.id !== attacker?.id
+      && canUnitBeTargeted(enemy, attacker)
+      && areUnitsHostile(attacker, enemy, battle)
+    ));
+  }
   return battle.factions
     .flatMap((entry) => entry.units.filter((enemy) => (
       !enemy.dead
@@ -7670,6 +7974,21 @@ function findFarthestGrave(unit, graves, predicate = null) {
   return best;
 }
 
+function getTargetSelectionPreference(unit, enemy, flavor = "default") {
+  const rand = createSeededRandom(hashStringToSeed(`${unit.id}|${enemy.id}|${flavor}`));
+  return rand();
+}
+
+function countAlliedFocusers(allies, unit, enemyId, predicate = null) {
+  if (!allies?.length || !enemyId) return 0;
+  return allies.reduce((count, ally) => {
+    if (ally.id === unit.id || ally.dead || ally.fled) return count;
+    if (ally.focusTargetId !== enemyId) return count;
+    if (predicate && !predicate(ally)) return count;
+    return count + 1;
+  }, 0);
+}
+
 function getLivingThrallIds(unit, battle) {
   if (!unit?.thrallIds?.length) return [];
   return unit.thrallIds.filter((thrallId) => {
@@ -7733,20 +8052,26 @@ function modifyGraverobberStats(unit, stats) {
   };
 }
 
-function selectDefaultTarget({ unit, enemies }) {
+function selectDefaultTarget({ unit, enemies, allies }) {
   unit.currentTargetKind = "enemy";
   unit.currentGraveId = null;
-  let best = enemies[0];
+  let best = enemies[0] || null;
   let bestScore = Infinity;
   enemies.forEach((enemy) => {
     const distance = Math.hypot(enemy.x - unit.x, enemy.y - unit.y);
     const woundedBias = enemy.health / enemy.maxHealth;
-    const score = distance * woundedBias * (0.9 + Math.random() * 0.35);
+    let score = distance * woundedBias * (0.9 + Math.random() * 0.35);
+    const stablePreference = getTargetSelectionPreference(unit, enemy, "default-targeting");
+    const sameTargetPressure = countAlliedFocusers(allies, unit, enemy.id);
+    score *= 0.84 + stablePreference * 0.34;
+    score *= 1 + sameTargetPressure * 0.16;
+    if (unit.focusTargetId === enemy.id) score *= 0.9;
     if (score < bestScore) {
       bestScore = score;
       best = enemy;
     }
   });
+  unit.focusTargetId = best?.id || null;
   updateUnitActivity(unit, best ? `Tracking ${getUnitActivityTargetLabel(best, state.battle)}.` : getDefaultUnitActivity(unit));
   return best;
 }
@@ -8620,14 +8945,12 @@ function performInkLordAttack({ unit, target, battle, unitDef }) {
 }
 
 function getEnemiesWithinRadius(battle, attacker, x, y, radius) {
-  return battle.factions.flatMap((faction) => faction.units.filter((unit) => (
-    !unit.dead
-    && !unit.fled
-    && unit.id !== attacker.id
+  return getNearbyLivingUnits(battle, x, y, radius).filter((unit) => (
+    unit.id !== attacker.id
     && canUnitBeTargeted(unit, attacker)
     && areUnitsHostile(attacker, unit, battle)
     && Math.hypot(unit.x - x, unit.y - y) <= radius
-  )));
+  ));
 }
 
 function performInkLordSweep(unit, battle, nearby, stats) {
@@ -9270,6 +9593,8 @@ function maybeTriggerPaladinConsecration(attacker, battle) {
 }
 
 function findFaction(battle, factionId) {
+  const cachedFaction = ensureBattleTransientCaches(battle)?.factionById?.get(factionId);
+  if (cachedFaction) return cachedFaction;
   return battle.factions.find((entry) => entry.id === factionId);
 }
 
@@ -9502,21 +9827,19 @@ function updateInkLordThrowSpell(spell, battle, source, target) {
 function updateFireBreathSpell(spell, battle, source, target, dt) {
   const breathAngle = Math.atan2(target.y - source.y, target.x - source.x);
   source.facing = breathAngle;
-  battle.factions.forEach((faction) => {
-    faction.units.forEach((other) => {
-      if (other.id === source.id || other.dead || other.fled) return;
-      const dx = other.x - source.x;
-      const dy = other.y - source.y;
-      const distance = Math.hypot(dx, dy);
-      if (distance > spell.range) return;
-      const angleDiff = Math.abs(normalizeAngle(Math.atan2(dy, dx) - breathAngle));
-      if (angleDiff > spell.coneAngle * 0.5) return;
-      const distanceScale = clamp(1 - distance / spell.range, 0.35, 1);
-      applyDamage(other, spell.dps * distanceScale * dt, battle, source);
-      if (faction.id !== source.factionId) {
-        trackFlameExposure(other, source, spell, dt, battle);
-      }
-    });
+  getNearbyLivingUnits(battle, source.x, source.y, spell.range).forEach((other) => {
+    if (other.id === source.id) return;
+    const dx = other.x - source.x;
+    const dy = other.y - source.y;
+    const distance = Math.hypot(dx, dy);
+    if (distance > spell.range) return;
+    const angleDiff = Math.abs(normalizeAngle(Math.atan2(dy, dx) - breathAngle));
+    if (angleDiff > spell.coneAngle * 0.5) return;
+    const distanceScale = clamp(1 - distance / spell.range, 0.35, 1);
+    applyDamage(other, spell.dps * distanceScale * dt, battle, source);
+    if (areUnitsHostile(source, other, battle)) {
+      trackFlameExposure(other, source, spell, dt, battle);
+    }
   });
   spawnFireBreathParticles(battle, source, breathAngle, spell);
   if (spell.time >= spell.duration) {
@@ -9654,9 +9977,14 @@ function updateStuckArrows(battle, dt) {
 }
 
 function findUnitById(battle, id) {
+  const cached = ensureBattleTransientCaches(battle)?.unitById?.get(id);
+  if (cached) return cached;
   for (const faction of battle.factions) {
     const found = faction.units.find((unit) => unit.id === id);
-    if (found) return found;
+    if (found) {
+      battle?.transientCache?.unitById?.set(id, found);
+      return found;
+    }
   }
   return null;
 }
@@ -9666,18 +9994,15 @@ function getExplosionReadableRadius(radius) {
 }
 
 function explodeAt(battle, x, y, radius, damage, attacker, color, burstCount, showDebugRings = false) {
-  battle.factions.forEach((faction) => {
-    faction.units.forEach((unit) => {
-      if (unit.dead || unit.fled) return;
-      const readableRadius = getExplosionReadableRadius(radius);
-      if (readableRadius <= 0) return;
+  const readableRadius = getExplosionReadableRadius(radius);
+  if (readableRadius > 0) {
+    getNearbyLivingUnits(battle, x, y, readableRadius).forEach((unit) => {
       const dist = Math.hypot(unit.x - x, unit.y - y);
       if (dist <= readableRadius) {
         applyDamage(unit, damage * Math.max(0.70, 1 - dist / readableRadius), battle, attacker);
       }
     });
-  });
-  const readableRadius = getExplosionReadableRadius(radius);
+  }
   spawnBurst(battle, x, y, color, burstCount);
   battle.particles.push({ kind: "blast-glow", x, y, vx: 0, vy: 0, life: 0.28, age: 0, color, size: radius * 0.9 });
   battle.particles.push({ kind: "shockwave", x, y, vx: 0, vy: 0, life: 0.42, age: 0, color, size: radius * 0.4, startSize: radius * 0.4, maxSize: radius, lineWidth: clamp(radius * 0.09, 8, 20) });
@@ -10013,7 +10338,7 @@ function advanceTournament() {
   if (advancingIds.length > 1) {
     tournament.currentRoundIndex += 1;
     tournament.currentMatchIndex = 0;
-    const upcomingRound = createTournamentRound(advancingIds, tournament.currentRoundIndex);
+    const upcomingRound = createTournamentRound(advancingIds, tournament.currentRoundIndex, tournament.config);
     tournament.rounds.push(upcomingRound);
     upcomingRound.matches[0].status = "active";
     upcomingRound.matches[0].arena = createRandomArenaVariant(tournament.currentRoundIndex, 0, upcomingRound.matches[0].factionIds.length);
@@ -10234,6 +10559,7 @@ function clearBattleHover() {
   if (els.battleUnitTooltip) {
     els.battleUnitTooltip.classList.add("hidden");
     els.battleUnitTooltip.innerHTML = "";
+    els.battleUnitTooltip.dataset.tooltipKey = "";
   }
 }
 
@@ -10301,8 +10627,7 @@ function getHealthBarMetricsForPose(unit, pose, renderScale, layoutOverride = nu
 
 function findHoveredBattleUnit(battle, viewport, canvasX, canvasY) {
   if (!battle) return null;
-  const units = battle.factions.flatMap((faction) => faction.units.filter((unit) => !unit.dead && !unit.fled && !(unit.type === "phantom" && unit.possessedUnitId)));
-  units.sort((a, b) => a.y - b.y);
+  const units = getInspectableBattleUnitsSorted(battle);
   for (let index = units.length - 1; index >= 0; index -= 1) {
     const unit = units[index];
     const metrics = getUnitHoverMetrics(unit, viewport);
@@ -10412,6 +10737,7 @@ function renderBattleUnitTooltip(unit, battle, viewport) {
     if (els.battleUnitTooltip) {
       els.battleUnitTooltip.classList.add("hidden");
       els.battleUnitTooltip.innerHTML = "";
+      els.battleUnitTooltip.dataset.tooltipKey = "";
     }
     return;
   }
@@ -10430,7 +10756,7 @@ function renderBattleUnitTooltip(unit, battle, viewport) {
     })
     .filter(Boolean)
     .join("");
-  els.battleUnitTooltip.innerHTML = `
+  const tooltipMarkup = `
     <div class="battle-unit-tooltip-header">
       <span class="battle-unit-tooltip-faction">${escapeHtml(faction?.title || "Neutral")}</span>
       <h3>${escapeHtml(`${getUnitDefinition(unit).name}${unit.veteran ? " Veteran" : ""}`)}</h3>
@@ -10439,6 +10765,19 @@ function renderBattleUnitTooltip(unit, battle, viewport) {
     </div>
     ${statuses ? `<ul>${statuses}</ul>` : '<p class="battle-unit-tooltip-empty">No active status effects.</p>'}
   `;
+  const tooltipKey = JSON.stringify({
+    unitId: unit.id,
+    factionTitle: faction?.title || "Neutral",
+    veteran: Boolean(unit.veteran),
+    health: formatHoverStatNumber(unit.health),
+    maxHealth: formatHoverStatNumber(unit.maxHealth),
+    activity: currentActivity,
+    statuses: (unit.statuses || []).map((status) => `${status.kind}:${formatHoverDuration(status.duration)}:${Math.round(status.stacks || 1)}`).join("|"),
+  });
+  if (els.battleUnitTooltip.dataset.tooltipKey !== tooltipKey) {
+    els.battleUnitTooltip.innerHTML = tooltipMarkup;
+    els.battleUnitTooltip.dataset.tooltipKey = tooltipKey;
+  }
   const pose = getUnitRenderPose(unit, viewport);
   const tooltipWidth = Math.min(320, Math.max(220, els.battleUnitTooltip.offsetWidth || 220));
   const left = Math.max(12, Math.min(els.canvas.clientWidth - tooltipWidth - 12, (pose.point.x / (window.devicePixelRatio || 1)) + 22));
@@ -10596,7 +10935,7 @@ function getAutoCameraTarget(battle) {
 }
 
 function getFitCameraTarget(battle) {
-  const activeUnits = battle.factions.flatMap((faction) => faction.units.filter((unit) => !unit.dead && !unit.fled));
+  const activeUnits = getLivingBattleUnits(battle);
   if (!activeUnits.length) return { x: FIELD.width / 2, y: FIELD.height / 2, zoom: 1 };
   let minX = Infinity;
   let minY = Infinity;
@@ -10616,7 +10955,7 @@ function getFitCameraTarget(battle) {
 }
 
 function getCinematicCameraTarget(battle) {
-  const activeUnits = battle.factions.flatMap((faction) => faction.units.filter((unit) => !unit.dead && !unit.fled));
+  const activeUnits = getLivingBattleUnits(battle);
   if (!activeUnits.length) return { x: FIELD.width / 2, y: FIELD.height / 2, zoom: 1 };
   const fit = getFitCameraTarget(battle);
   const cinematic = state.camera.cinematic || (state.camera.cinematic = {
@@ -10783,7 +11122,8 @@ function buildCinematicCameraPois(battle, activeUnits, fit) {
   }
 
   activeUnits.forEach((unit, index) => {
-    const nearbyEnemies = activeUnits.filter((other) => areUnitsHostile(unit, other, battle) && Math.hypot(other.x - unit.x, other.y - unit.y) <= 112);
+    const nearbyEnemies = getNearbyLivingUnits(battle, unit.x, unit.y, 112)
+      .filter((other) => other.id !== unit.id && areUnitsHostile(unit, other, battle));
     const score = 10
       + nearbyEnemies.length * 14
       + (unit.killStreak || 0) * 10
@@ -11254,8 +11594,8 @@ function drawSingleGrave(viewport, grave) {
   }
   const variant = getGraveVariant(grave);
   const scale = (point.scale / 2.1) * GRAVE_RENDER_SCALE;
-  const bodyPath = new Path2D(variant.bodyPath);
-  const accentPath = variant.accentPath ? new Path2D(variant.accentPath) : null;
+  const bodyPath = variant.__bodyPath;
+  const accentPath = variant.__accentPath || null;
   ctx.save();
   ctx.translate(point.x, point.y + 2 * point.scale / 2.1);
   ctx.fillStyle = "rgba(0,0,0,0.18)";

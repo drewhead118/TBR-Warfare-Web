@@ -83,6 +83,31 @@
           <div id="bracketTracker" class="bracket-tracker"></div>
         </div>
 
+        <div class="panel-section tournament-config-panel">
+          <div class="section-heading">
+            <h2>Tournament Config</h2>
+            <button id="toggleTournamentConfigBtn" class="ghost small" type="button" aria-expanded="false">Expand</button>
+          </div>
+          <p class="hint">Control how many factions enter each heat and optionally cap the total units allowed on the field.</p>
+          <div id="tournamentConfigBody" class="tournament-config-body hidden">
+            <div class="field-grid tournament-config-grid">
+              <label>
+                <span>Min Factions Per Heat</span>
+                <input id="tournamentMinFactionsInput" type="number" min="2" max="32">
+              </label>
+              <label>
+                <span>Max Factions Per Heat</span>
+                <input id="tournamentMaxFactionsInput" type="number" min="2" max="32">
+              </label>
+              <label>
+                <span>Max Units On Battlefield</span>
+                <input id="tournamentMaxUnitsInput" type="number" min="0" max="5000">
+              </label>
+            </div>
+            <p id="tournamentConfigSummary" class="hint tournament-config-summary"></p>
+          </div>
+        </div>
+
         <div class="panel-section import-panel">
           <div class="section-heading">
             <h2>Queue Data</h2>

@@ -195,6 +195,20 @@ button:active { transform: translateY(1px); }
   display: grid;
   gap: 12px;
 }
+.tournament-config-panel {
+  display: grid;
+  gap: 12px;
+}
+.tournament-config-body {
+  display: grid;
+  gap: 12px;
+}
+.tournament-config-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.tournament-config-summary {
+  margin: 0;
+}
 .bracket-actions {
   margin-top: -4px;
 }
@@ -847,7 +861,7 @@ canvas.is-dragging { cursor: grabbing; }
   .top-shell {
     gap: 10px;
   }
-  .status-panel, .field-grid, .composition-grid {
+  .status-panel, .field-grid, .composition-grid, .tournament-config-grid {
     grid-template-columns: 1fr;
   }
   .army-list {
