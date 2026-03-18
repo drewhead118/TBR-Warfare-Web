@@ -5081,6 +5081,15 @@ function createRandomArenaVariant(roundIndex = 0, matchIndex = 0, factionCount =
 }
 
 function createWeatherField(weather) {
+  const createRainSplashes = (count, options = {}) => Array.from({ length: count }, () => ({
+    cycle: (options.minCycle ?? 0.45) + Math.random() * ((options.maxCycle ?? 1) - (options.minCycle ?? 0.45)),
+    phase: Math.random() * 2,
+    radius: (options.minRadius ?? 5) + Math.random() * ((options.maxRadius ?? 9) - (options.minRadius ?? 5)),
+    alpha: (options.minAlpha ?? 0.14) + Math.random() * ((options.maxAlpha ?? 0.28) - (options.minAlpha ?? 0.14)),
+    lift: Math.random() < (options.objectChance ?? 0.18) ? 3 + Math.random() * 10 : 0,
+    slant: (Math.random() - 0.5) * 3.2,
+    seed: Math.random().toString(36).slice(2, 10),
+  }));
   if (weather === "mist") {
     return Array.from({ length: 8 }, () => ({
       x: Math.random(),
@@ -5093,14 +5102,17 @@ function createWeatherField(weather) {
   }
   if (weather === "drizzle") {
     const slantSign = Math.random() > 0.5 ? 1 : -1;
-    return Array.from({ length: 2 }, () => ({
-      scale: 0.42 + Math.random() * 0.14,
-      speed: 360 + Math.random() * 120,
-      alpha: 0.16 + Math.random() * 0.12,
-      angle: (-0.12 - Math.random() * 0.08) * slantSign,
-      offsetX: Math.random() * 1024,
-      offsetY: Math.random() * 1024,
-    }));
+    return {
+      layers: Array.from({ length: 2 }, () => ({
+        scale: 0.42 + Math.random() * 0.14,
+        speed: 360 + Math.random() * 120,
+        alpha: 0.16 + Math.random() * 0.12,
+        angle: (-0.12 - Math.random() * 0.08) * slantSign,
+        offsetX: Math.random() * 1024,
+        offsetY: Math.random() * 1024,
+      })),
+      splashes: createRainSplashes(26, { minCycle: 0.55, maxCycle: 1.25, minRadius: 4, maxRadius: 7.5, minAlpha: 0.12, maxAlpha: 0.22, objectChance: 0.12 }),
+    };
   }
   if (weather === "embers") {
     return Array.from({ length: 42 }, () => ({
@@ -5115,14 +5127,17 @@ function createWeatherField(weather) {
   }
   if (weather === "downpour") {
     const slantSign = Math.random() > 0.5 ? 1 : -1;
-    return Array.from({ length: 3 }, () => ({
-      scale: 0.58 + Math.random() * 0.18,
-      speed: 520 + Math.random() * 180,
-      alpha: 0.2 + Math.random() * 0.16,
-      angle: (-0.16 - Math.random() * 0.09) * slantSign,
-      offsetX: Math.random() * 1024,
-      offsetY: Math.random() * 1024,
-    }));
+    return {
+      layers: Array.from({ length: 3 }, () => ({
+        scale: 0.58 + Math.random() * 0.18,
+        speed: 520 + Math.random() * 180,
+        alpha: 0.2 + Math.random() * 0.16,
+        angle: (-0.16 - Math.random() * 0.09) * slantSign,
+        offsetX: Math.random() * 1024,
+        offsetY: Math.random() * 1024,
+      })),
+      splashes: createRainSplashes(68, { minCycle: 0.32, maxCycle: 0.72, minRadius: 5.5, maxRadius: 10, minAlpha: 0.16, maxAlpha: 0.32, objectChance: 0.2 }),
+    };
   }
   if (weather === "ashfall") {
     return Array.from({ length: 90 }, () => ({
@@ -11574,11 +11589,48 @@ function drawWeatherRainLayers(viewport, battle, layers, assetUrl) {
   return true;
 }
 
+function drawRainSplashes(viewport, battle, splashes, baseScale, intensity = 1) {
+  splashes.forEach((splash) => {
+    const progress = ((battle.time + splash.phase) % splash.cycle) / splash.cycle;
+    const fade = Math.max(0, 1 - progress);
+    if (fade <= 0.02) return;
+    const cycleIndex = Math.floor((battle.time + splash.phase) / splash.cycle);
+    const rand = createSeededRandom(hashStringToSeed(`${splash.seed}|${cycleIndex}`));
+    const worldX = rand() * FIELD.width;
+    const worldY = (0.08 + rand() * 0.84) * FIELD.height;
+    const point = worldToScreen(worldX, worldY - splash.lift, viewport);
+    const scale = point.scale / baseScale;
+    const rippleWidth = splash.radius * (0.3 + progress * 1.35) * scale;
+    const rippleHeight = rippleWidth * 0.34;
+    const crownHeight = splash.radius * (0.85 - progress * 0.65) * scale;
+    const alpha = splash.alpha * fade * intensity;
+    ctx.save();
+    ctx.strokeStyle = `rgba(224, 236, 255, ${alpha})`;
+    ctx.lineWidth = Math.max(0.8, 1.3 * scale);
+    ctx.beginPath();
+    ctx.ellipse(point.x, point.y, rippleWidth, rippleHeight, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    if (progress < 0.55) {
+      ctx.beginPath();
+      ctx.moveTo(point.x + splash.slant * scale, point.y);
+      ctx.lineTo(point.x + splash.slant * scale, point.y - crownHeight);
+      ctx.moveTo(point.x - rippleWidth * 0.45, point.y - rippleHeight * 0.15);
+      ctx.lineTo(point.x - rippleWidth * 0.22, point.y - crownHeight * 0.6);
+      ctx.moveTo(point.x + rippleWidth * 0.45, point.y - rippleHeight * 0.15);
+      ctx.lineTo(point.x + rippleWidth * 0.22, point.y - crownHeight * 0.6);
+      ctx.stroke();
+    }
+    ctx.restore();
+  });
+}
+
 function drawWeather(viewport, battle) {
   const weather = battle.arena?.weather;
   if (!weather || weather === "clear") return;
   const field = battle.weatherField || [];
   const baseScale = getBaseScale(viewport);
+  const rainLayers = Array.isArray(field) ? field : (field.layers || []);
+  const rainSplashes = Array.isArray(field) ? [] : (field.splashes || []);
   ctx.save();
   if (weather === "mist") {
     field.forEach((cloud) => {
@@ -11591,7 +11643,8 @@ function drawWeather(viewport, battle) {
       ctx.fill();
     });
   } else if (weather === "drizzle") {
-    drawWeatherRainLayers(viewport, battle, field, WEATHER_RAIN_LIGHT_ASSET);
+    drawRainSplashes(viewport, battle, rainSplashes, baseScale, 0.9);
+    drawWeatherRainLayers(viewport, battle, rainLayers, WEATHER_RAIN_LIGHT_ASSET);
   } else if (weather === "embers") {
     field.forEach((ember) => {
       const worldX = (ember.x * FIELD.width) + Math.sin((battle.time + ember.x) * 1.4) * ember.sway;
@@ -11603,7 +11656,8 @@ function drawWeather(viewport, battle) {
       ctx.fill();
     });
   } else if (weather === "downpour") {
-    drawWeatherRainLayers(viewport, battle, field, WEATHER_RAIN_HEAVY_ASSET);
+    drawRainSplashes(viewport, battle, rainSplashes, baseScale, 1.15);
+    drawWeatherRainLayers(viewport, battle, rainLayers, WEATHER_RAIN_HEAVY_ASSET);
     ctx.fillStyle = "rgba(187, 213, 255, 0.08)";
     ctx.fillRect(0, 0, viewport.width, viewport.height);
   } else if (weather === "ashfall") {
