@@ -34,6 +34,9 @@ const BANNER_FLOAT_OFFSET = 76;
 const MAX_BATTLE_FACTIONS = 10;
 const MAX_TOURNAMENT_HEAT_FACTIONS = 32;
 const MAX_BATTLEFIELD_UNIT_CAP = 5000;
+const ROUTING_ESCAPE_DISTANCE = 150;
+const WEATHER_RAIN_LIGHT_ASSET = "assets/WeatherFX/rain light.png";
+const WEATHER_RAIN_HEAVY_ASSET = "assets/WeatherFX/rain heavy.png";
 const INKLORD_DEBUG_DELAY = 60;
 const HEALTH_CHART_SAMPLE_INTERVAL = 0.16;
 const HEALTH_CHART_VISIBLE_SECONDS = 30;
@@ -507,6 +510,7 @@ const UNIT_DEFINITIONS = {
     name: "Knight",
     keywords: ["melee", "sword", "tank"],
     description: "Knights are the anvil of most formations: slow, durable, and brutally efficient once they make contact. Their high health and heavy melee hits let them absorb pressure while opening space for fragile ranged units behind them.",
+    routingImmune: true,
     stats: { maxHealth: 210, speed: 28, range: 26, damage: 38, cooldown: 1.05 },
     healthBarWidth: 30,
     iconPaths: getKnightIconSvgPaths,
@@ -1500,6 +1504,8 @@ bootstrap();
 async function bootstrap() {
   if (HAS_BATTLE_PAGE) {
     loadState();
+    getFactionImage(WEATHER_RAIN_LIGHT_ASSET);
+    getFactionImage(WEATHER_RAIN_HEAVY_ASSET);
     await loadGroundPropScaleOverrides();
     if (!state.factions.length) {
       state.factions = cloneData(SAMPLE_BOOKS).map(withFactionDefaults);
@@ -5086,13 +5092,14 @@ function createWeatherField(weather) {
     }));
   }
   if (weather === "drizzle") {
-    return Array.from({ length: 180 }, () => ({
-      x: Math.random(),
-      y: Math.random(),
-      length: 12 + Math.random() * 18,
-      drift: 8 + Math.random() * 11,
-      speed: 280 + Math.random() * 180,
-      alpha: 0.12 + Math.random() * 0.2,
+    const slantSign = Math.random() > 0.5 ? 1 : -1;
+    return Array.from({ length: 2 }, () => ({
+      scale: 0.42 + Math.random() * 0.14,
+      speed: 360 + Math.random() * 120,
+      alpha: 0.16 + Math.random() * 0.12,
+      angle: (-0.12 - Math.random() * 0.08) * slantSign,
+      offsetX: Math.random() * 1024,
+      offsetY: Math.random() * 1024,
     }));
   }
   if (weather === "embers") {
@@ -5107,13 +5114,14 @@ function createWeatherField(weather) {
     }));
   }
   if (weather === "downpour") {
-    return Array.from({ length: 320 }, () => ({
-      x: Math.random(),
-      y: Math.random(),
-      length: 18 + Math.random() * 24,
-      drift: 10 + Math.random() * 14,
-      speed: 420 + Math.random() * 240,
-      alpha: 0.18 + Math.random() * 0.26,
+    const slantSign = Math.random() > 0.5 ? 1 : -1;
+    return Array.from({ length: 3 }, () => ({
+      scale: 0.58 + Math.random() * 0.18,
+      speed: 520 + Math.random() * 180,
+      alpha: 0.2 + Math.random() * 0.16,
+      angle: (-0.16 - Math.random() * 0.09) * slantSign,
+      offsetX: Math.random() * 1024,
+      offsetY: Math.random() * 1024,
     }));
   }
   if (weather === "ashfall") {
@@ -5825,10 +5833,11 @@ function makeUnit(factionId, type, x, y) {
     health: stats.maxHealth,
     maxHealth: stats.maxHealth,
     cooldown: Math.random() * stats.cooldown,
-    bravery: 0.28 + Math.random() * 0.65,
+    bravery: 0.05 + Math.random() * 0.4,
     dead: false,
     fled: false,
     fleeing: false,
+    nextStatusFleeCheckAt: 0,
     liftedBySpellId: null,
     displacedBySpellId: null,
     activeSpellId: null,
@@ -7261,14 +7270,22 @@ function updateUnitStatuses(unit, battle, dt) {
   unit.statuses = unit.statuses.filter((status) => {
     const statusDef = getStatusDefinition(status.kind);
     if (!statusDef) return false;
+    const source = findUnitById(battle, status.sourceId);
     status.duration -= dt;
-    status.tickTimer += dt;
-    while (status.tickTimer >= statusDef.tickInterval) {
-      status.tickTimer -= statusDef.tickInterval;
-      const damagePerTick = (status.dps ?? statusDef.dps) * status.stacks * statusDef.tickInterval;
-      const source = findUnitById(battle, status.sourceId);
-      applyDamage(unit, damagePerTick, battle, source, { damageKind: "status" });
-      if (unit.dead) return false;
+    if (status.kind === "bleed") {
+      const bleedDamage = (status.dps ?? statusDef.dps) * status.stacks * dt;
+      if (bleedDamage > 0) {
+        applyDamage(unit, bleedDamage, battle, source, { damageKind: "status" });
+        if (unit.dead) return false;
+      }
+    } else {
+      status.tickTimer += dt;
+      while (status.tickTimer >= statusDef.tickInterval) {
+        status.tickTimer -= statusDef.tickInterval;
+        const damagePerTick = (status.dps ?? statusDef.dps) * status.stacks * statusDef.tickInterval;
+        applyDamage(unit, damagePerTick, battle, source, { damageKind: "status" });
+        if (unit.dead) return false;
+      }
     }
     if (status.kind === "ignite") spreadIgniteStatus(unit, status, battle, dt);
     if (status.kind === "poison" && Math.sin(battle.time * 7 + unit.statusVisualSeed) > 0.84) {
@@ -7490,11 +7507,10 @@ function updateUnit(unit, faction, battle, dt) {
   }
   const target = selectUnitTarget(unit, unitDef, enemies, allies, graves, battle);
   const distance = target ? Math.hypot(target.x - unit.x, target.y - unit.y) : 9999;
-  const panicThreshold = unit.maxHealth * (0.28 + (1 - unit.bravery) * 0.3);
-  const shouldStartFleeing = forcedPossessedFlee || (!possessed && unit.health < panicThreshold && Math.random() > unit.bravery * 0.86);
-  unit.fleeing = unit.type === "phantom"
+  const routingImmune = isUnitRoutingImmune(unit, unitDef);
+  unit.fleeing = (unit.type === "phantom" || routingImmune)
     ? false
-    : (!possessed && (unit.fleeing || shouldStartFleeing));
+    : (!possessed && (unit.fleeing || forcedPossessedFlee));
   if (unit.fleeing) {
     updateUnitActivity(unit, "Routing away from the battlefield.");
   }
@@ -7553,7 +7569,7 @@ function updateUnit(unit, faction, battle, dt) {
   unitDef.afterMove?.({ unit, faction, battle, allies, enemies, graves, target, unitDef, dt });
 
   const distFromCenter = Math.hypot(unit.x - battle.field.centerX, unit.y - battle.field.centerY);
-  if (unit.fleeing && distFromCenter > battle.field.radius + 150) {
+  if (unit.fleeing && distFromCenter > getRoutingEscapeRadius(battle)) {
     unit.fled = true;
     setTicker(`${faction.title} has a routed survivor who may return next round.`);
     setHighlight(`${faction.title} breaks and vanishes in dust`);
@@ -7603,9 +7619,38 @@ function getUnitMoveSpeed(unit, unitDef = getUnitDefinition(unit)) {
   return stats.speed * (0.42 + 0.58 * (unit.health / unit.maxHealth));
 }
 
+function isUnitRoutingImmune(unit, unitDef = getUnitDefinition(unit)) {
+  return Boolean(unitDef.routingImmune);
+}
+
+function maybeTriggerFleeFromDamage(unit, battle, previousHealth, damageKind = "direct") {
+  if (!unit || unit.dead || unit.fled) return false;
+  const unitDef = getUnitDefinition(unit);
+  if (unit.type === "phantom" || isUnitRoutingImmune(unit, unitDef)) return false;
+  if (getPossessionStatus(unit, battle)) return false;
+  const healthProportion = clamp(unit.health / Math.max(1, unit.maxHealth), 0, 1);
+  const braveryLine = clamp(unit.bravery ?? 0, 0, 1);
+  const wasBelowBravery = (previousHealth / Math.max(1, unit.maxHealth)) <= braveryLine;
+  const isBelowBravery = healthProportion <= braveryLine;
+  if (damageKind === "status") {
+    const nextCheckAt = unit.nextStatusFleeCheckAt ?? 0;
+    if (!isBelowBravery || (battle?.time || 0) < nextCheckAt) return false;
+    unit.nextStatusFleeCheckAt = (battle?.time || 0) + 2;
+  } else if (!isBelowBravery && !wasBelowBravery) {
+    return false;
+  }
+  if (Math.random() < (1 - healthProportion)) {
+    unit.fleeing = true;
+    updateUnitActivity(unit, "Routing away from the battlefield.");
+    return true;
+  }
+  return false;
+}
+
 function refreshUnitFleeingState(unit, battle, options = {}) {
   if (!unit || unit.dead || unit.fled) return;
-  if (unit.type === "phantom") {
+  const unitDef = getUnitDefinition(unit);
+  if (unit.type === "phantom" || isUnitRoutingImmune(unit, unitDef)) {
     unit.fleeing = false;
     updateUnitActivity(unit, getDefaultUnitActivity(unit));
     return;
@@ -7622,9 +7667,8 @@ function refreshUnitFleeingState(unit, battle, options = {}) {
     updateUnitActivity(unit, "Fighting under a phantom's control.");
     return;
   }
-  const recoveryMultiplier = options.recoveryMultiplier ?? 1.2;
-  const panicThreshold = unit.maxHealth * (0.28 + (1 - unit.bravery) * 0.3);
-  if (unit.health >= panicThreshold * recoveryMultiplier) {
+  const braveryLine = clamp(unit.bravery ?? 0, 0, 1);
+  if ((unit.health / Math.max(1, unit.maxHealth)) > braveryLine) {
     unit.fleeing = false;
     updateUnitActivity(unit, "Recovered enough to rejoin the fight.");
   }
@@ -10061,6 +10105,9 @@ function applyRawDamage(unit, amount, battle, attacker = null, options = {}) {
   const previousHealth = unit.health;
   unit.health -= resolvedAmount;
   const actualDamage = Math.max(0, Math.min(previousHealth, resolvedAmount));
+  if (actualDamage > 0 && unit.health > 0) {
+    maybeTriggerFleeFromDamage(unit, battle, previousHealth, damageKind);
+  }
   const possessingPhantom = getPossessingPhantom(unit, battle);
   if (!options.noAttackerCredit && attacker && attacker.factionId !== unit.factionId && actualDamage > 0) {
     recordUnitContribution(attacker, "damage", actualDamage, battle);
@@ -11206,6 +11253,10 @@ function getViewportWorldBounds(viewport, paddingPx = 0) {
   };
 }
 
+function getRoutingEscapeRadius(battle) {
+  return (battle?.field?.radius || 0) + ROUTING_ESCAPE_DISTANCE;
+}
+
 function isUnitInViewport(unit, bounds) {
   return unit.x >= bounds.minX
     && unit.x <= bounds.maxX
@@ -11412,6 +11463,22 @@ function drawField(viewport, battle) {
     ctx.drawImage(battle.terrainTexture.canvas, top.x, top.y, terrainWidth, terrainHeight);
     ctx.restore();
   }
+  const fieldCenter = worldToScreen(battle.field.centerX, battle.field.centerY, viewport);
+  const routingEscapeRadius = getRoutingEscapeRadius(battle) * fieldCenter.scale;
+  ctx.save();
+  ctx.fillStyle = "rgba(16, 10, 8, 0.28)";
+  ctx.beginPath();
+  ctx.rect(0, 0, viewport.width, viewport.height);
+  ctx.arc(fieldCenter.x, fieldCenter.y, routingEscapeRadius, 0, Math.PI * 2, true);
+  ctx.fill("evenodd");
+  ctx.setLineDash([10 * fieldCenter.scale, 8 * fieldCenter.scale]);
+  ctx.lineDashOffset = (battle.time || 0) * 14;
+  ctx.strokeStyle = "rgba(255, 236, 196, 0.62)";
+  ctx.lineWidth = Math.max(1.5, 2.2 * fieldCenter.scale);
+  ctx.beginPath();
+  ctx.arc(fieldCenter.x, fieldCenter.y, routingEscapeRadius, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
 }
 
 function drawGroundDecor(viewport, battle) {
@@ -11480,6 +11547,33 @@ function chooseWeightedKey(weights) {
   return entries[entries.length - 1][0];
 }
 
+function drawWeatherRainLayers(viewport, battle, layers, assetUrl) {
+  const image = getFactionImage(assetUrl);
+  if (!image?.complete || !image.naturalWidth || !image.naturalHeight) return false;
+  const maxViewportSpan = Math.max(viewport.width, viewport.height);
+  layers.forEach((layer) => {
+    const drawWidth = image.naturalWidth * layer.scale;
+    const drawHeight = image.naturalHeight * layer.scale;
+    const travelX = Math.sin(layer.angle) * layer.speed * battle.time;
+    const travelY = Math.cos(layer.angle) * layer.speed * battle.time;
+    const offsetX = ((layer.offsetX + travelX) % drawWidth + drawWidth) % drawWidth;
+    const offsetY = ((layer.offsetY + travelY) % drawHeight + drawHeight) % drawHeight;
+    const padding = maxViewportSpan * 0.7 + Math.max(drawWidth, drawHeight);
+    ctx.save();
+    ctx.globalAlpha = layer.alpha;
+    ctx.translate(viewport.width / 2, viewport.height / 2);
+    ctx.rotate(layer.angle);
+    ctx.translate(-viewport.width / 2, -viewport.height / 2);
+    for (let x = -padding - drawWidth + offsetX; x < viewport.width + padding; x += drawWidth) {
+      for (let y = -padding - drawHeight + offsetY; y < viewport.height + padding; y += drawHeight) {
+        ctx.drawImage(image, x, y, drawWidth, drawHeight);
+      }
+    }
+    ctx.restore();
+  });
+  return true;
+}
+
 function drawWeather(viewport, battle) {
   const weather = battle.arena?.weather;
   if (!weather || weather === "clear") return;
@@ -11497,17 +11591,7 @@ function drawWeather(viewport, battle) {
       ctx.fill();
     });
   } else if (weather === "drizzle") {
-    field.forEach((drop) => {
-      const worldX = drop.x * FIELD.width;
-      const worldY = ((drop.y * FIELD.height) + battle.time * drop.speed) % (FIELD.height + drop.length + 80) - drop.length - 40;
-      const point = worldToScreen(worldX, worldY, viewport);
-      ctx.strokeStyle = `rgba(196, 223, 255, ${drop.alpha})`;
-      ctx.lineWidth = 1.1 * point.scale / baseScale;
-      ctx.beginPath();
-      ctx.moveTo(point.x, point.y);
-      ctx.lineTo(point.x - drop.drift * point.scale / baseScale, point.y + drop.length * point.scale / baseScale);
-      ctx.stroke();
-    });
+    drawWeatherRainLayers(viewport, battle, field, WEATHER_RAIN_LIGHT_ASSET);
   } else if (weather === "embers") {
     field.forEach((ember) => {
       const worldX = (ember.x * FIELD.width) + Math.sin((battle.time + ember.x) * 1.4) * ember.sway;
@@ -11519,17 +11603,7 @@ function drawWeather(viewport, battle) {
       ctx.fill();
     });
   } else if (weather === "downpour") {
-    field.forEach((drop) => {
-      const worldX = drop.x * FIELD.width;
-      const worldY = ((drop.y * FIELD.height) + battle.time * drop.speed) % (FIELD.height + drop.length + 100) - drop.length - 50;
-      const point = worldToScreen(worldX, worldY, viewport);
-      ctx.strokeStyle = `rgba(188, 219, 255, ${drop.alpha})`;
-      ctx.lineWidth = 1.4 * point.scale / baseScale;
-      ctx.beginPath();
-      ctx.moveTo(point.x, point.y);
-      ctx.lineTo(point.x - drop.drift * point.scale / baseScale, point.y + drop.length * point.scale / baseScale);
-      ctx.stroke();
-    });
+    drawWeatherRainLayers(viewport, battle, field, WEATHER_RAIN_HEAVY_ASSET);
     ctx.fillStyle = "rgba(187, 213, 255, 0.08)";
     ctx.fillRect(0, 0, viewport.width, viewport.height);
   } else if (weather === "ashfall") {
