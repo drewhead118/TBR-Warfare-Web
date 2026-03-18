@@ -1,4 +1,4 @@
-﻿# TBR Warfare
+# TBR Warfare
 
 Static browser game for resolving a blogger's TBR queue through a stylized 2.5D battle simulation.
 
@@ -13,6 +13,22 @@ py -m http.server 4173 --bind 127.0.0.1
 Then open [http://127.0.0.1:4173/index.html](http://127.0.0.1:4173/index.html).
 
 The standalone sprite rigging tool is at [http://127.0.0.1:4173/sprite-workshop.html](http://127.0.0.1:4173/sprite-workshop.html).
+
+## Props
+
+Battlefield prop-sheet ingest is currently manual. To split any new prop sheets in `assets/Props_ingest` into numbered PNG props in `assets/Props`, run:
+
+```powershell
+.\scripts\ingest-prop-sheets.ps1
+```
+
+That script:
+
+- scans `assets/Props_ingest/*.png`
+- isolates alpha-separated pixel islands into individual numbered files like `0001.png`
+- deletes the source sheets from `assets/Props_ingest` after a successful ingest
+
+At runtime, the game scans `assets/Props` for numbered PNGs and prefers those generated props for new maps. If no generated prop assets are available, it falls back to the built-in SVG-style decor renderers.
 
 ## CSV format
 

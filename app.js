@@ -74,6 +74,18 @@ const STATUS_BADGE_CANDIDATE_PATHS = [
   (statusId) => `${statusId}-status.png`,
   (statusId) => `${statusId}.png`,
 ];
+const GROUND_PROP_ASSET_BASE_URL = "assets/Props/";
+const GROUND_PROP_FILENAME_DIGITS = 4;
+const GROUND_PROP_MAX_SCAN_INDEX = 9999;
+const GROUND_PROP_SCAN_MISS_LIMIT = 60;
+const GROUND_PROP_IMAGE_SCALE = 0.12;
+const GROUND_PROP_RANDOM_SCALE_MIN = 0.8;
+const GROUND_PROP_RANDOM_SCALE_MAX = 1;
+const GROUND_PROP_PADDING_X = 70;
+const GROUND_PROP_PADDING_Y = 82;
+const GROUND_PROP_JITTER_MIN = 0.18;
+const GROUND_PROP_JITTER_MAX = 0.82;
+const GROUND_PROP_TINT_ALPHA = 0.36;
 const GROUND_TEXTURE_SOURCES = {
   dirt: "assets/textures/dirt.png",
   grass: "assets/textures/grass.png",
@@ -1248,7 +1260,18 @@ const state = {
   unitSpriteSources: new Map(),
   riggedUnitSpriteSources: new Map(),
   statusBadgeSources: new Map(),
+  groundPropCatalog: {
+    status: "idle",
+    items: [],
+    promise: null,
+  },
+  terrainBuildUi: {
+    visible: false,
+    label: "Building terrain texture...",
+    progress: 0,
+  },
   tintedUnitSprites: new Map(),
+  tintedGroundProps: new Map(),
   running: false,
   roundsApplied: 0,
   speedIndex: 2,
@@ -1324,6 +1347,10 @@ const els = {
   battleTicker: document.getElementById("battleTicker"),
   battleHealthChart: document.getElementById("battleHealthChart"),
   battleHealthChartCanvas: document.getElementById("battleHealthChartCanvas"),
+  terrainBuildStatus: document.getElementById("terrainBuildStatus"),
+  terrainBuildLabel: document.getElementById("terrainBuildLabel"),
+  terrainBuildFill: document.getElementById("terrainBuildFill"),
+  terrainBuildPercent: document.getElementById("terrainBuildPercent"),
   useRiggedSpritesToggle: document.getElementById("useRiggedSpritesToggle"),
   useTerrainTexturingToggle: document.getElementById("useTerrainTexturingToggle"),
   knockoutAnnouncement: document.getElementById("knockoutAnnouncement"),
@@ -1432,13 +1459,14 @@ let lastFrame = performance.now();
 
 bootstrap();
 
-function bootstrap() {
+async function bootstrap() {
   if (HAS_BATTLE_PAGE) {
     loadState();
     if (!state.factions.length) {
       state.factions = cloneData(SAMPLE_BOOKS).map(withFactionDefaults);
       saveState();
     }
+    await preloadGroundPropAssets();
     bindUi();
     setUseRiggedSprites(state.useRiggedSprites);
     setUseTerrainTexturing(state.useTerrainTexturing);
@@ -3613,6 +3641,7 @@ function invalidateBattleTerrainTexture() {
   state.battle.terrainTexture.canvas = null;
   state.battle.terrainTexture.pending = false;
   state.battle.terrainTexture.ready = false;
+  hideTerrainBuildStatus();
 }
 
 function setUseTerrainTexturing(enabled) {
@@ -5476,12 +5505,15 @@ function createBattleTerrainTextureState(field, arena) {
     ready: false,
     queued: false,
     queueHandle: null,
+    progress: 0,
+    statusLabel: "Preparing terrain texture...",
   };
 }
 
-function ensureBattleTerrainTexture(battle) {
-  if (!state.useTerrainTexturing) return;
-  if (!battle?.terrainTexture || battle.terrainTexture.ready || battle.terrainTexture.pending) return;
+async function ensureBattleTerrainTexture(battle) {
+  if (!state.useTerrainTexturing) return false;
+  if (!battle?.terrainTexture || battle.terrainTexture.ready || battle.terrainTexture.pending) return Boolean(battle?.terrainTexture?.ready);
+  updateTerrainBuildStatus(0.08, "Loading terrain source textures...");
   const requiredTextureIds = new Set(Object.keys(battle.terrainTexture.profile?.weights || {}));
   if (battle.terrainTexture.profile?.baseTexture) requiredTextureIds.add(battle.terrainTexture.profile.baseTexture);
   Object.keys(battle.terrainTexture.profile?.replacementWeights || {}).forEach((textureId) => requiredTextureIds.add(textureId));
@@ -5495,20 +5527,32 @@ function ensureBattleTerrainTexture(battle) {
     images[textureId] = image;
     return false;
   });
-  if (unresolved) return;
+  if (unresolved) return false;
   battle.terrainTexture.pending = true;
-  battle.terrainTexture.canvas = buildBattleTerrainTextureCanvas(battle.terrainTexture, battle.arena, images);
+  battle.terrainTexture.canvas = await buildBattleTerrainTextureCanvas(battle.terrainTexture, battle.arena, images);
   battle.terrainTexture.ready = Boolean(battle.terrainTexture.canvas);
   battle.terrainTexture.pending = false;
+  if (battle.terrainTexture.ready) {
+    updateTerrainBuildStatus(1, "Terrain texture ready.");
+    window.setTimeout(() => {
+      if (state.battle === battle && battle.terrainTexture?.ready) hideTerrainBuildStatus();
+    }, 260);
+  }
+  return battle.terrainTexture.ready;
 }
 
 function clearBattleTerrainTextureQueue(terrainTexture) {
-  if (!terrainTexture?.queueHandle) return;
-  if (terrainTexture.queueHandle.kind === "idle" && typeof window.cancelIdleCallback === "function") {
-    window.cancelIdleCallback(terrainTexture.queueHandle.id);
-  } else {
-    clearTimeout(terrainTexture.queueHandle.id);
-  }
+  if (!terrainTexture) return;
+  const handles = Array.isArray(terrainTexture.queueHandle)
+    ? terrainTexture.queueHandle
+    : terrainTexture.queueHandle ? [terrainTexture.queueHandle] : [];
+  handles.forEach((handle) => {
+    if (handle.kind === "idle" && typeof window.cancelIdleCallback === "function") {
+      window.cancelIdleCallback(handle.id);
+    } else {
+      clearTimeout(handle.id);
+    }
+  });
   terrainTexture.queueHandle = null;
   terrainTexture.queued = false;
 }
@@ -5516,27 +5560,34 @@ function clearBattleTerrainTextureQueue(terrainTexture) {
 function queueBattleTerrainTextureGeneration(battle, delayMs = 90) {
   if (!state.useTerrainTexturing || !battle?.terrainTexture || battle.terrainTexture.ready || battle.terrainTexture.pending || battle.terrainTexture.queued) return;
   const terrainTexture = battle.terrainTexture;
-  const runGeneration = () => {
+  updateTerrainBuildStatus(0.04, "Queued terrain texture build...");
+  let completed = false;
+  const runGeneration = async () => {
+    if (completed) return;
+    completed = true;
+    clearBattleTerrainTextureQueue(terrainTexture);
     terrainTexture.queueHandle = null;
     terrainTexture.queued = false;
     if (!state.useTerrainTexturing || state.battle !== battle || battle.terrainTexture !== terrainTexture) return;
-    ensureBattleTerrainTexture(battle);
+    await waitForNextPaint();
+    const ready = await ensureBattleTerrainTexture(battle);
+    if (!ready) queueBattleTerrainTextureGeneration(battle, Math.max(180, delayMs * 2));
   };
   terrainTexture.queued = true;
+  terrainTexture.queueHandle = [];
   if (typeof window.requestIdleCallback === "function") {
-    terrainTexture.queueHandle = {
+    terrainTexture.queueHandle.push({
       kind: "idle",
-      id: window.requestIdleCallback(runGeneration, { timeout: Math.max(120, delayMs * 4) }),
-    };
-    return;
+      id: window.requestIdleCallback(runGeneration, { timeout: Math.max(120, delayMs * 3) }),
+    });
   }
-  terrainTexture.queueHandle = {
+  terrainTexture.queueHandle.push({
     kind: "timeout",
     id: window.setTimeout(runGeneration, delayMs),
-  };
+  });
 }
 
-function buildBattleTerrainTextureCanvas(terrainTexture, arena, images) {
+async function buildBattleTerrainTextureCanvas(terrainTexture, arena, images) {
   const canvas = document.createElement("canvas");
   canvas.width = terrainTexture.width;
   canvas.height = terrainTexture.height;
@@ -5545,16 +5596,61 @@ function buildBattleTerrainTextureCanvas(terrainTexture, arena, images) {
   const profile = terrainTexture.profile || createArenaTextureProfile(arena?.name || "");
   const resolutionScale = terrainTexture.resolutionScale || 1;
   textureCtx.clearRect(0, 0, canvas.width, canvas.height);
+  updateTerrainBuildStatus(0.18, "Preparing terrain texture...");
+  await waitForNextPaint();
   const sharedTileSize = randomRange(rand, profile.tileSize[0], profile.tileSize[1]) * 0.2 * resolutionScale;
   profile.renderedTileSize = sharedTileSize;
+  updateTerrainBuildStatus(0.34, "Tiling ground textures...");
+  await waitForNextPaint();
   const texturePlanes = buildTerrainTexturePlanes(images, profile, canvas.width, canvas.height, sharedTileSize);
   const basePlane = texturePlanes[profile.baseTexture];
+  updateTerrainBuildStatus(0.52, "Laying base terrain...");
+  await waitForNextPaint();
   if (basePlane) textureCtx.drawImage(basePlane, 0, 0);
 
-  profile.materialMasks.forEach((material, materialIndex) => {
+  const materialMasks = profile.materialMasks || [];
+  for (let materialIndex = 0; materialIndex < materialMasks.length; materialIndex += 1) {
+    const material = materialMasks[materialIndex];
+    const progress = 0.6 + (((materialIndex + 1) / Math.max(1, materialMasks.length)) * 0.34);
+    updateTerrainBuildStatus(progress, `Blending terrain layer ${materialIndex + 1} of ${materialMasks.length}...`);
+    await waitForNextPaint();
     drawTerrainTextureMaterialMask(textureCtx, texturePlanes, profile, material, materialIndex, canvas.width, canvas.height);
-  });
+  }
+  updateTerrainBuildStatus(0.97, "Finishing terrain texture...");
+  await waitForNextPaint();
   return canvas;
+}
+
+function updateTerrainBuildStatus(progress, label) {
+  state.terrainBuildUi.visible = state.useTerrainTexturing && HAS_BATTLE_PAGE;
+  state.terrainBuildUi.progress = clamp(Number(progress) || 0, 0, 1);
+  state.terrainBuildUi.label = label || "Building terrain texture...";
+  renderTerrainBuildStatus();
+}
+
+function hideTerrainBuildStatus() {
+  state.terrainBuildUi.visible = false;
+  state.terrainBuildUi.progress = 0;
+  state.terrainBuildUi.label = "Building terrain texture...";
+  renderTerrainBuildStatus();
+}
+
+function renderTerrainBuildStatus() {
+  if (!els.terrainBuildStatus || !els.terrainBuildLabel || !els.terrainBuildFill || !els.terrainBuildPercent) return;
+  const progressPercent = Math.round(clamp(state.terrainBuildUi.progress || 0, 0, 1) * 100);
+  els.terrainBuildStatus.classList.toggle("hidden", !state.terrainBuildUi.visible);
+  els.terrainBuildLabel.textContent = state.terrainBuildUi.label || "Building terrain texture...";
+  els.terrainBuildFill.style.width = `${progressPercent}%`;
+  els.terrainBuildPercent.textContent = `${progressPercent}%`;
+  els.terrainBuildStatus.querySelector(".terrain-build-bar")?.setAttribute("aria-valuenow", `${progressPercent}`);
+}
+
+function waitForNextPaint() {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => {
+      window.setTimeout(resolve, 0);
+    });
+  });
 }
 
 function buildTerrainTexturePlanes(images, profile, width, height, tileSize) {
@@ -10408,14 +10504,13 @@ function render() {
   ctx.clearRect(0, 0, viewport.width, viewport.height);
   drawField(viewport, state.battle);
   drawGroundDecor(viewport, state.battle);
-  drawGroundProps(viewport, state.battle.props || []);
   drawGraves(viewport, state.battle.graves || []);
   drawStuckArrows(viewport, state.battle.stuckArrows);
   drawBanners(viewport, state.battle.factions);
   drawProjectiles(viewport, state.battle.projectiles);
   drawBodyguardAuras(viewport, state.battle.factions);
   drawBardAuras(viewport, state.battle.factions);
-  drawUnits(viewport, state.battle.factions);
+  drawDepthSortedGroundEntities(viewport, state.battle);
   drawBossBubbles(viewport, state.battle);
   drawNecromancerLinks(viewport, state.battle);
   drawSwipes(viewport, state.battle.swipes);
@@ -10605,17 +10700,56 @@ function drawGroundDecor(viewport, battle) {
 }
 
 function buildFieldProps(field, arena) {
-  const count = 14 + Math.floor(Math.random() * 9);
+  const count = 34 + Math.floor(Math.random() * 15);
   const themeWeights = arena?.propWeights || { common: DEFAULT_PROP_WEIGHTS, rare: {} };
-  return Array.from({ length: count }, (_, index) => ({
+  const availableGroundProps = getAvailableGroundPropAssets();
+  const points = sampleBlueNoisePropPoints(field, count);
+  return points.map((point, index) => ({
     id: `prop-${index}-${Math.random().toString(36).slice(2, 7)}`,
-    type: chooseArenaPropType(themeWeights, index, count),
-    x: 90 + Math.random() * (field.width - 180),
-    y: 100 + Math.random() * (field.height - 200),
+    ...(availableGroundProps.length
+        ? {
+            renderMode: "image",
+            asset: availableGroundProps[Math.floor(Math.random() * availableGroundProps.length)],
+            imageScale: GROUND_PROP_IMAGE_SCALE * (GROUND_PROP_RANDOM_SCALE_MIN + (GROUND_PROP_RANDOM_SCALE_MAX - GROUND_PROP_RANDOM_SCALE_MIN) * Math.random()),
+        }
+      : {
+          renderMode: "svg",
+          type: chooseArenaPropType(themeWeights, index, count),
+          tint: Math.random(),
+          imageScale: 1,
+        }),
+    x: point.x,
+    y: point.y,
     scale: 0.82 + Math.random() * 0.75,
     rotation: (Math.random() - 0.5) * 0.35,
-    tint: Math.random(),
+    tintColor: arena?.ground || arena?.top || "#8fa27f",
+    tintAlpha: GROUND_PROP_TINT_ALPHA,
   })).sort((a, b) => a.y - b.y);
+}
+
+function sampleBlueNoisePropPoints(field, targetCount) {
+  const width = Math.max(1, field.width - GROUND_PROP_PADDING_X * 2);
+  const height = Math.max(1, field.height - GROUND_PROP_PADDING_Y * 2);
+  const aspect = width / Math.max(1, height);
+  const columns = Math.max(1, Math.ceil(Math.sqrt(targetCount * aspect)));
+  const rows = Math.max(1, Math.ceil(targetCount / columns));
+  const cellWidth = width / columns;
+  const cellHeight = height / rows;
+  const cells = [];
+  for (let row = 0; row < rows; row += 1) {
+    for (let column = 0; column < columns; column += 1) {
+      cells.push({ row, column, weight: Math.random() });
+    }
+  }
+  cells.sort((a, b) => a.weight - b.weight);
+  return cells.slice(0, targetCount).map(({ row, column }) => {
+    const jitterX = GROUND_PROP_JITTER_MIN + (GROUND_PROP_JITTER_MAX - GROUND_PROP_JITTER_MIN) * Math.random();
+    const jitterY = GROUND_PROP_JITTER_MIN + (GROUND_PROP_JITTER_MAX - GROUND_PROP_JITTER_MIN) * Math.random();
+    return {
+      x: GROUND_PROP_PADDING_X + (column + jitterX) * cellWidth,
+      y: GROUND_PROP_PADDING_Y + (row + jitterY) * cellHeight,
+    };
+  });
 }
 
 function chooseArenaPropType(themeWeights, index, count) {
@@ -10735,19 +10869,106 @@ function drawWeather(viewport, battle) {
 }
 
 function drawGroundProps(viewport, props) {
-  props.forEach((prop) => {
-    const point = worldToScreen(prop.x, prop.y, viewport);
-    const scale = point.scale * prop.scale;
-    ctx.save();
-    ctx.translate(point.x, point.y);
-    ctx.rotate(prop.rotation);
-    ctx.fillStyle = "rgba(0,0,0,0.16)";
-    ctx.beginPath();
-    ctx.ellipse(0, 11 * scale / 2.1, 20 * scale / 2.1, 8 * scale / 2.1, 0, 0, Math.PI * 2);
-    ctx.fill();
+  props.forEach((prop) => drawSingleGroundProp(viewport, prop));
+}
+
+function drawSingleGroundProp(viewport, prop) {
+  const point = worldToScreen(prop.x, prop.y, viewport);
+  const scale = point.scale * prop.scale;
+  const imageProp = prop.renderMode === "image" ? prop.asset : null;
+  let drawHeight = null;
+  let drawWidth = null;
+  if (imageProp) {
+    const imageWidth = Math.max(1, imageProp.width || 1);
+    const imageHeight = Math.max(1, imageProp.height || 1);
+    const renderScale = Math.min(1, prop.imageScale || GROUND_PROP_IMAGE_SCALE) * point.scale;
+    drawWidth = imageWidth * renderScale;
+    drawHeight = imageHeight * renderScale;
+  }
+  ctx.save();
+  ctx.translate(point.x, point.y);
+  ctx.rotate(prop.rotation);
+  if (imageProp?.image?.complete) {
+    const image = getTintedGroundPropImage(imageProp.image, imageProp.url, prop.tintColor, prop.tintAlpha);
+    ctx.drawImage(image || imageProp.image, -drawWidth / 2, -drawHeight, drawWidth, drawHeight);
+  } else {
     PROP_RENDERERS[prop.type]?.(scale, prop.tint);
-    ctx.restore();
-  });
+  }
+  ctx.restore();
+}
+
+function getTintedGroundPropImage(image, url, color, alpha = GROUND_PROP_TINT_ALPHA) {
+  if (!image || !image.complete || !url || !color || alpha <= 0) return image;
+  const cacheKey = `${url}|${color}|${alpha.toFixed(3)}`;
+  if (!state.tintedGroundProps.has(cacheKey)) {
+    const canvas = document.createElement("canvas");
+    canvas.width = image.naturalWidth || image.width;
+    canvas.height = image.naturalHeight || image.height;
+    const tintCtx = canvas.getContext("2d");
+    tintCtx.drawImage(image, 0, 0);
+    tintCtx.globalCompositeOperation = "source-atop";
+    tintCtx.fillStyle = hexToRgba(color, alpha);
+    tintCtx.fillRect(0, 0, canvas.width, canvas.height);
+    tintCtx.globalCompositeOperation = "source-over";
+    state.tintedGroundProps.set(cacheKey, canvas);
+  }
+  return state.tintedGroundProps.get(cacheKey);
+}
+
+function getAvailableGroundPropAssets() {
+  return Array.isArray(state.groundPropCatalog.items) ? state.groundPropCatalog.items : [];
+}
+
+async function preloadGroundPropAssets() {
+  if (!HAS_BATTLE_PAGE) return [];
+  if (state.groundPropCatalog.status === "loaded" || state.groundPropCatalog.status === "missing") {
+    return getAvailableGroundPropAssets();
+  }
+  if (state.groundPropCatalog.promise) return state.groundPropCatalog.promise;
+
+  state.groundPropCatalog.status = "loading";
+  state.groundPropCatalog.promise = (async () => {
+    try {
+      const items = [];
+      let consecutiveMisses = 0;
+      for (let index = 1; index <= GROUND_PROP_MAX_SCAN_INDEX; index += 1) {
+        const file = `${String(index).padStart(GROUND_PROP_FILENAME_DIGITS, "0")}.png`;
+        const url = resolveGroundPropAssetUrl(file);
+        try {
+          const image = await loadImageAsset(url);
+          items.push({
+            file,
+            width: image.naturalWidth || image.width || 1,
+            height: image.naturalHeight || image.height || 1,
+            image,
+            url,
+          });
+          consecutiveMisses = 0;
+        } catch (error) {
+          consecutiveMisses += 1;
+          if (items.length && consecutiveMisses >= GROUND_PROP_SCAN_MISS_LIMIT) break;
+        }
+      }
+      state.groundPropCatalog.items = items;
+      state.groundPropCatalog.status = state.groundPropCatalog.items.length ? "loaded" : "missing";
+    } catch (error) {
+      state.groundPropCatalog.items = [];
+      state.groundPropCatalog.status = "missing";
+    } finally {
+      state.groundPropCatalog.promise = null;
+    }
+    return getAvailableGroundPropAssets();
+  })();
+
+  return state.groundPropCatalog.promise;
+}
+
+function resolveGroundPropAssetUrl(fileName) {
+  try {
+    return new URL(fileName, new URL(GROUND_PROP_ASSET_BASE_URL, window.location.href)).toString();
+  } catch (error) {
+    return `${GROUND_PROP_ASSET_BASE_URL}${fileName}`;
+  }
 }
 
 function renderBracketTracker() {
@@ -11106,7 +11327,7 @@ function truncateBannerTitle(text, maxLength) {
 
 function truncateTitle(text, maxLength) {
   if (text.length <= maxLength) return text;
-  return `${text.slice(0, Math.max(0, maxLength - 1)).trim()}…`;
+  return `${text.slice(0, Math.max(0, maxLength - 1)).trim()}ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦`;
 }
 
 function drawProjectiles(viewport, projectiles) {
@@ -11323,43 +11544,108 @@ function drawUnits(viewport, factions) {
   state.renderDebug.totalUnits = livingUnits.length;
   state.renderDebug.visibleUnits = units.length;
   state.renderDebug.culledUnits = Math.max(0, livingUnits.length - units.length);
-  units.forEach((unit) => {
-    const unitDef = getUnitDefinition(unit);
-    const { pose, renderScale, healthBarY, healthBarX, hpWidth } = getUnitHoverMetrics(unit, viewport);
-    const { point, scale, bodyY } = pose;
-    const strideOffset = unit.stride * 2.8 * scale / 2.1;
-    const main = unit.factionColor;
-    const dark = shadeColor(main, -0.28);
-    const light = shadeColor(main, 0.26);
-    const isHovered = state.hover.focusedUnitId === unit.id && state.hover.shiftHeld;
-    if (getUnitStatus(unit, "immobilized")) {
-      drawImmobilizedGroundNet(point, scale, unit);
-    }
-    ctx.fillStyle = "rgba(0,0,0,0.22)";
-    ctx.beginPath();
-    ctx.ellipse(point.x, point.y + 10 * scale / 2.1, (10 + Math.abs(unit.stride) * 1.6) * renderScale / 2.1, (5 - unit.bob * 0.9) * renderScale / 2.1, 0, 0, Math.PI * 2);
-    ctx.fill();
-    if (unit.type === "inklord") {
-      drawInkLordGroundAura(point, scale, unit);
-    }
-    if (isHovered) drawHoveredUnitGlow(unit, pose, renderScale, light);
-    ctx.save();
-    ctx.globalAlpha = unitDef.getRenderAlpha ? unitDef.getRenderAlpha(unit, unitDef) : 1;
-    ctx.translate(point.x + strideOffset * unit.displayFacingX * 0.35, bodyY);
-    ctx.rotate((unit.walkTilt || 0) + (unit.rotation || 0));
-    ctx.scale(unit.displayFacingX, 1);
-    if (!drawUnitSprite(unit, main, scale)) {
-      unitDef.render?.(main, dark, light, renderScale, unit);
-    }
-    drawUnitStatusOverlay(unit, renderScale);
-    ctx.restore();
-    drawUnitStatusBadges(unit, point.x + 16 * renderScale / 2.1, bodyY - 30 * renderScale / 2.1, scale);
-    ctx.fillStyle = "rgba(37,24,16,0.5)";
-    ctx.fillRect(healthBarX - hpWidth / 2, healthBarY, hpWidth, 4 * scale / 2.1);
-    ctx.fillStyle = unit.health / unit.maxHealth > 0.4 ? "#9ae085" : "#e7915d";
-    ctx.fillRect(healthBarX - hpWidth / 2, healthBarY, hpWidth * (unit.health / unit.maxHealth), 4 * scale / 2.1);
-    if (isHovered) drawHoveredUnitLabels(unit, pose, renderScale, healthBarX, healthBarY, hpWidth);
+  units.forEach((unit) => drawSingleUnit(viewport, unit));
+}
+
+function drawDepthSortedGroundEntities(viewport, battle) {
+  const cullBounds = getViewportWorldBounds(viewport, 150);
+  const livingUnits = battle.factions.flatMap((faction) => faction.units
+    .filter((unit) => !unit.dead && !unit.fled && !(unit.type === "phantom" && unit.possessedUnitId))
+    .map((unit) => ({ ...unit, factionColor: getUnitDisplayFactionColor(unit, battle) || faction.color })));
+  const visibleUnits = livingUnits.filter((unit) => isUnitInViewport(unit, cullBounds));
+  const visibleProps = (battle.props || []).filter((prop) =>
+    prop.x >= cullBounds.minX - 60
+    && prop.x <= cullBounds.maxX + 60
+    && prop.y >= cullBounds.minY - 60
+    && prop.y <= cullBounds.maxY + 60);
+  state.renderDebug.totalUnits = livingUnits.length;
+  state.renderDebug.visibleUnits = visibleUnits.length;
+  state.renderDebug.culledUnits = Math.max(0, livingUnits.length - visibleUnits.length);
+
+  const drawEntries = [
+    ...visibleProps.map((prop, index) => ({ kind: "prop", sortY: getGroundPropSortDepth(viewport, prop), index, prop })),
+    ...visibleUnits.map((unit, index) => ({ kind: "unit", sortY: getUnitSortDepth(viewport, unit), index, unit })),
+  ].sort((a, b) => {
+    if (a.sortY !== b.sortY) return a.sortY - b.sortY;
+    if (a.kind !== b.kind) return a.kind === "prop" ? -1 : 1;
+    return a.index - b.index;
   });
+
+  drawEntries.forEach((entry) => {
+    if (entry.kind === "prop") {
+      drawSingleGroundProp(viewport, entry.prop);
+    } else {
+      drawSingleUnit(viewport, entry.unit);
+    }
+  });
+}
+
+function drawSingleUnit(viewport, unit) {
+  const unitDef = getUnitDefinition(unit);
+  const { pose, renderScale, healthBarY, healthBarX, hpWidth } = getUnitHoverMetrics(unit, viewport);
+  const { point, scale, bodyY } = pose;
+  const strideOffset = unit.stride * 2.8 * scale / 2.1;
+  const main = unit.factionColor;
+  const dark = shadeColor(main, -0.28);
+  const light = shadeColor(main, 0.26);
+  const isHovered = state.hover.focusedUnitId === unit.id && state.hover.shiftHeld;
+  if (getUnitStatus(unit, "immobilized")) {
+    drawImmobilizedGroundNet(point, scale, unit);
+  }
+  ctx.fillStyle = "rgba(0,0,0,0.22)";
+  ctx.beginPath();
+  ctx.ellipse(point.x, point.y + 10 * scale / 2.1, (10 + Math.abs(unit.stride) * 1.6) * renderScale / 2.1, (5 - unit.bob * 0.9) * renderScale / 2.1, 0, 0, Math.PI * 2);
+  ctx.fill();
+  if (unit.type === "inklord") {
+    drawInkLordGroundAura(point, scale, unit);
+  }
+  if (isHovered) drawHoveredUnitGlow(unit, pose, renderScale, light);
+  ctx.save();
+  ctx.globalAlpha = unitDef.getRenderAlpha ? unitDef.getRenderAlpha(unit, unitDef) : 1;
+  ctx.translate(point.x + strideOffset * unit.displayFacingX * 0.35, bodyY);
+  ctx.rotate((unit.walkTilt || 0) + (unit.rotation || 0));
+  ctx.scale(unit.displayFacingX, 1);
+  if (!drawUnitSprite(unit, main, scale)) {
+    unitDef.render?.(main, dark, light, renderScale, unit);
+  }
+  drawUnitStatusOverlay(unit, renderScale);
+  ctx.restore();
+  drawUnitStatusBadges(unit, point.x + 16 * renderScale / 2.1, bodyY - 30 * renderScale / 2.1, scale);
+  ctx.fillStyle = "rgba(37,24,16,0.5)";
+  ctx.fillRect(healthBarX - hpWidth / 2, healthBarY, hpWidth, 4 * scale / 2.1);
+  ctx.fillStyle = unit.health / unit.maxHealth > 0.4 ? "#9ae085" : "#e7915d";
+  ctx.fillRect(healthBarX - hpWidth / 2, healthBarY, hpWidth * (unit.health / unit.maxHealth), 4 * scale / 2.1);
+  if (isHovered) drawHoveredUnitLabels(unit, pose, renderScale, healthBarX, healthBarY, hpWidth);
+}
+
+function getGroundPropSortDepth(viewport, prop) {
+  return worldToScreen(prop.x, prop.y, viewport).y;
+}
+
+function getUnitSortDepth(viewport, unit) {
+  const pose = getUnitRenderPose(unit, viewport);
+  const renderScale = pose.scale * getUnitRenderScale(unit);
+  const layout = getUnitVisualSortLayout(unit);
+  const layoutBottom = layout
+    ? pose.bodyY + (((layout.height || DEFAULT_RIG_LAYOUT.height) * renderScale / 2.1) * (1 - (layout.anchorY ?? DEFAULT_RIG_LAYOUT.anchorY)))
+    : -Infinity;
+  const groundedFallback = pose.bodyY + getUnitGroundedBottomOffset(unit, renderScale);
+  return Math.max(layoutBottom, groundedFallback);
+}
+
+function getUnitVisualSortLayout(unit) {
+  const rigSource = state.useRiggedSprites ? getRiggedUnitSpriteSource(unit?.type) : null;
+  if (rigSource?.status === "loaded" && rigSource.manifest?.layout) {
+    return rigSource.manifest.layout;
+  }
+  return UNIT_SPRITE_LAYOUTS[unit?.type] || null;
+}
+
+function getUnitGroundedBottomOffset(unit, renderScale) {
+  if (unit?.type === "inklord") return 18 * renderScale / 2.1;
+  if (unit?.type === "spiderswarm") return 9 * renderScale / 2.1;
+  if (unit?.type === "turret") return 8 * renderScale / 2.1;
+  return 12 * renderScale / 2.1;
 }
 
 function drawRenderDebugOverlay() {

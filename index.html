@@ -102,6 +102,15 @@
             </div>
             <div id="battleUnitTooltip" class="battle-unit-tooltip hidden" aria-live="polite"></div>
             <div id="battleTicker" class="ticker">Awaiting armies.</div>
+            <div id="terrainBuildStatus" class="terrain-build-status hidden" aria-live="polite">
+              <div class="terrain-build-card">
+                <p id="terrainBuildLabel" class="terrain-build-label">Building terrain texture...</p>
+                <div class="terrain-build-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+                  <div id="terrainBuildFill" class="terrain-build-fill"></div>
+                </div>
+                <p id="terrainBuildPercent" class="terrain-build-percent">0%</p>
+              </div>
+            </div>
             <div id="bossAnnouncement" class="boss-announcement" aria-live="assertive"></div>
             <div id="knockoutAnnouncement" class="knockout-announcement" aria-live="polite"></div>
           </div>
