@@ -100,6 +100,13 @@ const GROUND_PROP_PADDING_Y = 82;
 const GROUND_PROP_JITTER_MIN = 0.18;
 const GROUND_PROP_JITTER_MAX = 0.82;
 const GROUND_PROP_TINT_ALPHA = 0.36;
+const UNIT_OVERLAP_SHADOW_TINT = "#020101";
+const UNIT_OVERLAP_SHADOW_BASE_ALPHA = 0.11;
+const UNIT_OVERLAP_SHADOW_ALPHA_STEP = 0.08;
+const UNIT_OVERLAP_SHADOW_MAX_ALPHA = 0.34;
+const UNIT_OVERLAP_SHADOW_RADIUS_X = 18;
+const UNIT_OVERLAP_SHADOW_RADIUS_Y = 28;
+const UNIT_OVERLAP_SHADOW_NEIGHBOR_LIMIT = 8;
 const GROUND_TEXTURE_SOURCES = {
   dirt: "assets/textures/dirt.png",
   grass: "assets/textures/grass.png",
@@ -1307,6 +1314,7 @@ const state = {
   speedIndex: 2,
   useRiggedSprites: true,
   useTerrainTexturing: true,
+  useUnitOverlapShadows: true,
   showRenderDebug: false,
   propResizeMode: false,
   selectedPropId: null,
@@ -1354,6 +1362,7 @@ const state = {
     visibleUnits: 0,
     culledUnits: 0,
     totalUnits: 0,
+    overlapShadowCasters: 0,
     fps: 0,
   },
   lastBattleHighlightAt: -Infinity,
@@ -1396,6 +1405,7 @@ const els = {
   devPanel: document.getElementById("devPanel"),
   useRiggedSpritesToggle: document.getElementById("useRiggedSpritesToggle"),
   useTerrainTexturingToggle: document.getElementById("useTerrainTexturingToggle"),
+  useUnitOverlapShadowsToggle: document.getElementById("useUnitOverlapShadowsToggle"),
   showRenderDebugToggle: document.getElementById("showRenderDebugToggle"),
   propResizeToggle: document.getElementById("propResizeToggle"),
   knockoutAnnouncement: document.getElementById("knockoutAnnouncement"),
@@ -1522,6 +1532,7 @@ async function bootstrap() {
     bindUi();
     setUseRiggedSprites(state.useRiggedSprites);
     setUseTerrainTexturing(state.useTerrainTexturing);
+    setUseUnitOverlapShadows(state.useUnitOverlapShadows);
     setShowRenderDebug(state.showRenderDebug);
     setPropResizeMode(state.propResizeMode);
     setDevPanelVisible(false);
@@ -1572,6 +1583,9 @@ function bindUi() {
   });
   els.useTerrainTexturingToggle?.addEventListener("change", () => {
     setUseTerrainTexturing(Boolean(els.useTerrainTexturingToggle.checked));
+  });
+  els.useUnitOverlapShadowsToggle?.addEventListener("change", () => {
+    setUseUnitOverlapShadows(Boolean(els.useUnitOverlapShadowsToggle.checked));
   });
   els.showRenderDebugToggle?.addEventListener("change", () => {
     setShowRenderDebug(Boolean(els.showRenderDebugToggle.checked));
@@ -3738,6 +3752,7 @@ function loadState() {
     state.tournamentConfig = normalizeTournamentConfig(saved.tournamentConfig);
     state.useRiggedSprites = saved.useRiggedSprites !== false;
     state.useTerrainTexturing = saved.useTerrainTexturing !== false;
+    state.useUnitOverlapShadows = saved.useUnitOverlapShadows !== false;
     state.showRenderDebug = saved.showRenderDebug === true;
     state.propResizeMode = saved.propResizeMode === true;
     state.propScaleOverrides = typeof saved.propScaleOverrides === "object" && saved.propScaleOverrides
@@ -3755,6 +3770,7 @@ function saveState() {
     tournamentConfig: state.tournamentConfig,
     useRiggedSprites: state.useRiggedSprites,
     useTerrainTexturing: state.useTerrainTexturing,
+    useUnitOverlapShadows: state.useUnitOverlapShadows,
     showRenderDebug: state.showRenderDebug,
     propResizeMode: state.propResizeMode,
     propScaleOverrides: state.propScaleOverrides,
@@ -3850,6 +3866,14 @@ function setUseTerrainTexturing(enabled) {
   } else if (state.battle) {
     state.battle.terrainTexture = createBattleTerrainTextureState(state.battle.field, state.battle.arena);
     queueBattleTerrainTextureGeneration(state.battle, 40);
+  }
+  saveState();
+}
+
+function setUseUnitOverlapShadows(enabled) {
+  state.useUnitOverlapShadows = Boolean(enabled);
+  if (els.useUnitOverlapShadowsToggle) {
+    els.useUnitOverlapShadowsToggle.checked = state.useUnitOverlapShadows;
   }
   saveState();
 }
@@ -4290,7 +4314,7 @@ function importCsv() {
   state.factions = parsed;
   saveState();
   renderArmyEditors();
-  resetBattle();
+  resetBattlePreservingArenaVisuals();
 }
 
 function exportCsv() {
@@ -4328,7 +4352,7 @@ function renderArmyEditors() {
     saveState();
     syncCsvInput();
     renderArmyEditors();
-    resetBattle();
+    resetBattlePreservingArenaVisuals();
   });
   els.armyList.appendChild(addBtn);
   els.roundCounter.textContent = `${state.roundsApplied}`;
@@ -4358,7 +4382,7 @@ function bindArmyEditor(fragment, faction) {
     faction.fledReserve = clampInt(reserveInput.value, 0, 250);
     syncCsvInput();
     saveState();
-    resetBattle();
+    resetBattlePreservingArenaVisuals();
     renderArmyEditors();
   };
 
@@ -4369,7 +4393,7 @@ function bindArmyEditor(fragment, faction) {
     saveState();
     syncCsvInput();
     renderArmyEditors();
-    resetBattle();
+    resetBattlePreservingArenaVisuals();
   });
 }
 
@@ -4403,7 +4427,7 @@ function persistCompositionDraft() {
   saveState();
   syncCsvInput();
   renderArmyEditors();
-  resetBattle();
+  resetBattlePreservingArenaVisuals();
 }
 
 function renderCompositionModal() {
@@ -4564,7 +4588,8 @@ function sizeCanvas() {
   chartCtx.setTransform(1, 0, 0, 1, 0, 0);
 }
 
-function resetBattle() {
+function resetBattle(options = {}) {
+  const preserveArenaVisuals = Boolean(options.preserveArenaVisuals);
   state.running = false;
   state.lastBattleHighlightAt = -Infinity;
   state.tournamentResult = null;
@@ -4575,7 +4600,7 @@ function resetBattle() {
   closeTournamentStoryModal();
   clearSelectedBattleProp();
   state.tournament = shouldUseTournament(state.factions) ? createTournament(state.factions) : null;
-  state.battle = buildActiveBattle();
+  state.battle = buildActiveBattle({ preserveArenaVisuals });
   queueBattleTerrainTextureGeneration(state.battle);
   clearKnockoutAnnouncement();
   clearBossAnnouncement();
@@ -4590,6 +4615,10 @@ function resetBattle() {
   renderSpeedControls();
   setTicker(state.factions.length ? getReadyMessage() : "Add at least one army to begin.");
   syncTournamentViewState(true);
+}
+
+function resetBattlePreservingArenaVisuals() {
+  resetBattle({ preserveArenaVisuals: true });
 }
 
 function isTournamentActive() {
@@ -4725,20 +4754,33 @@ function getReadyMessage() {
   return match ? `${getCurrentMatchLabel(state.tournament)} awaits in ${match.arena.name}.` : "Bracket stands ready.";
 }
 
-function buildActiveBattle() {
+function buildActiveBattle(options = {}) {
+  const preserveArenaVisuals = Boolean(options.preserveArenaVisuals);
   if (state.tournament) {
     const match = getCurrentTournamentMatch(state.tournament);
     if (match) {
       return buildBattle(match.factionIds.map((id) => findSourceFaction(id)).filter(Boolean).map((faction) => cloneData(faction)), match.arena, {
         tournamentRound: state.tournament.currentRoundIndex,
         tournamentMatch: state.tournament.currentMatchIndex,
+      }, {
+        preserveArenaVisuals,
+        sceneSnapshot: preserveArenaVisuals ? state.battle : null,
       });
     }
   }
-  return buildBattle(state.factions, createRandomArenaVariant(0, 0, state.factions.length), null);
+  const arena = preserveArenaVisuals && state.battle?.arena
+    ? state.battle.arena
+    : createRandomArenaVariant(0, 0, state.factions.length);
+  return buildBattle(state.factions, arena, null, {
+    preserveArenaVisuals,
+    sceneSnapshot: preserveArenaVisuals ? state.battle : null,
+  });
 }
 
-function buildBattle(factionPool = state.factions, arena = createArenaVariant(0, 0, factionPool.length), meta = null) {
+function buildBattle(factionPool = state.factions, arena = createArenaVariant(0, 0, factionPool.length), meta = null, options = {}) {
+  const preserveArenaVisuals = Boolean(options.preserveArenaVisuals);
+  const sceneSnapshot = options.sceneSnapshot || null;
+  const canReuseScene = preserveArenaVisuals && sceneSnapshot?.arena === arena;
   const field = { ...FIELD, centerX: FIELD.width / 2, centerY: FIELD.height / 2, radius: 320 };
   const factions = factionPool.map((faction, index) => {
     const angle = (Math.PI * 2 * index) / Math.max(1, factionPool.length);
@@ -4756,7 +4798,16 @@ function buildBattle(factionPool = state.factions, arena = createArenaVariant(0,
   });
   const unitCapSummary = applyBattlefieldUnitCap(factions, state.tournamentConfig.maxUnitsOnBattlefield);
   const terrainTexture = createBattleTerrainTextureState(field, arena);
-  if (state.tournamentTerrainTextureCache?.canvas) {
+  if (canReuseScene && sceneSnapshot?.terrainTexture?.canvas) {
+    terrainTexture.canvas = sceneSnapshot.terrainTexture.canvas;
+    terrainTexture.ready = true;
+    terrainTexture.pending = false;
+    terrainTexture.queued = false;
+    terrainTexture.profile = sceneSnapshot.terrainTexture.profile;
+    terrainTexture.seed = sceneSnapshot.terrainTexture.seed;
+    terrainTexture.mirrorX = sceneSnapshot.terrainTexture.mirrorX;
+    terrainTexture.mirrorY = sceneSnapshot.terrainTexture.mirrorY;
+  } else if (state.tournamentTerrainTextureCache?.canvas) {
     terrainTexture.canvas = state.tournamentTerrainTextureCache.canvas;
     terrainTexture.ready = true;
     terrainTexture.pending = false;
@@ -4775,9 +4826,13 @@ function buildBattle(factionPool = state.factions, arena = createArenaVariant(0,
     stuckArrows: [],
     bombs: [],
     arena,
-    weatherField: createWeatherField(arena.weather),
+    weatherField: canReuseScene && sceneSnapshot?.weatherField
+      ? sceneSnapshot.weatherField
+      : createWeatherField(arena.weather),
     terrainTexture,
-    props: buildFieldProps(field, arena),
+    props: canReuseScene && Array.isArray(sceneSnapshot?.props)
+      ? sceneSnapshot.props
+      : buildFieldProps(field, arena),
     pendingWinner: null,
     completed: false,
     meta: unitCapSummary.totalRemoved > 0
@@ -11395,7 +11450,7 @@ function onCanvasWheel(event) {
   const currentScale = baseScale * state.camera.zoom;
   const cursorWorldX = state.camera.x + ((cursorCanvasX - viewport.width / 2) / Math.max(currentScale, 0.0001));
   const cursorWorldY = state.camera.y + ((cursorCanvasY - viewport.height / 2) / Math.max(currentScale, 0.0001));
-  const nextZoom = clamp(state.camera.zoom * (Math.sign(event.deltaY) > 0 ? 0.9 : 1.1), 0.28, 4.2);
+  const nextZoom = clamp(state.camera.zoom * (Math.sign(event.deltaY) > 0 ? 0.9 : 1.1), 0.28, 6.5);
   const nextScale = baseScale * nextZoom;
   state.camera.zoom = nextZoom;
   state.camera.x = cursorWorldX - ((cursorCanvasX - viewport.width / 2) / Math.max(nextScale, 0.0001));
@@ -12966,13 +13021,12 @@ function drawUnits(viewport, factions) {
   const livingUnits = factions.flatMap((faction) => faction.units
     .filter((unit) => !unit.dead && !unit.fled && !(unit.type === "phantom" && unit.possessedUnitId))
     .map((unit) => ({ ...unit, factionColor: getUnitDisplayFactionColor(unit, state.battle) || faction.color })));
-  const units = livingUnits
-    .filter((unit) => isUnitInViewport(unit, cullBounds))
-    .sort((a, b) => a.y - b.y);
+  const units = buildVisibleUnitRenderEntries(viewport, livingUnits, cullBounds);
   state.renderDebug.totalUnits = livingUnits.length;
   state.renderDebug.visibleUnits = units.length;
   state.renderDebug.culledUnits = Math.max(0, livingUnits.length - units.length);
-  units.forEach((unit) => drawSingleUnit(viewport, unit));
+  state.renderDebug.overlapShadowCasters = units.reduce((total, entry) => total + (entry.rearShadowStrength > 0 ? 1 : 0), 0);
+  units.forEach((entry) => drawSingleUnit(viewport, entry.unit, entry));
 }
 
 function drawDepthSortedGroundEntities(viewport, battle) {
@@ -12987,7 +13041,7 @@ function drawDepthSortedGroundEntities(viewport, battle) {
   const livingUnits = battle.factions.flatMap((faction) => faction.units
     .filter((unit) => !unit.dead && !unit.fled && !(unit.type === "phantom" && unit.possessedUnitId))
     .map((unit) => ({ ...unit, factionColor: getUnitDisplayFactionColor(unit, battle) || faction.color })));
-  const visibleUnits = livingUnits.filter((unit) => isUnitInViewport(unit, cullBounds));
+  const visibleUnits = buildVisibleUnitRenderEntries(viewport, livingUnits, cullBounds);
   const visibleProps = (battle.props || []).filter((prop) =>
     prop.x >= cullBounds.minX - 60
     && prop.x <= cullBounds.maxX + 60
@@ -13001,12 +13055,13 @@ function drawDepthSortedGroundEntities(viewport, battle) {
   state.renderDebug.totalUnits = livingUnits.length;
   state.renderDebug.visibleUnits = visibleUnits.length;
   state.renderDebug.culledUnits = Math.max(0, livingUnits.length - visibleUnits.length);
+  state.renderDebug.overlapShadowCasters = visibleUnits.reduce((total, entry) => total + (entry.rearShadowStrength > 0 ? 1 : 0), 0);
 
   const drawEntries = [
     ...visibleProps.map((prop, index) => ({ kind: "prop", sortY: getGroundPropSortDepth(viewport, prop), index, prop })),
     ...visibleGraves.map((grave, index) => ({ kind: "grave", sortY: getGraveSortDepth(viewport, grave), index, grave })),
     ...visibleBanners.map((faction, index) => ({ kind: "banner", sortY: getBannerSortDepth(viewport, faction), index, faction })),
-    ...visibleUnits.map((unit, index) => ({ kind: "unit", sortY: getUnitSortDepth(viewport, unit), index, unit })),
+    ...visibleUnits.map((entry, index) => ({ kind: "unit", sortY: entry.sortY, index, unit: entry.unit, unitRenderEntry: entry })),
   ].sort((a, b) => {
     if (a.sortY !== b.sortY) return a.sortY - b.sortY;
     if (a.kind !== b.kind) {
@@ -13024,12 +13079,113 @@ function drawDepthSortedGroundEntities(viewport, battle) {
     } else if (entry.kind === "banner") {
       drawSingleBanner(viewport, entry.faction);
     } else {
-      drawSingleUnit(viewport, entry.unit);
+      drawSingleUnit(viewport, entry.unit, entry.unitRenderEntry);
     }
   });
 }
 
-function drawSingleUnit(viewport, unit) {
+function buildVisibleUnitRenderEntries(viewport, livingUnits, cullBounds = getViewportWorldBounds(viewport, 150)) {
+  const visibleUnits = livingUnits
+    .filter((unit) => isUnitInViewport(unit, cullBounds))
+    .map((unit) => {
+      const pose = getUnitRenderPose(unit, viewport);
+      const renderScale = pose.scale * getUnitRenderScale(unit);
+      const layout = getUnitVisualSortLayout(unit);
+      const baseHeight = layout?.height || (unit.type === "inklord" ? 74 : 39);
+      const sortY = getUnitSortDepth(viewport, unit, pose, renderScale, layout);
+      return {
+        unit,
+        sortY,
+        pointX: pose.point.x,
+        pointY: pose.point.y,
+        bodyY: pose.bodyY,
+        scale: pose.scale,
+        renderScale,
+        overlapRadiusX: Math.max(12, baseHeight * renderScale / 5.8),
+        overlapRadiusY: Math.max(18, baseHeight * renderScale / 3.5),
+        clipCenterY: unit.type === "inklord"
+          ? pose.bodyY - 42 * renderScale / 2.1
+          : pose.bodyY - 10 * renderScale / 2.1,
+        clipRadiusX: Math.max(14, (unit.type === "inklord" ? 34 : 16) * renderScale / 2.1),
+        clipRadiusY: Math.max(18, (unit.type === "inklord" ? 54 : 24) * renderScale / 2.1),
+        rearShadowStrength: 0,
+        rearShadowTargets: [],
+      };
+    })
+    .sort((a, b) => a.sortY - b.sortY);
+  if (!state.useUnitOverlapShadows) return visibleUnits;
+  visibleUnits.forEach((entry, index) => {
+    let overlapCount = 0;
+    for (let offset = 1; offset <= UNIT_OVERLAP_SHADOW_NEIGHBOR_LIMIT; offset += 1) {
+      const other = visibleUnits[index - offset];
+      if (!other) break;
+      const depthGap = entry.sortY - other.sortY;
+      const yLimit = Math.max(entry.overlapRadiusY, other.overlapRadiusY) * 0.92;
+      if (depthGap > yLimit) break;
+      const xLimit = (entry.overlapRadiusX + other.overlapRadiusX) * 0.82;
+      if (Math.abs(entry.pointX - other.pointX) > xLimit) continue;
+      overlapCount += 1;
+      entry.rearShadowTargets.push(other);
+    }
+    if (overlapCount > 0) {
+      entry.rearShadowStrength = clamp(
+        UNIT_OVERLAP_SHADOW_BASE_ALPHA + overlapCount * UNIT_OVERLAP_SHADOW_ALPHA_STEP,
+        0,
+        UNIT_OVERLAP_SHADOW_MAX_ALPHA,
+      );
+    }
+  });
+  return visibleUnits;
+}
+
+function drawUnitRearOverlapShadow(unit, renderEntry) {
+  const shadowTargets = renderEntry?.rearShadowTargets || [];
+  if (!shadowTargets.length || (renderEntry?.rearShadowStrength || 0) <= 0.01) return;
+  const unitDef = getUnitDefinition(unit);
+  const receiverAlpha = unitDef.getRenderAlpha ? unitDef.getRenderAlpha(unit, unitDef) : 1;
+  if (receiverAlpha <= 0.01) return;
+  ctx.save();
+  ctx.beginPath();
+  ctx.ellipse(
+    renderEntry.pointX,
+    renderEntry.clipCenterY,
+    renderEntry.clipRadiusX,
+    renderEntry.clipRadiusY,
+    0,
+    0,
+    Math.PI * 2,
+  );
+  ctx.clip();
+  ctx.globalCompositeOperation = "multiply";
+  shadowTargets.forEach((target) => {
+    const depthGap = renderEntry.sortY - target.sortY;
+    const yLimit = Math.max(renderEntry.overlapRadiusY, target.overlapRadiusY) * 0.92;
+    const closeness = 1 - clamp(depthGap / Math.max(1, yLimit), 0, 1);
+    if (closeness <= 0.02) return;
+    const alpha = receiverAlpha * clamp(
+      UNIT_OVERLAP_SHADOW_BASE_ALPHA + (closeness * UNIT_OVERLAP_SHADOW_ALPHA_STEP),
+      0,
+      UNIT_OVERLAP_SHADOW_MAX_ALPHA,
+    );
+    const radiusX = Math.max(10, UNIT_OVERLAP_SHADOW_RADIUS_X * target.renderScale / 2.1);
+    const radiusY = Math.max(14, UNIT_OVERLAP_SHADOW_RADIUS_Y * target.renderScale / 2.1);
+    ctx.save();
+    ctx.translate(target.pointX, target.clipCenterY);
+    ctx.scale(radiusX, radiusY);
+    const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, 1);
+    gradient.addColorStop(0, hexToRgba(UNIT_OVERLAP_SHADOW_TINT, alpha));
+    gradient.addColorStop(0.72, hexToRgba(UNIT_OVERLAP_SHADOW_TINT, alpha * 0.45));
+    gradient.addColorStop(1, hexToRgba(UNIT_OVERLAP_SHADOW_TINT, 0));
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.arc(0, 0, 1, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  });
+  ctx.restore();
+}
+
+function drawSingleUnit(viewport, unit, renderEntry = null) {
   const unitDef = getUnitDefinition(unit);
   const { pose, renderScale, healthBarY, healthBarX, hpWidth } = getUnitHoverMetrics(unit, viewport);
   const { point, scale, bodyY } = pose;
@@ -13049,6 +13205,9 @@ function drawSingleUnit(viewport, unit) {
     drawInkLordGroundAura(point, scale, unit);
   }
   if (isHovered) drawHoveredUnitGlow(unit, pose, renderScale, light);
+  if ((renderEntry?.rearShadowStrength || 0) > 0) {
+    drawUnitRearOverlapShadow(unit, renderEntry);
+  }
   ctx.save();
   ctx.globalAlpha = unitDef.getRenderAlpha ? unitDef.getRenderAlpha(unit, unitDef) : 1;
   ctx.translate(point.x + strideMotion.x, bodyY + strideMotion.y);
@@ -13092,14 +13251,14 @@ function getBannerSortDepth(viewport, faction) {
   return clothTop + clothHeight;
 }
 
-function getUnitSortDepth(viewport, unit) {
-  const pose = getUnitRenderPose(unit, viewport);
-  const renderScale = pose.scale * getUnitRenderScale(unit);
-  const layout = getUnitVisualSortLayout(unit);
-  const layoutBottom = layout
-    ? pose.bodyY + (((layout.height || DEFAULT_RIG_LAYOUT.height) * renderScale / 2.1) * (1 - (layout.anchorY ?? DEFAULT_RIG_LAYOUT.anchorY)))
+function getUnitSortDepth(viewport, unit, pose = null, renderScale = null, layout = null) {
+  const resolvedPose = pose || getUnitRenderPose(unit, viewport);
+  const resolvedRenderScale = renderScale ?? (resolvedPose.scale * getUnitRenderScale(unit));
+  const resolvedLayout = layout || getUnitVisualSortLayout(unit);
+  const layoutBottom = resolvedLayout
+    ? resolvedPose.bodyY + (((resolvedLayout.height || DEFAULT_RIG_LAYOUT.height) * resolvedRenderScale / 2.1) * (1 - (resolvedLayout.anchorY ?? DEFAULT_RIG_LAYOUT.anchorY)))
     : -Infinity;
-  const groundedFallback = pose.bodyY + getUnitGroundedBottomOffset(unit, renderScale);
+  const groundedFallback = resolvedPose.bodyY + getUnitGroundedBottomOffset(unit, resolvedRenderScale);
   return Math.max(layoutBottom, groundedFallback);
 }
 
@@ -13119,12 +13278,19 @@ function getUnitGroundedBottomOffset(unit, renderScale) {
 }
 
 function drawRenderDebugOverlay() {
-  const { visibleUnits, culledUnits, totalUnits, fps } = state.renderDebug;
+  const {
+    visibleUnits,
+    culledUnits,
+    totalUnits,
+    overlapShadowCasters,
+    fps,
+  } = state.renderDebug;
   const lines = [
     `FPS: ${fps.toFixed(1)}`,
     `Units drawn: ${visibleUnits}`,
     `Units culled: ${culledUnits}`,
     `Units total: ${totalUnits}`,
+    `Overlap shadows: ${overlapShadowCasters}`,
   ];
   ctx.save();
   ctx.textAlign = "left";
