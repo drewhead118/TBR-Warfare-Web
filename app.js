@@ -101,11 +101,11 @@ const GROUND_PROP_JITTER_MIN = 0.18;
 const GROUND_PROP_JITTER_MAX = 0.82;
 const GROUND_PROP_TINT_ALPHA = 0.36;
 const UNIT_OVERLAP_SHADOW_TINT = "#020101";
-const UNIT_OVERLAP_SHADOW_BASE_ALPHA = 0.11;
-const UNIT_OVERLAP_SHADOW_ALPHA_STEP = 0.08;
-const UNIT_OVERLAP_SHADOW_MAX_ALPHA = 0.34;
-const UNIT_OVERLAP_SHADOW_RADIUS_X = 18;
-const UNIT_OVERLAP_SHADOW_RADIUS_Y = 28;
+const UNIT_OVERLAP_SHADOW_BASE_ALPHA = 0.22;
+const UNIT_OVERLAP_SHADOW_ALPHA_STEP = 0.16;
+const UNIT_OVERLAP_SHADOW_MAX_ALPHA = 0.62;
+const UNIT_OVERLAP_SHADOW_RADIUS_X = 15;
+const UNIT_OVERLAP_SHADOW_RADIUS_Y = 22;
 const UNIT_OVERLAP_SHADOW_NEIGHBOR_LIMIT = 8;
 const GROUND_TEXTURE_SOURCES = {
   dirt: "assets/textures/dirt.png",
@@ -1281,7 +1281,8 @@ const state = {
   tournament: null,
   tournamentResult: null,
   tournamentTerrainTextureCache: null,
-  lastTerrainMirrorKey: "",
+  terrainTextureCache: new Map(),
+  sessionTerrainTexture: null,
   images: new Map(),
   unitSpriteSources: new Map(),
   riggedUnitSpriteSources: new Map(),
@@ -1315,6 +1316,7 @@ const state = {
   useRiggedSprites: true,
   useTerrainTexturing: true,
   useUnitOverlapShadows: true,
+  alwaysShowHealthbars: false,
   showRenderDebug: false,
   propResizeMode: false,
   selectedPropId: null,
@@ -1406,6 +1408,7 @@ const els = {
   useRiggedSpritesToggle: document.getElementById("useRiggedSpritesToggle"),
   useTerrainTexturingToggle: document.getElementById("useTerrainTexturingToggle"),
   useUnitOverlapShadowsToggle: document.getElementById("useUnitOverlapShadowsToggle"),
+  alwaysShowHealthbarsToggle: document.getElementById("alwaysShowHealthbarsToggle"),
   showRenderDebugToggle: document.getElementById("showRenderDebugToggle"),
   propResizeToggle: document.getElementById("propResizeToggle"),
   knockoutAnnouncement: document.getElementById("knockoutAnnouncement"),
@@ -1533,6 +1536,7 @@ async function bootstrap() {
     setUseRiggedSprites(state.useRiggedSprites);
     setUseTerrainTexturing(state.useTerrainTexturing);
     setUseUnitOverlapShadows(state.useUnitOverlapShadows);
+    setAlwaysShowHealthbars(state.alwaysShowHealthbars);
     setShowRenderDebug(state.showRenderDebug);
     setPropResizeMode(state.propResizeMode);
     setDevPanelVisible(false);
@@ -1586,6 +1590,9 @@ function bindUi() {
   });
   els.useUnitOverlapShadowsToggle?.addEventListener("change", () => {
     setUseUnitOverlapShadows(Boolean(els.useUnitOverlapShadowsToggle.checked));
+  });
+  els.alwaysShowHealthbarsToggle?.addEventListener("change", () => {
+    setAlwaysShowHealthbars(Boolean(els.alwaysShowHealthbarsToggle.checked));
   });
   els.showRenderDebugToggle?.addEventListener("change", () => {
     setShowRenderDebug(Boolean(els.showRenderDebugToggle.checked));
@@ -3376,13 +3383,10 @@ function renderSpeedControls() {
 
   const cameraModeButton = document.createElement("button");
   cameraModeButton.className = "speed-btn active";
-  cameraModeButton.innerHTML = `Camera Mode:<br>${state.camera.mode === "fit" ? "Frame All" : "Cinematic"}`;
-  cameraModeButton.title = state.camera.mode === "fit"
-    ? "Keep the full battle framed"
-    : "Slowly fly between battlefield points of interest";
+  cameraModeButton.innerHTML = `Camera Mode:<br>${getCameraModeLabel(state.camera.mode)}`;
+  cameraModeButton.title = getCameraModeTitle(state.camera.mode);
   cameraModeButton.addEventListener("click", () => {
-    state.camera.mode = state.camera.mode === "fit" ? "cinematic" : "fit";
-    resetCinematicCameraState();
+    cycleCameraMode();
     renderSpeedControls();
   });
   els.speedControls.appendChild(cameraModeButton);
@@ -3392,10 +3396,35 @@ function cloneData(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
+const CAMERA_MODE_ORDER = ["fit", "cinematic", "manual"];
+
+function getCameraModeLabel(mode) {
+  if (mode === "cinematic") return "Cinematic";
+  if (mode === "manual") return "Manual";
+  return "Frame All";
+}
+
+function getCameraModeTitle(mode) {
+  if (mode === "cinematic") return "Slowly fly between battlefield points of interest";
+  if (mode === "manual") return "Never recenter automatically; keep camera control in the player's hands";
+  return "Keep the full battle framed";
+}
+
 function getBattleSpeedMultiplier() {
   if (state.battle?.completed) return POST_BATTLE_REVIEW_SPEED;
   if (state.hover.inspectSlowActive) return SHIFT_INSPECT_SPEED;
   return SPEED_OPTIONS[state.speedIndex];
+}
+
+function cycleCameraMode() {
+  const currentIndex = CAMERA_MODE_ORDER.indexOf(state.camera.mode);
+  const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % CAMERA_MODE_ORDER.length : 0;
+  state.camera.mode = CAMERA_MODE_ORDER[nextIndex];
+  state.camera.manualUntil = 0;
+  state.camera.targetX = state.camera.x;
+  state.camera.targetY = state.camera.y;
+  state.camera.targetZoom = state.camera.zoom;
+  resetCinematicCameraState();
 }
 
 function createEmptyComposition() {
@@ -3753,6 +3782,7 @@ function loadState() {
     state.useRiggedSprites = saved.useRiggedSprites !== false;
     state.useTerrainTexturing = saved.useTerrainTexturing !== false;
     state.useUnitOverlapShadows = saved.useUnitOverlapShadows !== false;
+    state.alwaysShowHealthbars = saved.alwaysShowHealthbars === true;
     state.showRenderDebug = saved.showRenderDebug === true;
     state.propResizeMode = saved.propResizeMode === true;
     state.propScaleOverrides = typeof saved.propScaleOverrides === "object" && saved.propScaleOverrides
@@ -3771,6 +3801,7 @@ function saveState() {
     useRiggedSprites: state.useRiggedSprites,
     useTerrainTexturing: state.useTerrainTexturing,
     useUnitOverlapShadows: state.useUnitOverlapShadows,
+    alwaysShowHealthbars: state.alwaysShowHealthbars,
     showRenderDebug: state.showRenderDebug,
     propResizeMode: state.propResizeMode,
     propScaleOverrides: state.propScaleOverrides,
@@ -3874,6 +3905,14 @@ function setUseUnitOverlapShadows(enabled) {
   state.useUnitOverlapShadows = Boolean(enabled);
   if (els.useUnitOverlapShadowsToggle) {
     els.useUnitOverlapShadowsToggle.checked = state.useUnitOverlapShadows;
+  }
+  saveState();
+}
+
+function setAlwaysShowHealthbars(enabled) {
+  state.alwaysShowHealthbars = Boolean(enabled);
+  if (els.alwaysShowHealthbarsToggle) {
+    els.alwaysShowHealthbarsToggle.checked = state.alwaysShowHealthbars;
   }
   saveState();
 }
@@ -4590,17 +4629,18 @@ function sizeCanvas() {
 
 function resetBattle(options = {}) {
   const preserveArenaVisuals = Boolean(options.preserveArenaVisuals);
+  const regenerateTerrain = options.regenerateTerrain !== false;
   state.running = false;
   state.lastBattleHighlightAt = -Infinity;
   state.tournamentResult = null;
-  state.tournamentTerrainTextureCache = null;
+  if (regenerateTerrain) state.sessionTerrainTexture = null;
   endBattleAudio();
   clearBattleHover();
   closeResetTournamentModal();
   closeTournamentStoryModal();
   clearSelectedBattleProp();
   state.tournament = shouldUseTournament(state.factions) ? createTournament(state.factions) : null;
-  state.battle = buildActiveBattle({ preserveArenaVisuals });
+  state.battle = buildActiveBattle({ preserveArenaVisuals, regenerateTerrain });
   queueBattleTerrainTextureGeneration(state.battle);
   clearKnockoutAnnouncement();
   clearBossAnnouncement();
@@ -4618,7 +4658,7 @@ function resetBattle(options = {}) {
 }
 
 function resetBattlePreservingArenaVisuals() {
-  resetBattle({ preserveArenaVisuals: true });
+  resetBattle({ preserveArenaVisuals: true, regenerateTerrain: false });
 }
 
 function isTournamentActive() {
@@ -4756,6 +4796,8 @@ function getReadyMessage() {
 
 function buildActiveBattle(options = {}) {
   const preserveArenaVisuals = Boolean(options.preserveArenaVisuals);
+  const regenerateTerrain = Boolean(options.regenerateTerrain);
+  const terrainMirrorKey = options.terrainMirrorKey || "";
   if (state.tournament) {
     const match = getCurrentTournamentMatch(state.tournament);
     if (match) {
@@ -4764,6 +4806,8 @@ function buildActiveBattle(options = {}) {
         tournamentMatch: state.tournament.currentMatchIndex,
       }, {
         preserveArenaVisuals,
+        regenerateTerrain,
+        terrainMirrorKey,
         sceneSnapshot: preserveArenaVisuals ? state.battle : null,
       });
     }
@@ -4773,6 +4817,8 @@ function buildActiveBattle(options = {}) {
     : createRandomArenaVariant(0, 0, state.factions.length);
   return buildBattle(state.factions, arena, null, {
     preserveArenaVisuals,
+    regenerateTerrain,
+    terrainMirrorKey,
     sceneSnapshot: preserveArenaVisuals ? state.battle : null,
   });
 }
@@ -4797,22 +4843,11 @@ function buildBattle(factionPool = state.factions, arena = createArenaVariant(0,
     };
   });
   const unitCapSummary = applyBattlefieldUnitCap(factions, state.tournamentConfig.maxUnitsOnBattlefield);
-  const terrainTexture = createBattleTerrainTextureState(field, arena);
-  if (canReuseScene && sceneSnapshot?.terrainTexture?.canvas) {
-    terrainTexture.canvas = sceneSnapshot.terrainTexture.canvas;
-    terrainTexture.ready = true;
-    terrainTexture.pending = false;
-    terrainTexture.queued = false;
-    terrainTexture.profile = sceneSnapshot.terrainTexture.profile;
-    terrainTexture.seed = sceneSnapshot.terrainTexture.seed;
-    terrainTexture.mirrorX = sceneSnapshot.terrainTexture.mirrorX;
-    terrainTexture.mirrorY = sceneSnapshot.terrainTexture.mirrorY;
-  } else if (state.tournamentTerrainTextureCache?.canvas) {
-    terrainTexture.canvas = state.tournamentTerrainTextureCache.canvas;
-    terrainTexture.ready = true;
-    terrainTexture.pending = false;
-    terrainTexture.queued = false;
-  }
+  const terrainTexture = getSharedBattleTerrainTexture(field, arena, {
+    regenerate: options.regenerateTerrain,
+    preserveCurrentMirror: canReuseScene,
+    mirrorKey: options.terrainMirrorKey || (meta ? `${meta.tournamentRound || 0}|${meta.tournamentMatch || 0}` : ""),
+  });
   const battle = {
     field,
     factions,
@@ -5315,15 +5350,11 @@ function applyArenaToBattle(battle, arena) {
   if (!battle) return;
   battle.arena = arena;
   battle.weatherField = createWeatherField(arena.weather);
-  battle.terrainTexture = createBattleTerrainTextureState(battle.field, arena);
-  if (state.tournamentTerrainTextureCache?.canvas) {
-    battle.terrainTexture.canvas = state.tournamentTerrainTextureCache.canvas;
-    battle.terrainTexture.ready = true;
-    battle.terrainTexture.pending = false;
-    battle.terrainTexture.queued = false;
-  } else {
-    queueBattleTerrainTextureGeneration(battle);
-  }
+  battle.terrainTexture = getSharedBattleTerrainTexture(battle.field, arena, {
+    regenerate: false,
+    preserveCurrentMirror: true,
+  });
+  if (!battle.terrainTexture.ready) queueBattleTerrainTextureGeneration(battle);
   battle.props = buildFieldProps(battle.field, arena);
   clearSelectedBattleProp();
 }
@@ -5703,6 +5734,11 @@ function getUnitRenderScale(unit) {
   if (unit?.type === "inklord") return 4;
   const baseScale = getUnitDefinition(unit).renderScale || (unit?.type === "krieger" ? 1.2 : 1);
   return baseScale * (unit?.veteran ? VETERAN_BONUSES.spriteScale : 1);
+}
+
+function getLayoutHeightScale(layout) {
+  const layoutHeight = layout?.height || DEFAULT_RIG_LAYOUT.height;
+  return layoutHeight / DEFAULT_RIG_LAYOUT.height;
 }
 
 function getVeteranProgressValue(unit, metric) {
@@ -6155,16 +6191,19 @@ function createTerrainMaterialMaskConfigs(name, tileSize, replacementWeights, ov
 }
 
 function createBattleTerrainTextureState(field, arena) {
-  const seedBase = `${arena?.name || "arena"}|${arena?.weather || "clear"}|${Date.now()}|${Math.random()}`;
-  const mirror = getNextTerrainMirrorFlags();
+  const profile = arena?.textureProfile ? cloneData(arena.textureProfile) : createArenaTextureProfile(arena?.name || "");
+  const cacheKey = buildTerrainTextureCacheKey(field, arena, profile);
+  const seed = hashStringToSeed(cacheKey);
+  const mirror = getTerrainMirrorFlags(seed);
   return {
     width: Math.max(1, Math.round(field.width * TERRAIN_TEXTURE_RESOLUTION_SCALE)),
     height: Math.max(1, Math.round(field.height * TERRAIN_TEXTURE_RESOLUTION_SCALE)),
     worldWidth: field.width,
     worldHeight: field.height,
     resolutionScale: TERRAIN_TEXTURE_RESOLUTION_SCALE,
-    seed: hashStringToSeed(seedBase),
-    profile: arena?.textureProfile ? cloneData(arena.textureProfile) : createArenaTextureProfile(arena?.name || ""),
+    cacheKey,
+    seed,
+    profile,
     canvas: null,
     pending: false,
     ready: false,
@@ -6175,6 +6214,55 @@ function createBattleTerrainTextureState(field, arena) {
     mirrorX: mirror.x,
     mirrorY: mirror.y,
   };
+}
+
+function getSharedBattleTerrainTexture(field, arena, options = {}) {
+  const regenerate = Boolean(options.regenerate);
+  const preserveCurrentMirror = Boolean(options.preserveCurrentMirror);
+  const mirrorKey = options.mirrorKey || "";
+  const source = state.sessionTerrainTexture;
+  const needsFreshTerrain = regenerate
+    || !source
+    || source.worldWidth !== field.width
+    || source.worldHeight !== field.height;
+
+  if (needsFreshTerrain) {
+    state.sessionTerrainTexture = createBattleTerrainTextureState(field, arena);
+  }
+
+  const activeSource = state.sessionTerrainTexture;
+  if (!activeSource) return createBattleTerrainTextureState(field, arena);
+  if (!activeSource.ready || activeSource.pending || activeSource.queued) return activeSource;
+
+  let mirrorX = activeSource.mirrorX;
+  let mirrorY = activeSource.mirrorY;
+  if (preserveCurrentMirror && state.battle?.terrainTexture) {
+    mirrorX = state.battle.terrainTexture.mirrorX;
+    mirrorY = state.battle.terrainTexture.mirrorY;
+  } else if (mirrorKey) {
+    const mirror = getTerrainMirrorFlags(hashStringToSeed(`terrain-mirror|${mirrorKey}`));
+    mirrorX = mirror.x;
+    mirrorY = mirror.y;
+  }
+
+  return {
+    ...activeSource,
+    mirrorX,
+    mirrorY,
+    pending: false,
+    queued: false,
+    queueHandle: null,
+  };
+}
+
+function buildTerrainTextureCacheKey(field, arena, profile) {
+  return JSON.stringify({
+    worldWidth: field?.width || FIELD.width,
+    worldHeight: field?.height || FIELD.height,
+    arenaName: arena?.name || "arena",
+    weather: arena?.weather || "clear",
+    profile,
+  });
 }
 
 function createTournamentHeatGroups(factionIds, config = state.tournamentConfig) {
@@ -6190,17 +6278,14 @@ function createTournamentHeatGroups(factionIds, config = state.tournamentConfig)
   return chunkEvenly(factionIds, groupCount);
 }
 
-function getNextTerrainMirrorFlags() {
+function getTerrainMirrorFlags(seed) {
   const options = [
-    { x: false, y: false, key: "none" },
-    { x: true, y: false, key: "x" },
-    { x: false, y: true, key: "y" },
-    { x: true, y: true, key: "xy" },
+    { x: false, y: false },
+    { x: true, y: false },
+    { x: false, y: true },
+    { x: true, y: true },
   ];
-  const filtered = options.filter((option) => option.key !== state.lastTerrainMirrorKey);
-  const selected = filtered[Math.floor(Math.random() * filtered.length)] || options[0];
-  state.lastTerrainMirrorKey = selected.key;
-  return selected;
+  return options[Math.abs(Math.trunc(seed || 0)) % options.length] || options[0];
 }
 
 async function ensureBattleTerrainTexture(battle) {
@@ -6226,9 +6311,19 @@ async function ensureBattleTerrainTexture(battle) {
   battle.terrainTexture.ready = Boolean(battle.terrainTexture.canvas);
   battle.terrainTexture.pending = false;
   if (battle.terrainTexture.ready) {
+    if (battle.terrainTexture.cacheKey) {
+      state.terrainTextureCache.set(battle.terrainTexture.cacheKey, {
+        canvas: battle.terrainTexture.canvas,
+        profile: battle.terrainTexture.profile,
+        seed: battle.terrainTexture.seed,
+        mirrorX: battle.terrainTexture.mirrorX,
+        mirrorY: battle.terrainTexture.mirrorY,
+      });
+    }
     if (state.tournament && !state.tournamentTerrainTextureCache?.canvas) {
       state.tournamentTerrainTextureCache = {
         canvas: battle.terrainTexture.canvas,
+        cacheKey: battle.terrainTexture.cacheKey,
       };
     }
     updateTerrainBuildStatus(1, "Terrain texture ready.");
@@ -10877,7 +10972,10 @@ function advanceTournament() {
     nextMatch.status = "active";
     nextMatch.arena = createRandomArenaVariant(tournament.currentRoundIndex, tournament.currentMatchIndex, nextMatch.factionIds.length);
     state.running = false;
-    state.battle = buildActiveBattle();
+    state.battle = buildActiveBattle({
+      regenerateTerrain: false,
+      terrainMirrorKey: `${tournament.currentRoundIndex}|${tournament.currentMatchIndex}`,
+    });
     resetCamera();
     closeWinnerModal();
     clearBattleHover();
@@ -10904,7 +11002,10 @@ function advanceTournament() {
     upcomingRound.matches[0].status = "active";
     upcomingRound.matches[0].arena = createRandomArenaVariant(tournament.currentRoundIndex, 0, upcomingRound.matches[0].factionIds.length);
     state.running = false;
-    state.battle = buildActiveBattle();
+    state.battle = buildActiveBattle({
+      regenerateTerrain: false,
+      terrainMirrorKey: `${tournament.currentRoundIndex}|0`,
+    });
     resetCamera();
     closeWinnerModal();
     clearBattleHover();
@@ -11476,11 +11577,15 @@ function resetCinematicCameraState() {
 
 function updateCamera(dt) {
   if (!state.battle) return;
-  const auto = getAutoCameraTarget(state.battle);
-  state.camera.targetX = auto.x;
-  state.camera.targetY = auto.y;
-  state.camera.targetZoom = auto.zoom;
-  const manualActive = performance.now() < state.camera.manualUntil || state.camera.isDragging;
+  if (state.camera.mode !== "manual") {
+    const auto = getAutoCameraTarget(state.battle);
+    state.camera.targetX = auto.x;
+    state.camera.targetY = auto.y;
+    state.camera.targetZoom = auto.zoom;
+  }
+  const manualActive = state.camera.mode === "manual"
+    || performance.now() < state.camera.manualUntil
+    || state.camera.isDragging;
   if (!manualActive) {
     const panSpeed = state.camera.mode === "cinematic" ? 1.35 : 3.6;
     const zoomSpeed = state.camera.mode === "cinematic" ? 1.1 : 2.8;
@@ -12074,27 +12179,55 @@ function getRainLayerAngle(layer, time) {
 function drawWeatherRainLayers(viewport, battle, layers, assetUrl) {
   const image = getFactionImage(assetUrl);
   if (!image?.complete || !image.naturalWidth || !image.naturalHeight) return false;
-  const maxViewportSpan = Math.max(viewport.width, viewport.height);
+  const baseScale = getBaseScale(viewport);
+  const worldBounds = getViewportWorldBounds(viewport, Math.max(viewport.width, viewport.height));
+  const rainOriginX = FIELD.width / 2;
+  const rainOriginY = FIELD.height / 2;
+  const rainTileScale = 0.33;
   layers.forEach((layer) => {
     const angle = getRainLayerAngle(layer, battle.time);
-    const drawWidth = image.naturalWidth * layer.scale;
-    const drawHeight = image.naturalHeight * layer.scale;
-    const offsetX = ((layer.offsetX % drawWidth) + drawWidth) % drawWidth;
-    // The canvas is already rotated to the rain tilt, so scrolling along local Y
-    // keeps the streak motion aligned with the visual slant instead of doubling it.
-    const offsetY = ((layer.offsetY + layer.speed * battle.time) % drawHeight + drawHeight) % drawHeight;
-    const padding = maxViewportSpan * 0.7 + Math.max(drawWidth, drawHeight);
-    ctx.save();
-    ctx.globalAlpha = layer.alpha;
-    ctx.translate(viewport.width / 2, viewport.height / 2);
-    ctx.rotate(angle);
-    ctx.translate(-viewport.width / 2, -viewport.height / 2);
-    for (let x = -padding - drawWidth + offsetX; x < viewport.width + padding; x += drawWidth) {
-      for (let y = -padding - drawHeight + offsetY; y < viewport.height + padding; y += drawHeight) {
-        ctx.drawImage(image, x, y, drawWidth, drawHeight);
+    const cosAngle = Math.cos(angle);
+    const sinAngle = Math.sin(angle);
+    const tileWorldWidth = (image.naturalWidth * layer.scale * rainTileScale) / Math.max(baseScale, 0.0001);
+    const tileWorldHeight = (image.naturalHeight * layer.scale * rainTileScale) / Math.max(baseScale, 0.0001);
+    const offsetX = ((layer.offsetX / Math.max(baseScale, 0.0001)) % tileWorldWidth + tileWorldWidth) % tileWorldWidth;
+    const offsetY = (((layer.offsetY + layer.speed * battle.time) / Math.max(baseScale, 0.0001)) % tileWorldHeight + tileWorldHeight) % tileWorldHeight;
+    const corners = [
+      { x: worldBounds.minX, y: worldBounds.minY },
+      { x: worldBounds.maxX, y: worldBounds.minY },
+      { x: worldBounds.minX, y: worldBounds.maxY },
+      { x: worldBounds.maxX, y: worldBounds.maxY },
+    ].map((corner) => {
+      const dx = corner.x - rainOriginX;
+      const dy = corner.y - rainOriginY;
+      return {
+        x: (dx * cosAngle) + (dy * sinAngle),
+        y: (-dx * sinAngle) + (dy * cosAngle),
+      };
+    });
+    const minLocalX = Math.min(...corners.map((corner) => corner.x)) - tileWorldWidth * 1.5;
+    const maxLocalX = Math.max(...corners.map((corner) => corner.x)) + tileWorldWidth * 1.5;
+    const minLocalY = Math.min(...corners.map((corner) => corner.y)) - tileWorldHeight * 1.5;
+    const maxLocalY = Math.max(...corners.map((corner) => corner.y)) + tileWorldHeight * 1.5;
+    const startLocalX = minLocalX - (((minLocalX - offsetX) % tileWorldWidth + tileWorldWidth) % tileWorldWidth);
+    const startLocalY = minLocalY - (((minLocalY - offsetY) % tileWorldHeight + tileWorldHeight) % tileWorldHeight);
+    for (let localX = startLocalX; localX <= maxLocalX; localX += tileWorldWidth) {
+      for (let localY = startLocalY; localY <= maxLocalY; localY += tileWorldHeight) {
+        const centerLocalX = localX + tileWorldWidth / 2;
+        const centerLocalY = localY + tileWorldHeight / 2;
+        const worldX = rainOriginX + (centerLocalX * cosAngle) - (centerLocalY * sinAngle);
+        const worldY = rainOriginY + (centerLocalX * sinAngle) + (centerLocalY * cosAngle);
+        const point = worldToScreen(worldX, worldY, viewport);
+        const drawWidth = tileWorldWidth * point.scale;
+        const drawHeight = tileWorldHeight * point.scale;
+        ctx.save();
+        ctx.globalAlpha = layer.alpha;
+        ctx.translate(point.x, point.y);
+        ctx.rotate(angle);
+        ctx.drawImage(image, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
+        ctx.restore();
       }
     }
-    ctx.restore();
   });
   return true;
 }
@@ -13089,9 +13222,10 @@ function buildVisibleUnitRenderEntries(viewport, livingUnits, cullBounds = getVi
     .filter((unit) => isUnitInViewport(unit, cullBounds))
     .map((unit) => {
       const pose = getUnitRenderPose(unit, viewport);
-      const renderScale = pose.scale * getUnitRenderScale(unit);
       const layout = getUnitVisualSortLayout(unit);
+      const renderScale = pose.scale * getUnitRenderScale(unit);
       const baseHeight = layout?.height || (unit.type === "inklord" ? 74 : 39);
+      const shadowRenderScale = renderScale * getLayoutHeightScale(layout);
       const sortY = getUnitSortDepth(viewport, unit, pose, renderScale, layout);
       return {
         unit,
@@ -13101,6 +13235,7 @@ function buildVisibleUnitRenderEntries(viewport, livingUnits, cullBounds = getVi
         bodyY: pose.bodyY,
         scale: pose.scale,
         renderScale,
+        shadowRenderScale,
         overlapRadiusX: Math.max(12, baseHeight * renderScale / 5.8),
         overlapRadiusY: Math.max(18, baseHeight * renderScale / 3.5),
         clipCenterY: unit.type === "inklord"
@@ -13167,14 +13302,19 @@ function drawUnitRearOverlapShadow(unit, renderEntry) {
       0,
       UNIT_OVERLAP_SHADOW_MAX_ALPHA,
     );
-    const radiusX = Math.max(10, UNIT_OVERLAP_SHADOW_RADIUS_X * target.renderScale / 2.1);
-    const radiusY = Math.max(14, UNIT_OVERLAP_SHADOW_RADIUS_Y * target.renderScale / 2.1);
+    const shadowScale = target.shadowRenderScale || target.renderScale;
+    const rawRadiusX = UNIT_OVERLAP_SHADOW_RADIUS_X * shadowScale / 2.1;
+    const rawRadiusY = UNIT_OVERLAP_SHADOW_RADIUS_Y * shadowScale / 2.1;
+    if (rawRadiusX <= 10 || rawRadiusY <= 14) return;
+    const radiusX = rawRadiusX;
+    const radiusY = rawRadiusY;
     ctx.save();
     ctx.translate(target.pointX, target.clipCenterY);
     ctx.scale(radiusX, radiusY);
     const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, 1);
     gradient.addColorStop(0, hexToRgba(UNIT_OVERLAP_SHADOW_TINT, alpha));
-    gradient.addColorStop(0.72, hexToRgba(UNIT_OVERLAP_SHADOW_TINT, alpha * 0.45));
+    gradient.addColorStop(0.42, hexToRgba(UNIT_OVERLAP_SHADOW_TINT, alpha * 0.72));
+    gradient.addColorStop(0.76, hexToRgba(UNIT_OVERLAP_SHADOW_TINT, alpha * 0.22));
     gradient.addColorStop(1, hexToRgba(UNIT_OVERLAP_SHADOW_TINT, 0));
     ctx.fillStyle = gradient;
     ctx.beginPath();
@@ -13219,10 +13359,12 @@ function drawSingleUnit(viewport, unit, renderEntry = null) {
   drawUnitStatusOverlay(unit, renderScale);
   ctx.restore();
   drawUnitStatusBadges(unit, point.x + 16 * renderScale / 2.1, bodyY - 30 * renderScale / 2.1, scale);
-  ctx.fillStyle = "rgba(37,24,16,0.5)";
-  ctx.fillRect(healthBarX - hpWidth / 2, healthBarY, hpWidth, 4 * scale / 2.1);
-  ctx.fillStyle = unit.health / unit.maxHealth > 0.4 ? "#9ae085" : "#e7915d";
-  ctx.fillRect(healthBarX - hpWidth / 2, healthBarY, hpWidth * (unit.health / unit.maxHealth), 4 * scale / 2.1);
+  if (state.hover.inspectSlowActive || state.alwaysShowHealthbars) {
+    ctx.fillStyle = "rgba(37,24,16,0.5)";
+    ctx.fillRect(healthBarX - hpWidth / 2, healthBarY, hpWidth, 4 * scale / 2.1);
+    ctx.fillStyle = unit.health / unit.maxHealth > 0.4 ? "#9ae085" : "#e7915d";
+    ctx.fillRect(healthBarX - hpWidth / 2, healthBarY, hpWidth * (unit.health / unit.maxHealth), 4 * scale / 2.1);
+  }
   if (isHovered) drawHoveredUnitLabels(unit, pose, renderScale, healthBarX, healthBarY, hpWidth);
 }
 
