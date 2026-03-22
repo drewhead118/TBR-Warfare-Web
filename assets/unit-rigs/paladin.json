@@ -1,20 +1,20 @@
 {
   "version": 2,
-  "unitId": "bomber",
+  "unitId": "paladin",
   "layout": {
-    "height": 50,
+    "height": 60,
     "anchorX": 0.5,
     "anchorY": 0.88,
     "healthBarOffsetX": 0,
-    "healthBarOffsetY": -15
+    "healthBarOffsetY": -21
   },
   "sourceSize": {
     "width": 1024,
     "height": 1024
   },
   "sheet": {
-    "image": "bomber.png",
-    "cellSize": 448,
+    "image": "paladin.png",
+    "cellSize": 496,
     "columns": 4,
     "rows": 3,
     "order": [
@@ -46,7 +46,7 @@
         },
         "y": {
           "stride": 0,
-          "bob": -0.06,
+          "bob": -0.02,
           "attack": 0,
           "idle": 0
         },
@@ -78,7 +78,7 @@
         },
         "y": {
           "stride": 0,
-          "bob": -0.03,
+          "bob": -0.02,
           "attack": -0.02,
           "idle": 0
         },
@@ -99,7 +99,7 @@
         "rotation": {
           "stride": -21.772396214971284,
           "bob": 0,
-          "attack": -73.33859777674537,
+          "attack": 90,
           "idle": 22.918311805232932
         },
         "x": {
@@ -291,19 +291,19 @@
         "rotation": {
           "stride": 0,
           "bob": 0,
-          "attack": 64.1712730546522,
+          "attack": -40,
           "idle": 20.05352282957881
         },
         "x": {
-          "stride": -0.1,
-          "bob": 0.1,
-          "attack": 0.2,
+          "stride": 0,
+          "bob": 0,
+          "attack": 0,
           "idle": 0
         },
         "y": {
-          "stride": 0.1,
-          "bob": -0.1,
-          "attack": 0.2,
+          "stride": 0,
+          "bob": 0,
+          "attack": 0,
           "idle": 0
         },
         "scaleX": {
@@ -352,7 +352,7 @@
         }
       },
       "attack": {
-        "speed": 3,
+        "speed": 2,
         "loop": false,
         "keyframes": {
           "body": [],
@@ -373,22 +373,22 @@
       "cell": 0,
       "parentId": null,
       "frame": {
-        "x": 42,
-        "y": 8,
-        "w": 365,
-        "h": 432
+        "x": 12,
+        "y": 39,
+        "w": 473,
+        "h": 418
       },
       "pivot": {
-        "x": 183,
-        "y": 216
+        "x": 279,
+        "y": 314
       },
       "mount": {
-        "x": -252,
-        "y": 130
+        "x": -214,
+        "y": 56
       },
       "mountOffset": {
-        "x": -252,
-        "y": 130
+        "x": -214,
+        "y": 56
       },
       "scaleX": 1,
       "scaleY": 1,
@@ -397,36 +397,36 @@
       "flipX": false,
       "flipY": false,
       "sourceRect": {
-        "x": 608,
-        "y": 297,
-        "w": 365,
-        "h": 432
+        "x": 494,
+        "y": 285,
+        "w": 473,
+        "h": 418
       },
       "sourcePivot": {
-        "x": 791,
-        "y": 513
+        "x": 773,
+        "y": 599
       }
     },
     "head": {
       "cell": 1,
       "parentId": "body",
       "frame": {
-        "x": 111,
-        "y": 105,
-        "w": 226,
-        "h": 238
+        "x": 101,
+        "y": 125,
+        "w": 295,
+        "h": 246
       },
       "pivot": {
-        "x": 109,
-        "y": 204
+        "x": 209,
+        "y": 199
       },
       "mount": {
-        "x": -3,
-        "y": -152
+        "x": -5,
+        "y": -263
       },
       "mountOffset": {
-        "x": -45,
-        "y": 143
+        "x": -73,
+        "y": 121
       },
       "scaleX": 1,
       "scaleY": 1,
@@ -435,14 +435,14 @@
       "flipX": false,
       "flipY": false,
       "sourceRect": {
-        "x": 724,
-        "y": 14,
-        "w": 226,
-        "h": 238
+        "x": 632,
+        "y": 16,
+        "w": 295,
+        "h": 246
       },
       "sourcePivot": {
-        "x": 833,
-        "y": 218
+        "x": 841,
+        "y": 215
       }
     },
     "armFront": {
@@ -450,97 +450,97 @@
       "parentId": "body",
       "frame": {
         "x": 127,
-        "y": 52,
-        "w": 195,
-        "h": 344
+        "y": 87,
+        "w": 243,
+        "h": 322
       },
       "pivot": {
-        "x": 121,
-        "y": 50
+        "x": 180,
+        "y": 63
       },
       "mount": {
-        "x": -99,
-        "y": -80
+        "x": -119,
+        "y": -219
       },
       "mountOffset": {
-        "x": 405,
-        "y": 290
+        "x": 424,
+        "y": 262
       },
       "scaleX": 1,
       "scaleY": 1,
-      "rotationOffsetDeg": -40,
+      "rotationOffsetDeg": -50,
       "drawOrder": 7,
       "flipX": false,
       "flipY": false,
       "sourceRect": {
-        "x": 166,
-        "y": 93,
-        "w": 195,
-        "h": 344
+        "x": 50,
+        "y": 55,
+        "w": 243,
+        "h": 322
       },
       "sourcePivot": {
-        "x": 287,
-        "y": 143
+        "x": 230,
+        "y": 118
       }
     },
     "armBack": {
       "cell": 3,
       "parentId": "body",
       "frame": {
-        "x": 134,
-        "y": 53,
-        "w": 180,
-        "h": 342
+        "x": 147,
+        "y": 95,
+        "w": 203,
+        "h": 306
       },
       "pivot": {
-        "x": 128,
-        "y": 38
+        "x": 83,
+        "y": 50
       },
       "mount": {
-        "x": 107,
-        "y": -94
+        "x": 73,
+        "y": -223
       },
       "mountOffset": {
-        "x": 371,
-        "y": 274
+        "x": 436,
+        "y": 258
       },
       "scaleX": 1,
       "scaleY": 1,
-      "rotationOffsetDeg": -20,
+      "rotationOffsetDeg": 0,
       "drawOrder": 2,
       "flipX": false,
       "flipY": false,
       "sourceRect": {
-        "x": 399,
-        "y": 107,
-        "w": 180,
-        "h": 342
+        "x": 327,
+        "y": 68,
+        "w": 203,
+        "h": 306
       },
       "sourcePivot": {
-        "x": 527,
-        "y": 145
+        "x": 410,
+        "y": 118
       }
     },
     "legFrontThigh": {
       "cell": 4,
       "parentId": "body",
       "frame": {
-        "x": 134,
-        "y": 91,
-        "w": 181,
-        "h": 266
+        "x": 160,
+        "y": 122,
+        "w": 177,
+        "h": 253
       },
       "pivot": {
-        "x": 117,
-        "y": 26
+        "x": 101,
+        "y": 13
       },
       "mount": {
-        "x": -90,
-        "y": 139
+        "x": -104,
+        "y": 12
       },
       "mountOffset": {
-        "x": 437,
-        "y": 163
+        "x": 484,
+        "y": 161
       },
       "scaleX": 1,
       "scaleY": 1,
@@ -549,32 +549,32 @@
       "flipX": false,
       "flipY": false,
       "sourceRect": {
-        "x": 147,
-        "y": 463,
-        "w": 181,
-        "h": 266
+        "x": 84,
+        "y": 437,
+        "w": 177,
+        "h": 253
       },
       "sourcePivot": {
-        "x": 264,
-        "y": 489
+        "x": 185,
+        "y": 450
       }
     },
     "legFrontShin": {
       "cell": 5,
       "parentId": "legFrontThigh",
       "frame": {
-        "x": 135,
-        "y": 76,
-        "w": 178,
-        "h": 297
+        "x": 170,
+        "y": 99,
+        "w": 156,
+        "h": 298
       },
       "pivot": {
-        "x": 76,
-        "y": 34
+        "x": 96,
+        "y": 50
       },
       "mount": {
-        "x": -50,
-        "y": 207
+        "x": -18,
+        "y": 188
       },
       "mountOffset": {
         "x": 0,
@@ -587,36 +587,36 @@
       "flipX": false,
       "flipY": false,
       "sourceRect": {
-        "x": 138,
-        "y": 662,
-        "w": 178,
-        "h": 297
+        "x": 71,
+        "y": 588,
+        "w": 156,
+        "h": 298
       },
       "sourcePivot": {
-        "x": 214,
-        "y": 696
+        "x": 167,
+        "y": 638
       }
     },
     "legBackThigh": {
       "cell": 6,
       "parentId": "body",
       "frame": {
-        "x": 153,
-        "y": 90,
-        "w": 142,
-        "h": 268
+        "x": 171,
+        "y": 107,
+        "w": 154,
+        "h": 282
       },
       "pivot": {
-        "x": 85,
-        "y": 24
+        "x": 94,
+        "y": 31
       },
       "mount": {
-        "x": 55,
-        "y": 135
+        "x": 40,
+        "y": 5
       },
       "mountOffset": {
-        "x": 364,
-        "y": 168
+        "x": 416,
+        "y": 162
       },
       "scaleX": 1,
       "scaleY": 1,
@@ -625,32 +625,32 @@
       "flipX": false,
       "flipY": false,
       "sourceRect": {
-        "x": 397,
-        "y": 456,
-        "w": 142,
-        "h": 268
+        "x": 303,
+        "y": 411,
+        "w": 154,
+        "h": 282
       },
       "sourcePivot": {
-        "x": 482,
-        "y": 480
+        "x": 397,
+        "y": 442
       }
     },
     "legBackShin": {
       "cell": 7,
       "parentId": "legBackThigh",
       "frame": {
-        "x": 132,
-        "y": 76,
-        "w": 185,
-        "h": 297
+        "x": 158,
+        "y": 94,
+        "w": 180,
+        "h": 309
       },
       "pivot": {
-        "x": 59,
-        "y": 33
+        "x": 81,
+        "y": 47
       },
       "mount": {
-        "x": -36,
-        "y": 201
+        "x": -13,
+        "y": 185
       },
       "mountOffset": {
         "x": 0,
@@ -663,36 +663,36 @@
       "flipX": false,
       "flipY": false,
       "sourceRect": {
-        "x": 387,
-        "y": 648,
-        "w": 185,
-        "h": 297
+        "x": 303,
+        "y": 580,
+        "w": 180,
+        "h": 309
       },
       "sourcePivot": {
-        "x": 446,
-        "y": 681
+        "x": 384,
+        "y": 627
       }
     },
     "weapon": {
       "cell": 8,
       "parentId": "body",
       "frame": {
-        "x": 99,
-        "y": 99,
-        "w": 251,
-        "h": 250
+        "x": 47,
+        "y": 180,
+        "w": 402,
+        "h": 136
       },
       "pivot": {
-        "x": 133,
-        "y": 214
+        "x": 99,
+        "y": 55
       },
       "mount": {
-        "x": 62,
-        "y": 45
+        "x": 33,
+        "y": -17
       },
       "mountOffset": {
-        "x": 81,
-        "y": -413
+        "x": 145,
+        "y": -218
       },
       "scaleX": 1,
       "scaleY": 1,
@@ -701,22 +701,22 @@
       "flipX": false,
       "flipY": false,
       "sourceRect": {
-        "x": 639,
-        "y": 757,
-        "w": 251,
-        "h": 250
+        "x": 562,
+        "y": 745,
+        "w": 402,
+        "h": 136
       },
       "sourcePivot": {
-        "x": 772,
-        "y": 971
+        "x": 661,
+        "y": 800
       }
     }
   },
   "weaponAttachment": {
     "partId": "armFront",
-    "x": 117,
-    "y": 282,
-    "angleDeg": 50
+    "x": 159,
+    "y": 277,
+    "angleDeg": -30
   },
   "__normalizedAnimationConfig": {
     "tuning": {
@@ -735,7 +735,7 @@
         },
         "y": {
           "stride": 0,
-          "bob": -0.06,
+          "bob": -0.02,
           "attack": 0,
           "idle": 0
         },
@@ -767,7 +767,7 @@
         },
         "y": {
           "stride": 0,
-          "bob": -0.03,
+          "bob": -0.02,
           "attack": -0.02,
           "idle": 0
         },
@@ -788,7 +788,7 @@
         "rotation": {
           "stride": -21.772396214971284,
           "bob": 0,
-          "attack": -73.33859777674537,
+          "attack": 90,
           "idle": 22.918311805232932
         },
         "x": {
@@ -980,19 +980,19 @@
         "rotation": {
           "stride": 0,
           "bob": 0,
-          "attack": 64.1712730546522,
+          "attack": -40,
           "idle": 20.05352282957881
         },
         "x": {
-          "stride": -0.1,
-          "bob": 0.1,
-          "attack": 0.2,
+          "stride": 0,
+          "bob": 0,
+          "attack": 0,
           "idle": 0
         },
         "y": {
-          "stride": 0.1,
-          "bob": -0.1,
-          "attack": 0.2,
+          "stride": 0,
+          "bob": 0,
+          "attack": 0,
           "idle": 0
         },
         "scaleX": {
@@ -1044,7 +1044,7 @@
       },
       "attack": {
         "id": "attack",
-        "speed": 3,
+        "speed": 2,
         "loop": false,
         "keyframes": {
           "body": [],
@@ -1064,18 +1064,18 @@
     "legFront": {
       "thighId": "legFrontThigh",
       "shinId": "legFrontShin",
-      "thighLength": 212.9530464679949,
-      "shinLength": 263.32109676210905,
-      "thighRestAngle": 1.807802493690462,
-      "shinRestAngle": 1.5214068671010805
+      "thighLength": 188.85973631242845,
+      "shinLength": 248.65236777477105,
+      "thighRestAngle": 1.6662500411276109,
+      "shinRestAngle": 1.6432499228834851
     },
     "legBack": {
       "thighId": "legBackThigh",
       "shinId": "legBackShin",
-      "thighLength": 204.1984329028996,
-      "shinLength": 266.11698555334647,
-      "thighRestAngle": 1.7480217117446162,
-      "shinRestAngle": 1.444576967127873
+      "thighLength": 185.4561942885705,
+      "shinLength": 262.15453457836657,
+      "thighRestAngle": 1.6409512757631655,
+      "shinRestAngle": 1.5364586836623848
     }
   }
 }

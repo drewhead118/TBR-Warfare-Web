@@ -18,7 +18,7 @@
     "healthBarOffsetY": -15
   },
   "preview": {
-    "selectedAnimationId": "walk",
+    "selectedAnimationId": "attack",
     "previewMode": "selected",
     "previewBlend": 0.55,
     "previewMotionX": 1,
@@ -309,7 +309,7 @@
         "rotation": {
           "stride": -21.772396214971284,
           "bob": 0,
-          "attack": 73.33859777674537,
+          "attack": -73.33859777674537,
           "idle": 22.918311805232932
         },
         "x": {
@@ -507,13 +507,13 @@
         "x": {
           "stride": -0.1,
           "bob": 0.1,
-          "attack": 0,
+          "attack": 0.2,
           "idle": 0
         },
         "y": {
           "stride": 0.1,
           "bob": -0.1,
-          "attack": -0.04,
+          "attack": 0.2,
           "idle": 0
         },
         "scaleX": {
@@ -562,7 +562,7 @@
         }
       },
       "attack": {
-        "speed": 1,
+        "speed": 3,
         "loop": false,
         "keyframes": {
           "body": [],

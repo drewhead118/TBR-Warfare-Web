@@ -62,6 +62,7 @@ const DEFAULT_TOURNAMENT_CONFIG = Object.freeze({
   minFactionsPerHeat: 2,
   maxFactionsPerHeat: MAX_BATTLE_FACTIONS,
   maxUnitsOnBattlefield: 0,
+  paperbackOnly: false,
 });
 const DEFAULT_COMPOSITION = { archer: 1, mage: 1, knight: 1, paladin: 0, bodyguard: 0, medic: 0, bard: 0, bomber: 0, assassin: 0, mountainman: 0, catapult: 0, poisoner: 0, firebreather: 0, necromancer: 0, graverobber: 0, arachnomist: 0, krieger: 0, huntsman: 0, phantom: 0 };
 const MAX_COMPOSITION_UNIT_TYPES = 5;
@@ -1283,6 +1284,7 @@ const state = {
   tournamentTerrainTextureCache: null,
   terrainTextureCache: new Map(),
   sessionTerrainTexture: null,
+  terrainReflectionIndex: 0,
   images: new Map(),
   unitSpriteSources: new Map(),
   riggedUnitSpriteSources: new Map(),
@@ -1396,6 +1398,7 @@ const els = {
   tournamentMinFactionsInput: document.getElementById("tournamentMinFactionsInput"),
   tournamentMaxFactionsInput: document.getElementById("tournamentMaxFactionsInput"),
   tournamentMaxUnitsInput: document.getElementById("tournamentMaxUnitsInput"),
+  tournamentPaperbackOnlyInput: document.getElementById("tournamentPaperbackOnlyInput"),
   tournamentConfigSummary: document.getElementById("tournamentConfigSummary"),
   battleTicker: document.getElementById("battleTicker"),
   battleHealthChart: document.getElementById("battleHealthChart"),
@@ -1561,7 +1564,7 @@ function bindUi() {
   els.randomizeArenaBtn.addEventListener("click", randomizeArenaAndWeather);
   els.viewTournamentStoryBtn.addEventListener("click", openTournamentPage);
   els.toggleTournamentConfigBtn?.addEventListener("click", toggleTournamentConfigPanel);
-  [els.tournamentMinFactionsInput, els.tournamentMaxFactionsInput, els.tournamentMaxUnitsInput]
+  [els.tournamentMinFactionsInput, els.tournamentMaxFactionsInput, els.tournamentMaxUnitsInput, els.tournamentPaperbackOnlyInput]
     .filter(Boolean)
     .forEach((input) => input.addEventListener("change", commitTournamentConfigFromInputs));
   els.seedSampleBtn.addEventListener("click", () => {
@@ -3769,6 +3772,7 @@ function normalizeTournamentConfig(config = {}) {
       0,
       MAX_BATTLEFIELD_UNIT_CAP,
     ),
+    paperbackOnly: config.paperbackOnly === true,
   };
 }
 
@@ -3824,12 +3828,13 @@ function commitTournamentConfigFromInputs() {
     minFactionsPerHeat: els.tournamentMinFactionsInput?.value,
     maxFactionsPerHeat: els.tournamentMaxFactionsInput?.value,
     maxUnitsOnBattlefield: els.tournamentMaxUnitsInput?.value,
+    paperbackOnly: Boolean(els.tournamentPaperbackOnlyInput?.checked),
   });
   const changed = JSON.stringify(nextConfig) !== JSON.stringify(state.tournamentConfig);
   state.tournamentConfig = nextConfig;
   renderTournamentConfigPanel();
   saveState();
-  if (changed) resetBattle();
+  if (changed) resetBattle({ regenerateTerrain: false });
 }
 
 function renderTournamentConfigPanel() {
@@ -3849,6 +3854,9 @@ function renderTournamentConfigPanel() {
   if (els.tournamentMaxUnitsInput) {
     els.tournamentMaxUnitsInput.value = String(config.maxUnitsOnBattlefield);
   }
+  if (els.tournamentPaperbackOnlyInput) {
+    els.tournamentPaperbackOnlyInput.checked = config.paperbackOnly === true;
+  }
   if (els.tournamentConfigSummary) {
     const heatText = config.minFactionsPerHeat === config.maxFactionsPerHeat
       ? `${config.maxFactionsPerHeat} factions per heat`
@@ -3856,7 +3864,10 @@ function renderTournamentConfigPanel() {
     const unitText = config.maxUnitsOnBattlefield > 0
       ? `Battlefields are capped at ${config.maxUnitsOnBattlefield} total units.`
       : "Battlefields use full army sizes with no unit cap.";
-    els.tournamentConfigSummary.textContent = `${heatText}. ${unitText}`;
+    const paperbackText = config.paperbackOnly
+      ? "Tournament heats only include paperback submissions."
+      : "Tournament heats include all submissions.";
+    els.tournamentConfigSummary.textContent = `${heatText}. ${unitText} ${paperbackText}`;
   }
 }
 
@@ -4630,6 +4641,7 @@ function sizeCanvas() {
 function resetBattle(options = {}) {
   const preserveArenaVisuals = Boolean(options.preserveArenaVisuals);
   const regenerateTerrain = options.regenerateTerrain !== false;
+  const terrainMirrorKey = options.terrainMirrorKey || "";
   state.running = false;
   state.lastBattleHighlightAt = -Infinity;
   state.tournamentResult = null;
@@ -4639,8 +4651,9 @@ function resetBattle(options = {}) {
   closeResetTournamentModal();
   closeTournamentStoryModal();
   clearSelectedBattleProp();
-  state.tournament = shouldUseTournament(state.factions) ? createTournament(state.factions) : null;
-  state.battle = buildActiveBattle({ preserveArenaVisuals, regenerateTerrain });
+  const tournamentEntrants = getTournamentEligibleFactions(state.factions);
+  state.tournament = shouldUseTournament(tournamentEntrants) ? createTournament(tournamentEntrants) : null;
+  state.battle = buildActiveBattle({ preserveArenaVisuals, regenerateTerrain, terrainMirrorKey });
   queueBattleTerrainTextureGeneration(state.battle);
   clearKnockoutAnnouncement();
   clearBossAnnouncement();
@@ -4661,6 +4674,11 @@ function resetBattlePreservingArenaVisuals() {
   resetBattle({ preserveArenaVisuals: true, regenerateTerrain: false });
 }
 
+function nextTerrainReflectionKey(prefix = "reset") {
+  state.terrainReflectionIndex += 1;
+  return `${prefix}|${state.terrainReflectionIndex}`;
+}
+
 function isTournamentActive() {
   return Boolean(state.tournament && !state.tournament.complete);
 }
@@ -4674,7 +4692,7 @@ function handleResetBattleClick() {
     openResetTournamentModal();
     return;
   }
-  resetBattle();
+  resetBattle({ regenerateTerrain: false, terrainMirrorKey: nextTerrainReflectionKey("battle-reset") });
 }
 
 function openResetTournamentModal() {
@@ -4687,7 +4705,7 @@ function closeResetTournamentModal() {
 
 function confirmResetTournament() {
   closeResetTournamentModal();
-  resetBattle();
+  resetBattle({ regenerateTerrain: false, terrainMirrorKey: nextTerrainReflectionKey("tournament-reset") });
   setTicker("The bracket has been reset back to the opening heats.");
 }
 
@@ -4784,8 +4802,14 @@ function startBattle() {
   syncTournamentViewState(true);
 }
 
+function getTournamentEligibleFactions(factions = state.factions, config = state.tournamentConfig) {
+  const normalized = normalizeTournamentConfig(config);
+  if (!normalized.paperbackOnly) return factions.slice();
+  return factions.filter((faction) => faction.submissionType === "paperback");
+}
+
 function shouldUseTournament(factions) {
-  return factions.length > state.tournamentConfig.maxFactionsPerHeat;
+  return factions.length > normalizeTournamentConfig(state.tournamentConfig).maxFactionsPerHeat;
 }
 
 function getReadyMessage() {

@@ -207,6 +207,9 @@ button:active { transform: translateY(1px); }
 .tournament-config-grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
+.tournament-config-body .checkbox-row {
+  margin: 0;
+}
 .tournament-config-summary {
   margin: 0;
 }
