@@ -8451,7 +8451,90 @@ function getBardDestination({ unit, target, battle, allies, enemies }) {
   };
 }
 
-function selectBodyguardTarget({ unit, enemies, battle, unitDef }) {
+function getBodyguardFormationSlot(unit, bodyguards = []) {
+  const formation = bodyguards
+    .filter((ally) => ally && !ally.dead && !ally.fled)
+    .slice()
+    .sort((a, b) => String(a.id).localeCompare(String(b.id)));
+  const index = Math.max(0, formation.findIndex((ally) => ally.id === unit.id));
+  return {
+    index,
+    total: Math.max(1, formation.length || 1),
+    centeredIndex: index - ((Math.max(1, formation.length || 1) - 1) / 2),
+  };
+}
+
+function getBodyguardSupportAnchor(unit, allies = [], enemies = [], battle = null) {
+  const faction = battle ? findFaction(battle, unit.factionId) : null;
+  const livingAllies = allies.filter((ally) => ally.id !== unit.id && !ally.dead && !ally.fled);
+  const escortPool = livingAllies.filter((ally) => ally.type !== "bodyguard");
+  const anchorPool = escortPool.length ? escortPool : livingAllies;
+  const fallback = faction?.bannerPos || faction?.homeBase || { x: unit.x, y: unit.y };
+  if (!anchorPool.length) return fallback;
+  const centroid = anchorPool.reduce((acc, ally) => ({ x: acc.x + ally.x, y: acc.y + ally.y }), { x: 0, y: 0 });
+  centroid.x /= anchorPool.length;
+  centroid.y /= anchorPool.length;
+
+  const nearestEnemy = enemies.reduce((best, enemy) => {
+    const distance = Math.hypot(enemy.x - centroid.x, enemy.y - centroid.y);
+    if (!best || distance < best.distance) return { enemy, distance };
+    return best;
+  }, null);
+  const bodyguards = allies.filter((ally) => ally.type === "bodyguard");
+  const slot = getBodyguardFormationSlot(unit, bodyguards);
+  const forwardDx = nearestEnemy ? (nearestEnemy.enemy.x - centroid.x) : (fallback.x - centroid.x);
+  const forwardDy = nearestEnemy ? (nearestEnemy.enemy.y - centroid.y) : (fallback.y - centroid.y);
+  const forwardLength = Math.max(0.001, Math.hypot(forwardDx, forwardDy));
+  const forwardX = forwardDx / forwardLength;
+  const forwardY = forwardDy / forwardLength;
+  const normalX = -forwardY;
+  const normalY = forwardX;
+  const lateral = slot.centeredIndex * 26;
+  const forwardStep = nearestEnemy ? Math.min(42, nearestEnemy.distance * 0.28) : 10;
+  return {
+    x: clamp(centroid.x + forwardX * forwardStep + normalX * lateral, 24, battle?.field.width ? battle.field.width - 24 : FIELD.width - 24),
+    y: clamp(centroid.y + forwardY * forwardStep + normalY * lateral * 0.72, 24, battle?.field.height ? battle.field.height - 24 : FIELD.height - 24),
+  };
+}
+
+function getBodyguardEngagementDestination(unit, target, allies = [], enemies = [], battle = null, unitDef = null) {
+  const stats = getUnitStats(unit, unitDef);
+  const nearbyAllies = allies.filter((ally) => (
+    ally.id !== unit.id
+    && !ally.dead
+    && !ally.fled
+    && Math.hypot(ally.x - target.x, ally.y - target.y) <= stats.auraRadius * 1.3
+  ));
+  const supportAnchor = nearbyAllies.length
+    ? nearbyAllies.reduce((acc, ally) => ({ x: acc.x + ally.x, y: acc.y + ally.y }), { x: 0, y: 0 })
+    : getBodyguardSupportAnchor(unit, allies, enemies, battle);
+  if (nearbyAllies.length) {
+    supportAnchor.x /= nearbyAllies.length;
+    supportAnchor.y /= nearbyAllies.length;
+  }
+  const approachDx = supportAnchor.x - target.x;
+  const approachDy = supportAnchor.y - target.y;
+  const approachLength = Math.max(0.001, Math.hypot(approachDx, approachDy));
+  const approachX = approachDx / approachLength;
+  const approachY = approachDy / approachLength;
+  const normalX = -approachY;
+  const normalY = approachX;
+  const guardPeers = allies.filter((ally) => (
+    ally.type === "bodyguard"
+    && !ally.dead
+    && !ally.fled
+    && ally.guardTargetId === target.id
+  ));
+  const slot = getBodyguardFormationSlot(unit, guardPeers.length ? guardPeers : allies.filter((ally) => ally.type === "bodyguard"));
+  const standOff = Math.max(14, stats.range * 0.65);
+  const lateral = slot.centeredIndex * 20;
+  return {
+    x: clamp(target.x + approachX * standOff + normalX * lateral, 24, battle?.field.width ? battle.field.width - 24 : FIELD.width - 24),
+    y: clamp(target.y + approachY * standOff + normalY * lateral * 0.72, 24, battle?.field.height ? battle.field.height - 24 : FIELD.height - 24),
+  };
+}
+
+function selectBodyguardTarget({ unit, enemies, allies, battle, unitDef }) {
   const locked = unit.guardTargetId ? findUnitById(battle, unit.guardTargetId) : null;
   if (locked && !locked.dead && !locked.fled && canUnitBeTargeted(locked, unit)) {
     unit.currentTargetKind = "enemy";
@@ -8462,28 +8545,52 @@ function selectBodyguardTarget({ unit, enemies, battle, unitDef }) {
   unit.guardTargetId = null;
   const stats = getUnitStats(unit, unitDef);
   let best = null;
-  let bestDistance = Infinity;
+  let bestScore = Infinity;
   enemies.forEach((enemy) => {
     const distance = Math.hypot(enemy.x - unit.x, enemy.y - unit.y);
-    if (distance > stats.aggroRadius || distance >= bestDistance) return;
+    const alliedDistances = allies
+      .filter((ally) => ally.id !== unit.id && !ally.dead && !ally.fled)
+      .map((ally) => ({
+        ally,
+        distance: Math.hypot(enemy.x - ally.x, enemy.y - ally.y),
+      }));
+    const closestThreatenedAlly = alliedDistances.reduce((closest, entry) => {
+      if (!closest || entry.distance < closest.distance) return entry;
+      return closest;
+    }, null);
+    const allyDistance = closestThreatenedAlly?.distance ?? Infinity;
+    const isThreateningAllies = allyDistance <= stats.auraRadius * 1.25;
+    const canReachFight = distance <= stats.aggroRadius * 1.45;
+    if (!isThreateningAllies && !canReachFight) return;
+    const overlappingGuards = allies.reduce((count, ally) => {
+      if (ally.id === unit.id || ally.dead || ally.fled || ally.type !== "bodyguard") return count;
+      return count + (ally.guardTargetId === enemy.id ? 1 : 0);
+    }, 0);
+    const allyPriority = closestThreatenedAlly?.ally && ["medic", "bard", "archer", "mage", "poisoner", "catapult"].includes(closestThreatenedAlly.ally.type)
+      ? -18
+      : 0;
+    const meleeThreatBonus = allyDistance <= 34 ? -22 : 0;
+    const score = (distance * 0.72) + (allyDistance * 1.08) + (overlappingGuards * 34) + allyPriority + meleeThreatBonus;
+    if (score >= bestScore) return;
     best = enemy;
-    bestDistance = distance;
+    bestScore = score;
   });
   unit.guardTargetId = best?.id || null;
   unit.currentTargetKind = best ? "enemy" : null;
   unit.currentGraveId = null;
-  updateUnitActivity(unit, best ? `Moving to intercept ${getUnitActivityTargetLabel(best, battle)}.` : "Holding the line near the banner.");
+  updateUnitActivity(unit, best ? `Moving to intercept ${getUnitActivityTargetLabel(best, battle)}.` : "Holding near allies and watching for a melee to join.");
   return best;
 }
 
-function getBodyguardDestination({ unit, target, destination, battle, unitDef }) {
-  if (target && unit.currentTargetKind === "enemy") return destination;
-  const anchor = findFaction(battle, unit.factionId)?.bannerPos;
-  if (!anchor) return { x: unit.x, y: unit.y };
+function getBodyguardDestination({ unit, target, destination, battle, unitDef, allies, enemies }) {
+  if (target && unit.currentTargetKind === "enemy") {
+    return getBodyguardEngagementDestination(unit, target, allies, enemies, battle, unitDef);
+  }
+  const anchor = getBodyguardSupportAnchor(unit, allies, enemies, battle);
   const distance = Math.hypot(anchor.x - unit.x, anchor.y - unit.y);
   if (distance <= 14) return { x: unit.x, y: unit.y };
   unit.guardTargetId = null;
-  return { x: anchor.x, y: anchor.y };
+  return anchor;
 }
 
 function updateAssassinState({ unit, faction, battle, enemies }) {
