@@ -19,7 +19,11 @@
         </div>
         <a class="ghost small tool-link" href="index.html">Back To Battle Sim</a>
       </div>
-      <p class="hint">Upload a single character sprite, mark precise limb regions and pivots, preview the procedural gait/attack motion, then export a packed rig sheet and manifest for the game runtime.</p>
+      <p id="spriteRigWorkshopHint" class="hint">Upload a single character sprite, mark precise limb regions and pivots, preview the procedural gait/attack motion, then export a packed rig sheet and manifest for the game runtime.</p>
+      <div class="sprite-rig-tab-row" role="tablist" aria-label="Sprite workshop modules">
+        <button id="spriteRigUnitWorkshopTabBtn" class="ghost small active" type="button" role="tab" aria-selected="true">Units</button>
+        <button id="spriteRigDeployableWorkshopTabBtn" class="ghost small" type="button" role="tab" aria-selected="false">Deployables &amp; Summons</button>
+      </div>
       <div class="sprite-rig-layout">
         <section class="sprite-rig-column">
           <div class="sprite-rig-toolbar">
@@ -34,7 +38,7 @@
             <button id="spriteRigSaveProjectBtn" class="ghost" type="button">Save Workshop Asset</button>
             <button id="spriteRigChooseExportDirBtn" class="ghost" type="button">Choose Export Directory</button>
             <label>
-              <span>Unit</span>
+              <span id="spriteRigUnitSelectLabel">Unit</span>
               <select id="spriteRigUnitSelect"></select>
             </label>
             <label>
@@ -204,6 +208,19 @@
             <button id="spriteRigFlipYBtn" class="ghost small" type="button">Reflect Y</button>
             <button id="spriteRigClearPartBtn" class="ghost small" type="button">Clear Part</button>
           </div>
+            <div id="spriteRigSpecialBehaviorCard" class="sprite-rig-preview-card hidden">
+              <div class="section-heading">
+                <h3>Special Behavior</h3>
+                <span id="spriteRigSpecialBehaviorLabel">Deployable</span>
+              </div>
+              <p id="spriteRigSpecialBehaviorHint" class="hint">Choose which part behaves like the turret barrel. Its own pivot becomes the aim pivot, and the attack clip still handles firing deformation.</p>
+              <div class="sprite-rig-fields">
+                <label id="spriteRigAimPartField">
+                  <span>Gun Barrel Part</span>
+                  <select id="spriteRigAimPartSelect"></select>
+                </label>
+              </div>
+            </div>
           <div class="sprite-rig-preview-card">
             <div class="section-heading">
               <h3>Animation Tuning</h3>
@@ -215,6 +232,15 @@
                 <select id="spriteRigAnimationSelect"></select>
               </label>
             </div>
+            <div id="spriteRigSimplePoseControls" class="sprite-rig-preview-controls hidden">
+              <label>
+                <span>Edit State</span>
+                <select id="spriteRigSimplePoseStateSelect">
+                  <option value="a">State A</option>
+                  <option value="b">State B</option>
+                </select>
+              </label>
+            </div>
             <div class="sprite-rig-fields" id="spriteRigAnimationClipFields"></div>
             <div class="sprite-rig-fields" id="spriteRigAnimationFields"></div>
           </div>
@@ -223,7 +249,7 @@
               <h3>Keyframes</h3>
               <span id="spriteRigKeyframeSummary">No keyframe</span>
             </div>
-            <p class="hint">Pause the preview, scrub to a moment in the selected clip, then set a bespoke pose for the highlighted part. Keyframes layer on top of the procedural tuning so shield arms, lunges, and special silhouettes can be refined without rebuilding the rig.</p>
+            <p id="spriteRigPoseHelpText" class="hint">Pause the preview, scrub to a moment in the selected clip, then set a bespoke pose for the highlighted part. Keyframes layer on top of the procedural tuning so shield arms, lunges, and special silhouettes can be refined without rebuilding the rig.</p>
             <div class="sprite-rig-fields">
               <label>
                 <span>Pose X</span>

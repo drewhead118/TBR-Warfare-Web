@@ -64,7 +64,7 @@ const DEFAULT_TOURNAMENT_CONFIG = Object.freeze({
   maxUnitsOnBattlefield: 0,
   paperbackOnly: false,
 });
-const DEFAULT_COMPOSITION = { archer: 1, mage: 1, knight: 1, paladin: 0, bodyguard: 0, medic: 0, bard: 0, bomber: 0, assassin: 0, mountainman: 0, catapult: 0, poisoner: 0, firebreather: 0, necromancer: 0, graverobber: 0, arachnomist: 0, krieger: 0, huntsman: 0, phantom: 0 };
+const DEFAULT_COMPOSITION = { archer: 1, mage: 1, knight: 1, paladin: 0, bodyguard: 0, medic: 0, bard: 0, bomber: 0, assassin: 0, mountainman: 0, catapult: 0, poisoner: 0, firebreather: 0, necromancer: 0, graverobber: 0, arachnomist: 0, krieger: 0, huntsman: 0, winterwitch: 0, phantom: 0 };
 const MAX_COMPOSITION_UNIT_TYPES = 5;
 const UNIT_SPRITE_CANDIDATE_PATHS = [
   (unitId) => `assets/unit-sprites/${unitId}.png`,
@@ -240,6 +240,43 @@ const DEFAULT_RIG_LAYOUT = { height: 60, anchorX: 0.5, anchorY: 0.88, healthBarO
 const RIG_EDITOR_CANVAS_SIZE = 640;
 const RIG_WORKSHOP_FILE_EXTENSION = ".tbr-sprite-rig.json";
 const RIG_WORKSHOP_SOURCE_DIR = ".sprite-rig-sources";
+const SPRITE_RIG_DEPLOYABLE_SUMMON_UNIT_IDS = ["turret", "spiderswarm"];
+const SPRITE_RIG_WORKSHOP_TAB_COPY = {
+  unit: {
+    hint: "Upload a single character sprite, mark precise limb regions and pivots, preview the procedural gait/attack motion, then export a packed rig sheet and manifest for the game runtime.",
+    unitLabel: "Unit",
+    poseHelp: "Pause the preview, scrub to a moment in the selected clip, then set a bespoke pose for the highlighted part. Keyframes layer on top of the procedural tuning so shield arms, lunges, and special silhouettes can be refined without rebuilding the rig.",
+  },
+  deployable: {
+    hint: "Author deployables and summoned creatures here. Regions still define packed parts, but motion is driven by simple A/B states that the runtime interpolates automatically for idle, walk, and attack loops.",
+    unitLabel: "Deployable / Summon",
+    poseHelp: "Each clip uses two poses. State A and State B are compiled into an A -> B -> A motion cycle so unusual body plans can animate cleanly without humanoid gait tuning.",
+  },
+};
+const SPRITE_RIG_ALT_PART_LABELS = {
+  turret: {
+    body: "Base",
+    head: "Turret Head",
+    armFront: "Gun Barrel",
+    armBack: "Rear Brace",
+    legFrontThigh: "Front Brace",
+    legFrontShin: "Front Plate",
+    legBackThigh: "Rear Plate",
+    legBackShin: "Rear Support",
+    weapon: "Muzzle / Flash",
+  },
+  spiderswarm: {
+    body: "Thorax",
+    head: "Head",
+    armFront: "Front Legs",
+    armBack: "Rear Legs",
+    legFrontThigh: "Abdomen Front",
+    legFrontShin: "Abdomen Mid",
+    legBackThigh: "Abdomen Rear",
+    legBackShin: "Tail / Stinger",
+    weapon: "Fangs / Effect",
+  },
+};
 const RIG_ANIMATION_CLIP_DEFINITIONS = [
   { id: "idle", label: "Idle", loop: true, speed: 1 },
   { id: "walk", label: "Walk", loop: true, speed: 1 },
@@ -447,6 +484,30 @@ const STATUS_DEFINITIONS = {
     dps: 0,
     badgeColor: "#9f87ff",
     accentColor: "#efe8ff",
+  },
+  blizzard: {
+    kind: "blizzard",
+    name: "Blizzard-Bitten",
+    negative: true,
+    stackable: false,
+    defaultDuration: 0.4,
+    tickInterval: 0.5,
+    dps: 2.8,
+    moveMultiplier: 0.58,
+    cooldownRate: 0.62,
+    badgeColor: "#7bbdff",
+    accentColor: "#e3f4ff",
+  },
+  frozen: {
+    kind: "frozen",
+    name: "Frozen",
+    negative: true,
+    stackable: false,
+    defaultDuration: 1,
+    tickInterval: 1,
+    dps: 0,
+    badgeColor: "#5ca7ff",
+    accentColor: "#d9efff",
   },
 };
 const DEFAULT_PROP_WEIGHTS = {
@@ -765,6 +826,32 @@ const UNIT_DEFINITIONS = {
     render: drawHuntsman,
     veteran: { metric: "damage", threshold: 150, label: "Deal 150 damage" },
   },
+  winterwitch: {
+    id: "winterwitch",
+    name: "Winter Witch",
+    keywords: ["ice", "snow", "witch", "blizzard", "freeze", "frost"],
+    description: "Winter Witches are precision control casters. They call down miniature blizzards onto formations, slowing everything caught inside and dealing steady cold damage, but careless casts can just as easily hamper nearby allies.",
+    stats: {
+      maxHealth: 62,
+      speed: 38,
+      range: 208,
+      cooldown: 4.2,
+      blizzardRadius: 54,
+      blizzardDuration: 5,
+      blizzardDamage: 2.8,
+      blizzardMoveMultiplier: 0.58,
+      blizzardCooldownRate: 0.62,
+      blizzardStatusDuration: 0.42,
+      freezeDuration: 1,
+    },
+    healthBarWidth: 22,
+    iconPaths: getWinterWitchIconSvgPaths,
+    selectTarget: selectWinterWitchTarget,
+    getDesiredDestination: getRetreatingDestination(136, 1.02),
+    performAttack: performWinterWitchAttack,
+    render: drawWinterWitch,
+    veteran: { metric: "damage", threshold: 130, label: "Deal 130 damage" },
+  },
   artificer: {
     id: "artificer",
     name: "Artificer",
@@ -819,6 +906,7 @@ const UNIT_DEFINITIONS = {
     healthBarWidth: 16,
     iconPaths: getTurretIconSvgPaths,
     leavesGrave: false,
+    routingImmune: true,
     immuneToStatusDamage: true,
     beforeStep: updateTurretState,
     selectTarget: selectTurretTarget,
@@ -1050,6 +1138,22 @@ function createEmptyRigWeaponAttachment() {
   };
 }
 
+function createEmptySimpleRigClip() {
+  return {
+    speed: 1,
+    poses: Object.fromEntries(RIG_PART_IDS.map((partId) => [partId, {
+      a: createEmptyRigKeyframePose(),
+      b: createEmptyRigKeyframePose(),
+    }])),
+  };
+}
+
+function createEmptySimpleRigAnimationConfig() {
+  return {
+    clips: Object.fromEntries(RIG_ANIMATION_CLIP_DEFINITIONS.map((clip) => [clip.id, createEmptySimpleRigClip()])),
+  };
+}
+
 function radToDeg(value) {
   return value * (180 / Math.PI);
 }
@@ -1236,6 +1340,7 @@ function createDefaultSpriteRigKeyframePoseState() {
 
 function createSpriteRigEditorState() {
   return {
+    workshopTab: "unit",
     sourceImage: null,
     sourceName: "",
     sourceFileName: "",
@@ -1260,6 +1365,7 @@ function createSpriteRigEditorState() {
     previewMotionX: 1,
     previewMotionY: 0,
     selectedAnimationId: "walk",
+    selectedSimplePoseState: "a",
     keyframePose: createDefaultSpriteRigKeyframePoseState(),
     exportDirectoryHandle: null,
     exportDirectoryName: "",
@@ -1269,7 +1375,11 @@ function createSpriteRigEditorState() {
     healthBarOffsetX: DEFAULT_RIG_LAYOUT.healthBarOffsetX,
     healthBarOffsetY: DEFAULT_RIG_LAYOUT.healthBarOffsetY,
     weaponAttachment: createEmptyRigWeaponAttachment(),
+    specialBehavior: {
+      aimPartId: "armFront",
+    },
     animationConfig: createDefaultRigAnimationConfig(),
+    simpleAnimationConfig: createEmptySimpleRigAnimationConfig(),
     packedArtifact: null,
     statusText: "Load a sprite to begin defining the rig.",
     parts: normalizeSpriteRigParts(),
@@ -1440,8 +1550,12 @@ const els = {
   battleUnitTooltip: document.getElementById("battleUnitTooltip"),
   spriteRigFileInput: document.getElementById("spriteRigFileInput"),
   spriteRigProjectInput: document.getElementById("spriteRigProjectInput"),
+  spriteRigWorkshopHint: document.getElementById("spriteRigWorkshopHint"),
+  spriteRigUnitWorkshopTabBtn: document.getElementById("spriteRigUnitWorkshopTabBtn"),
+  spriteRigDeployableWorkshopTabBtn: document.getElementById("spriteRigDeployableWorkshopTabBtn"),
   spriteRigSaveProjectBtn: document.getElementById("spriteRigSaveProjectBtn"),
   spriteRigChooseExportDirBtn: document.getElementById("spriteRigChooseExportDirBtn"),
+  spriteRigUnitSelectLabel: document.getElementById("spriteRigUnitSelectLabel"),
   spriteRigUnitSelect: document.getElementById("spriteRigUnitSelect"),
   spriteRigRenderHeight: document.getElementById("spriteRigRenderHeight"),
   spriteRigAnchorY: document.getElementById("spriteRigAnchorY"),
@@ -1471,6 +1585,11 @@ const els = {
   spriteRigWeaponAttachAngle: document.getElementById("spriteRigWeaponAttachAngle"),
   spriteRigWeaponUseArmPivotBtn: document.getElementById("spriteRigWeaponUseArmPivotBtn"),
   spriteRigWeaponClearAttachBtn: document.getElementById("spriteRigWeaponClearAttachBtn"),
+  spriteRigSpecialBehaviorCard: document.getElementById("spriteRigSpecialBehaviorCard"),
+  spriteRigSpecialBehaviorLabel: document.getElementById("spriteRigSpecialBehaviorLabel"),
+  spriteRigSpecialBehaviorHint: document.getElementById("spriteRigSpecialBehaviorHint"),
+  spriteRigAimPartField: document.getElementById("spriteRigAimPartField"),
+  spriteRigAimPartSelect: document.getElementById("spriteRigAimPartSelect"),
   spriteRigCopyFromBodyBtn: document.getElementById("spriteRigCopyFromBodyBtn"),
   spriteRigResetMountOffsetBtn: document.getElementById("spriteRigResetMountOffsetBtn"),
   spriteRigResetBaseScaleBtn: document.getElementById("spriteRigResetBaseScaleBtn"),
@@ -1488,9 +1607,12 @@ const els = {
   spriteRigPreviewLabel: document.getElementById("spriteRigPreviewLabel"),
   spriteRigAnimationSelect: document.getElementById("spriteRigAnimationSelect"),
   spriteRigAnimationSummary: document.getElementById("spriteRigAnimationSummary"),
+  spriteRigSimplePoseControls: document.getElementById("spriteRigSimplePoseControls"),
+  spriteRigSimplePoseStateSelect: document.getElementById("spriteRigSimplePoseStateSelect"),
   spriteRigAnimationClipFields: document.getElementById("spriteRigAnimationClipFields"),
   spriteRigAnimationFields: document.getElementById("spriteRigAnimationFields"),
   spriteRigKeyframeSummary: document.getElementById("spriteRigKeyframeSummary"),
+  spriteRigPoseHelpText: document.getElementById("spriteRigPoseHelpText"),
   spriteRigKeyframeX: document.getElementById("spriteRigKeyframeX"),
   spriteRigKeyframeY: document.getElementById("spriteRigKeyframeY"),
   spriteRigKeyframeRotation: document.getElementById("spriteRigKeyframeRotation"),
@@ -1633,8 +1755,11 @@ function bindUi() {
 
 function initializeSpriteRigEditor() {
   if (!els.spriteRigSourceCanvas || !els.spriteRigPreviewCanvas) return;
+  ensureSpriteRigWorkshopUnitSelection();
   populateSpriteRigUnitSelect();
+  populateSpriteRigAimPartSelect();
   populateSpriteRigAnimationSelect();
+  syncSpriteRigWorkshopTabUi();
   els.spriteRigUnitSelect.value = state.spriteRigEditor.unitId;
   els.spriteRigRenderHeight.value = `${state.spriteRigEditor.renderHeight}`;
   els.spriteRigAnchorY.value = `${state.spriteRigEditor.anchorY}`;
@@ -1658,11 +1783,17 @@ function bindSpriteRigEditorUi() {
   if (!els.spriteRigFileInput) return;
   els.spriteRigFileInput.addEventListener("change", onSpriteRigFileChange);
   els.spriteRigProjectInput?.addEventListener("change", onSpriteRigProjectFileChange);
+  els.spriteRigUnitWorkshopTabBtn?.addEventListener("click", () => setSpriteRigWorkshopTab("unit"));
+  els.spriteRigDeployableWorkshopTabBtn?.addEventListener("click", () => setSpriteRigWorkshopTab("deployable"));
   els.spriteRigSaveProjectBtn?.addEventListener("click", saveSpriteRigWorkshopAsset);
   els.spriteRigChooseExportDirBtn?.addEventListener("click", chooseSpriteRigExportDirectory);
   els.spriteRigUnitSelect.addEventListener("change", () => {
     state.spriteRigEditor.unitId = els.spriteRigUnitSelect.value;
     invalidateSpriteRigPackedArtifact();
+    syncSpriteRigWorkshopTabUi();
+    renderSpriteRigPartPicker();
+    syncSpriteRigAnimationControls();
+    renderSpriteRigPreview();
     updateSpriteRigStatus();
   });
   els.spriteRigRenderHeight.addEventListener("input", () => {
@@ -1713,6 +1844,12 @@ function bindSpriteRigEditorUi() {
     renderSpriteRigPreview();
     updateSpriteRigStatus();
   });
+  els.spriteRigSimplePoseStateSelect?.addEventListener("change", () => {
+    state.spriteRigEditor.selectedSimplePoseState = els.spriteRigSimplePoseStateSelect.value || "a";
+    syncSpriteRigKeyframePoseFields();
+    renderSpriteRigKeyframeList();
+    renderSpriteRigPreview();
+  });
   [
     els.spriteRigRegionX,
     els.spriteRigRegionY,
@@ -1735,6 +1872,12 @@ function bindSpriteRigEditorUi() {
   ].forEach((input) => input.addEventListener("input", onSpriteRigWeaponFieldInput));
   els.spriteRigWeaponUseArmPivotBtn.addEventListener("click", useFrontArmPivotForWeaponAttachment);
   els.spriteRigWeaponClearAttachBtn.addEventListener("click", resetSpriteRigWeaponAttachment);
+  els.spriteRigAimPartSelect?.addEventListener("change", () => {
+    state.spriteRigEditor.specialBehavior.aimPartId = els.spriteRigAimPartSelect.value || "armFront";
+    invalidateSpriteRigPackedArtifact();
+    renderSpriteRigPreview();
+    updateSpriteRigStatus();
+  });
   els.spriteRigCopyFromBodyBtn.addEventListener("click", centerSpriteRigPivotInRegion);
   els.spriteRigResetMountOffsetBtn.addEventListener("click", resetActiveSpriteRigMountOffset);
   els.spriteRigResetBaseScaleBtn.addEventListener("click", resetActiveSpriteRigBaseScale);
@@ -1774,16 +1917,109 @@ function bindSpriteRigEditorUi() {
 
 function populateSpriteRigUnitSelect() {
   if (!els.spriteRigUnitSelect) return;
+  ensureSpriteRigWorkshopUnitSelection();
   els.spriteRigUnitSelect.innerHTML = "";
+  const allowedIds = new Set(getSpriteRigWorkshopSelectableUnitIds());
   Object.values(UNIT_DEFINITIONS)
     .slice()
+    .filter((unit) => allowedIds.has(unit.id))
     .sort((a, b) => a.name.localeCompare(b.name))
     .forEach((unit) => {
       const option = document.createElement("option");
       option.value = unit.id;
       option.textContent = `${unit.name} (${unit.id})`;
+      option.dataset.unitId = unit.id;
       els.spriteRigUnitSelect.appendChild(option);
-    });
+      getRiggedUnitSpriteSource(unit.id, { forceLoad: true });
+  });
+  refreshSpriteRigUnitSelectAvailability();
+}
+
+function populateSpriteRigAimPartSelect() {
+  if (!els.spriteRigAimPartSelect) return;
+  els.spriteRigAimPartSelect.innerHTML = "";
+  getCurrentSpriteRigPartDefinitions().forEach((partDef) => {
+    const option = document.createElement("option");
+    option.value = partDef.id;
+    option.textContent = partDef.label;
+    els.spriteRigAimPartSelect.appendChild(option);
+  });
+  els.spriteRigAimPartSelect.value = state.spriteRigEditor.specialBehavior.aimPartId || "armFront";
+}
+
+function setSpriteRigWorkshopTab(nextTab) {
+  if (!nextTab || state.spriteRigEditor.workshopTab === nextTab) return;
+  state.spriteRigEditor.workshopTab = nextTab;
+  ensureSpriteRigWorkshopUnitSelection();
+  populateSpriteRigUnitSelect();
+  populateSpriteRigAimPartSelect();
+  if (els.spriteRigUnitSelect) els.spriteRigUnitSelect.value = state.spriteRigEditor.unitId;
+  syncSpriteRigWorkshopTabUi();
+  syncSpriteRigAnimationControls();
+  renderSpriteRigPartPicker();
+  syncSpriteRigFields();
+  syncSpriteRigWeaponFields();
+  renderSpriteRigPreview();
+  updateSpriteRigStatus();
+}
+
+function syncSpriteRigWorkshopTabUi() {
+  const tab = state.spriteRigEditor.workshopTab || "unit";
+  const copy = SPRITE_RIG_WORKSHOP_TAB_COPY[tab] || SPRITE_RIG_WORKSHOP_TAB_COPY.unit;
+  const isDeployable = tab === "deployable";
+  if (els.spriteRigWorkshopHint) els.spriteRigWorkshopHint.textContent = copy.hint;
+  if (els.spriteRigUnitSelectLabel) els.spriteRigUnitSelectLabel.textContent = copy.unitLabel;
+  if (els.spriteRigPoseHelpText) els.spriteRigPoseHelpText.textContent = copy.poseHelp;
+  if (els.spriteRigUnitWorkshopTabBtn) {
+    els.spriteRigUnitWorkshopTabBtn.classList.toggle("active", !isDeployable);
+    els.spriteRigUnitWorkshopTabBtn.setAttribute("aria-selected", (!isDeployable).toString());
+  }
+  if (els.spriteRigDeployableWorkshopTabBtn) {
+    els.spriteRigDeployableWorkshopTabBtn.classList.toggle("active", isDeployable);
+    els.spriteRigDeployableWorkshopTabBtn.setAttribute("aria-selected", isDeployable.toString());
+  }
+  els.spriteRigSimplePoseControls?.classList.toggle("hidden", !isDeployable);
+  els.spriteRigAnimationFields?.classList.toggle("hidden", isDeployable);
+  els.spriteRigSpecialBehaviorCard?.classList.toggle("hidden", !(isDeployable && state.spriteRigEditor.unitId === "turret"));
+  if (els.spriteRigSetKeyframeBtn) els.spriteRigSetKeyframeBtn.textContent = isDeployable ? "Save State" : "Set Keyframe";
+  if (els.spriteRigDeleteKeyframeBtn) els.spriteRigDeleteKeyframeBtn.textContent = isDeployable ? "Clear State" : "Delete Keyframe";
+  if (els.spriteRigResetKeyframePoseBtn) els.spriteRigResetKeyframePoseBtn.textContent = isDeployable ? "Reset State Pose" : "Reset Pose";
+  if (els.spriteRigSpecialBehaviorLabel) {
+    els.spriteRigSpecialBehaviorLabel.textContent = state.spriteRigEditor.unitId === "turret" ? "Turret Barrel" : "Summon Motion";
+  }
+  if (els.spriteRigSpecialBehaviorHint) {
+    els.spriteRigSpecialBehaviorHint.textContent = state.spriteRigEditor.unitId === "turret"
+      ? "Choose which part behaves like the turret barrel. Its own pivot becomes the aim pivot, and the attack clip still handles firing deformation."
+      : "Summons use the same packed-part workflow, but motion comes from A/B pose interpolation instead of humanoid gait tuning.";
+  }
+  els.spriteRigWalkVectorControls?.classList.toggle("hidden", isDeployable ? state.spriteRigEditor.unitId === "turret" : !(state.spriteRigEditor.selectedAnimationId === "walk" || state.spriteRigEditor.previewMode === "composite"));
+  populateSpriteRigAimPartSelect();
+  if (els.spriteRigSimplePoseStateSelect) {
+    els.spriteRigSimplePoseStateSelect.value = state.spriteRigEditor.selectedSimplePoseState || "a";
+  }
+}
+
+function refreshSpriteRigUnitSelectAvailability() {
+  if (!els.spriteRigUnitSelect) return;
+  Array.from(els.spriteRigUnitSelect.options).forEach((option) => {
+    const unitId = option.dataset.unitId || option.value;
+    const entry = unitId ? getRiggedUnitSpriteSource(unitId, { forceLoad: true }) : null;
+    const missingRig = entry?.status === "missing";
+    option.style.fontWeight = missingRig ? "700" : "400";
+    option.title = missingRig ? "No rig exists for this unit yet." : "";
+  });
+}
+
+async function ensureUnitRigAvailability(unitId) {
+  if (!unitId) return "missing";
+  const entry = getRiggedUnitSpriteSource(unitId, { forceLoad: true });
+  if (!entry) return "missing";
+  if (entry.status === "pending" && entry.loadPromise) {
+    try {
+      await entry.loadPromise;
+    } catch {}
+  }
+  return entry.status || "missing";
 }
 
 function sanitizeRigAssetName(value) {
@@ -1863,8 +2099,97 @@ function normalizeRigAnimationConfig(rawConfig) {
   return normalized;
 }
 
+function normalizeSimpleRigAnimationConfig(rawConfig) {
+  const normalized = createEmptySimpleRigAnimationConfig();
+  RIG_ANIMATION_CLIP_DEFINITIONS.forEach((clipDef) => {
+    const sourceClip = rawConfig?.clips?.[clipDef.id] || {};
+    normalized.clips[clipDef.id].speed = clamp(Number(sourceClip.speed) || clipDef.speed, 0.1, 4);
+    RIG_PART_IDS.forEach((partId) => {
+      const sourcePart = sourceClip.poses?.[partId] || sourceClip.poses?.[getRigPartLegacyId(partId)] || {};
+      normalized.clips[clipDef.id].poses[partId] = {
+        a: normalizeRigKeyframePose(sourcePart.a),
+        b: normalizeRigKeyframePose(sourcePart.b),
+      };
+    });
+  });
+  return normalized;
+}
+
+function compileSimpleRigAnimationConfig(simpleConfig) {
+  const normalized = normalizeSimpleRigAnimationConfig(simpleConfig);
+  const compiled = createDefaultRigAnimationConfig();
+  RIG_PART_IDS.forEach((partId) => {
+    compiled.tuning[partId] = createEmptyRigAnimationTuningPart();
+  });
+  RIG_ANIMATION_CLIP_DEFINITIONS.forEach((clipDef) => {
+    const targetClip = compiled.clips[clipDef.id];
+    const sourceClip = normalized.clips[clipDef.id];
+    targetClip.speed = sourceClip.speed;
+    RIG_PART_IDS.forEach((partId) => {
+      const poses = sourceClip.poses[partId];
+      targetClip.keyframes[partId] = [
+        { time: 0, pose: normalizeRigKeyframePose(poses.a) },
+        { time: 0.5, pose: normalizeRigKeyframePose(poses.b) },
+        { time: 1, pose: normalizeRigKeyframePose(poses.a) },
+      ];
+    });
+  });
+  return compiled;
+}
+
+function isDeployableSpriteRigWorkshop() {
+  return state.spriteRigEditor.workshopTab === "deployable";
+}
+
+function getSpriteRigWorkshopSelectableUnitIds() {
+  return Object.values(UNIT_DEFINITIONS)
+    .filter((unit) => (isDeployableSpriteRigWorkshop()
+      ? SPRITE_RIG_DEPLOYABLE_SUMMON_UNIT_IDS.includes(unit.id)
+      : unit.draftable !== false && !SPRITE_RIG_DEPLOYABLE_SUMMON_UNIT_IDS.includes(unit.id)))
+    .map((unit) => unit.id);
+}
+
+function ensureSpriteRigWorkshopUnitSelection() {
+  const available = getSpriteRigWorkshopSelectableUnitIds();
+  if (!available.length) return;
+  if (!available.includes(state.spriteRigEditor.unitId)) {
+    [state.spriteRigEditor.unitId] = available;
+  }
+}
+
+function getCurrentSpriteRigAnimationConfig() {
+  return isDeployableSpriteRigWorkshop()
+    ? compileSimpleRigAnimationConfig(state.spriteRigEditor.simpleAnimationConfig)
+    : state.spriteRigEditor.animationConfig;
+}
+
+function getCurrentSpriteRigPartDefinitions() {
+  if (!isDeployableSpriteRigWorkshop()) return RIG_PART_DEFINITIONS;
+  const labels = SPRITE_RIG_ALT_PART_LABELS[state.spriteRigEditor.unitId] || {};
+  return RIG_PART_DEFINITIONS.map((partDef) => ({
+    ...partDef,
+    label: labels[partDef.id] || partDef.label,
+    optional: partDef.id !== "body",
+  }));
+}
+
+function getCurrentSpriteRigPartDefinition(partId) {
+  return getCurrentSpriteRigPartDefinitions().find((partDef) => partDef.id === partId) || getRigPartDefinition(partId);
+}
+
+function getActiveSpriteRigSimplePoseSet() {
+  const clipId = state.spriteRigEditor.selectedAnimationId || "walk";
+  return state.spriteRigEditor.simpleAnimationConfig?.clips?.[clipId]?.poses?.[state.spriteRigEditor.activePartId] || {
+    a: createEmptyRigKeyframePose(),
+    b: createEmptyRigKeyframePose(),
+  };
+}
+
 function getSelectedSpriteRigAnimationClip() {
   const clipId = state.spriteRigEditor.selectedAnimationId || RIG_ANIMATION_CLIP_DEFINITIONS[0].id;
+  if (isDeployableSpriteRigWorkshop()) {
+    return compileSimpleRigAnimationConfig(state.spriteRigEditor.simpleAnimationConfig)?.clips?.[clipId] || createEmptyRigAnimationClips()[clipId];
+  }
   return state.spriteRigEditor.animationConfig?.clips?.[clipId] || createEmptyRigAnimationClips()[clipId];
 }
 
@@ -1958,9 +2283,7 @@ function syncSpriteRigAnimationControls() {
   if (els.spriteRigPreviewTime) els.spriteRigPreviewTime.value = `${Math.round(getSpriteRigCurrentKeyframeTime() * 100)}`;
   if (els.spriteRigPreviewMotionX) els.spriteRigPreviewMotionX.value = `${state.spriteRigEditor.previewMotionX}`;
   if (els.spriteRigPreviewMotionY) els.spriteRigPreviewMotionY.value = `${state.spriteRigEditor.previewMotionY}`;
-  const showWalkVectorControls = state.spriteRigEditor.selectedAnimationId === "walk"
-    || state.spriteRigEditor.previewMode === "composite";
-  els.spriteRigWalkVectorControls?.classList.toggle("hidden", !showWalkVectorControls);
+  syncSpriteRigWorkshopTabUi();
   renderSpriteRigAnimationFieldEditors();
   syncSpriteRigKeyframePoseFields();
   renderSpriteRigKeyframeList();
@@ -1970,15 +2293,20 @@ function renderSpriteRigAnimationFieldEditors() {
   if (!els.spriteRigAnimationFields || !els.spriteRigAnimationClipFields) return;
   const clipId = state.spriteRigEditor.selectedAnimationId;
   const clipDef = getRigAnimationClipDefinition(clipId);
+  const isDeployable = isDeployableSpriteRigWorkshop();
   const partTuning = getActiveSpriteRigAnimationTuningPart();
   const clip = getSelectedSpriteRigAnimationClip();
-  els.spriteRigAnimationSummary.textContent = `${clipDef.label} / ${RIG_PART_DEFINITIONS.find((part) => part.id === state.spriteRigEditor.activePartId)?.label || "Part"}`;
+  els.spriteRigAnimationSummary.textContent = `${clipDef.label} / ${getCurrentSpriteRigPartDefinition(state.spriteRigEditor.activePartId)?.label || "Part"}`;
   els.spriteRigAnimationClipFields.innerHTML = "";
   const speedLabel = document.createElement("label");
   speedLabel.innerHTML = `<span>${clipDef.label} Speed</span><input type="number" step="0.05" min="0.1" max="4" value="${clip?.speed ?? clipDef.speed}">`;
   const speedInput = speedLabel.querySelector("input");
   speedInput.addEventListener("input", () => {
-    clip.speed = clamp(Number(speedInput.value) || clipDef.speed, 0.1, 4);
+    if (isDeployable) {
+      state.spriteRigEditor.simpleAnimationConfig.clips[clipId].speed = clamp(Number(speedInput.value) || clipDef.speed, 0.1, 4);
+    } else {
+      clip.speed = clamp(Number(speedInput.value) || clipDef.speed, 0.1, 4);
+    }
     invalidateSpriteRigPackedArtifact();
     renderSpriteRigPreview();
     updateSpriteRigStatus();
@@ -1986,6 +2314,7 @@ function renderSpriteRigAnimationFieldEditors() {
   els.spriteRigAnimationClipFields.appendChild(speedLabel);
 
   els.spriteRigAnimationFields.innerHTML = "";
+  if (isDeployable) return;
   (RIG_ANIMATION_FIELD_DEFINITIONS[clipId] || []).forEach((fieldDef) => {
     const label = document.createElement("label");
     label.innerHTML = `<span>${fieldDef.label}</span><input type="number" step="${fieldDef.step}" value="${getSpriteRigTuningValue(partTuning, fieldDef.path)}">`;
@@ -2001,6 +2330,18 @@ function renderSpriteRigAnimationFieldEditors() {
 }
 
 function syncSpriteRigKeyframePoseFields() {
+  if (isDeployableSpriteRigWorkshop()) {
+    const poseSet = getActiveSpriteRigSimplePoseSet();
+    const pose = normalizeRigKeyframePose(poseSet[state.spriteRigEditor.selectedSimplePoseState || "a"]);
+    state.spriteRigEditor.keyframePose = pose;
+    els.spriteRigKeyframeX.value = `${pose.x}`;
+    els.spriteRigKeyframeY.value = `${pose.y}`;
+    els.spriteRigKeyframeRotation.value = `${pose.rotationDeg}`;
+    els.spriteRigKeyframeScaleX.value = `${pose.scaleX}`;
+    els.spriteRigKeyframeScaleY.value = `${pose.scaleY}`;
+    els.spriteRigKeyframeSummary.textContent = `${getRigAnimationClipDefinition(state.spriteRigEditor.selectedAnimationId).label} / State ${(state.spriteRigEditor.selectedSimplePoseState || "a").toUpperCase()}`;
+    return;
+  }
   const clip = getSelectedSpriteRigAnimationClip();
   const frames = getSpriteRigKeyframesForSelection();
   const time = getSpriteRigCurrentKeyframeTime();
@@ -2030,6 +2371,18 @@ function readSpriteRigKeyframePoseFields() {
 }
 
 function upsertSpriteRigKeyframe() {
+  if (isDeployableSpriteRigWorkshop()) {
+    const poseSet = getActiveSpriteRigSimplePoseSet();
+    const pose = readSpriteRigKeyframePoseFields();
+    poseSet[state.spriteRigEditor.selectedSimplePoseState || "a"] = pose;
+    state.spriteRigEditor.keyframePose = pose;
+    invalidateSpriteRigPackedArtifact();
+    renderSpriteRigPreview();
+    renderSpriteRigKeyframeList();
+    syncSpriteRigKeyframePoseFields();
+    updateSpriteRigStatus();
+    return;
+  }
   const clip = getSelectedSpriteRigAnimationClip();
   const frames = clip.keyframes[state.spriteRigEditor.activePartId];
   const time = getSpriteRigCurrentKeyframeTime();
@@ -2050,6 +2403,16 @@ function upsertSpriteRigKeyframe() {
 }
 
 function deleteSpriteRigKeyframe() {
+  if (isDeployableSpriteRigWorkshop()) {
+    const poseSet = getActiveSpriteRigSimplePoseSet();
+    poseSet[state.spriteRigEditor.selectedSimplePoseState || "a"] = createEmptyRigKeyframePose();
+    state.spriteRigEditor.keyframePose = createEmptyRigKeyframePose();
+    syncSpriteRigKeyframePoseFields();
+    renderSpriteRigKeyframeList();
+    renderSpriteRigPreview();
+    updateSpriteRigStatus();
+    return;
+  }
   const clip = getSelectedSpriteRigAnimationClip();
   const frames = clip.keyframes[state.spriteRigEditor.activePartId];
   const time = getSpriteRigCurrentKeyframeTime();
@@ -2073,6 +2436,22 @@ function resetSpriteRigKeyframePoseFields() {
 
 function renderSpriteRigKeyframeList() {
   if (!els.spriteRigKeyframeList) return;
+  if (isDeployableSpriteRigWorkshop()) {
+    els.spriteRigKeyframeList.innerHTML = "";
+    ["a", "b"].forEach((stateId) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = `sprite-rig-keyframe-chip${(state.spriteRigEditor.selectedSimplePoseState || "a") === stateId ? " active" : ""}`;
+      button.textContent = `State ${stateId.toUpperCase()}`;
+      button.addEventListener("click", () => {
+        state.spriteRigEditor.selectedSimplePoseState = stateId;
+        syncSpriteRigAnimationControls();
+        renderSpriteRigPreview();
+      });
+      els.spriteRigKeyframeList.appendChild(button);
+    });
+    return;
+  }
   const frames = getSpriteRigKeyframesForSelection();
   els.spriteRigKeyframeList.innerHTML = "";
   if (!frames.length) {
@@ -2100,7 +2479,7 @@ function renderSpriteRigKeyframeList() {
 function renderSpriteRigPartPicker() {
   if (!els.spriteRigPartPicker) return;
   els.spriteRigPartPicker.innerHTML = "";
-  RIG_PART_DEFINITIONS.forEach((partDef) => {
+  getCurrentSpriteRigPartDefinitions().forEach((partDef) => {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "sprite-rig-part-btn";
@@ -2161,6 +2540,9 @@ function syncSpriteRigWeaponFields() {
   els.spriteRigWeaponAttachAngle.disabled = disabled;
   els.spriteRigWeaponUseArmPivotBtn.disabled = !armFront?.pivot;
   els.spriteRigWeaponClearAttachBtn.disabled = !attachment.enabled && attachment.sourceX == null && attachment.sourceY == null && !attachment.angleDeg;
+  if (els.spriteRigAimPartSelect) {
+    els.spriteRigAimPartSelect.value = state.spriteRigEditor.specialBehavior?.aimPartId || "armFront";
+  }
 }
 
 function onSpriteRigFieldInput() {
@@ -2322,9 +2704,12 @@ function resetSpriteRigEditorForNewSource() {
   editor.healthBarOffsetX = DEFAULT_RIG_LAYOUT.healthBarOffsetX;
   editor.healthBarOffsetY = DEFAULT_RIG_LAYOUT.healthBarOffsetY;
   editor.weaponAttachment = createEmptyRigWeaponAttachment();
+  editor.specialBehavior = { aimPartId: "armFront" };
   editor.activePartId = "body";
   editor.animationConfig = createDefaultRigAnimationConfig();
+  editor.simpleAnimationConfig = createEmptySimpleRigAnimationConfig();
   editor.selectedAnimationId = "walk";
+  editor.selectedSimplePoseState = "a";
   editor.previewMode = "composite";
   editor.previewAutoplay = true;
   editor.previewTime = 0;
@@ -2333,6 +2718,10 @@ function resetSpriteRigEditorForNewSource() {
 }
 
 function finalizeSpriteRigSourceLoad() {
+  ensureSpriteRigWorkshopUnitSelection();
+  populateSpriteRigUnitSelect();
+  populateSpriteRigAimPartSelect();
+  syncSpriteRigWorkshopTabUi();
   if (els.spriteRigUnitSelect && !els.spriteRigUnitSelect.value) {
     els.spriteRigUnitSelect.value = state.spriteRigEditor.unitId;
   }
@@ -2768,6 +3157,7 @@ function buildSpriteRigPreviewState(manifest, now) {
     locomotionVectorY: normalizedMotionY,
     locomotionSpeed: 0,
     gaitAngularVelocity: Math.PI * 2 * (config.clips.walk?.speed || 1) * 0.72,
+    turretAimAngle: 0,
   };
   let animationState = {
     stride: 0,
@@ -2841,18 +3231,23 @@ function buildSpriteRigPreviewState(manifest, now) {
     };
     label = "Walk";
   }
+  if (editor.unitId === "turret") {
+    previewUnit.turretAimAngle = Math.atan2(normalizedMotionY || 0, normalizedMotionX || 1);
+  }
   if (!editor.previewAutoplay) {
     animationState.clipTimes[selectedClipId] = scrubTime ?? 0;
-    const frames = selectedClip?.keyframes?.[editor.activePartId] || [];
-    const exact = findSpriteRigExactKeyframe(frames, scrubTime ?? 0);
-    if (exact) {
-      state.spriteRigEditor.keyframePose = normalizeRigKeyframePose(exact.pose);
+    if (!isDeployableSpriteRigWorkshop()) {
+      const frames = selectedClip?.keyframes?.[editor.activePartId] || [];
+      const exact = findSpriteRigExactKeyframe(frames, scrubTime ?? 0);
+      if (exact) {
+        state.spriteRigEditor.keyframePose = normalizeRigKeyframePose(exact.pose);
+      }
+      animationState.previewKeyframeOverride = {
+        clipId: selectedClipId,
+        partId: editor.activePartId,
+        pose: state.spriteRigEditor.keyframePose,
+      };
     }
-    animationState.previewKeyframeOverride = {
-      clipId: selectedClipId,
-      partId: editor.activePartId,
-      pose: state.spriteRigEditor.keyframePose,
-    };
   }
   return { previewUnit, animationState, label };
 }
@@ -2948,8 +3343,9 @@ function drawBattleAccuratePreviewReference(previewCtx, bodyY, pointScale) {
 
 function updateSpriteRigStatus() {
   if (!els.spriteRigStatus) return;
-  const definedParts = RIG_PART_DEFINITIONS.filter((partDef) => state.spriteRigEditor.parts[partDef.id]?.rect);
-  const missingRequired = RIG_PART_DEFINITIONS
+  const partDefinitions = getCurrentSpriteRigPartDefinitions();
+  const definedParts = partDefinitions.filter((partDef) => state.spriteRigEditor.parts[partDef.id]?.rect);
+  const missingRequired = partDefinitions
     .filter((partDef) => !partDef.optional && !state.spriteRigEditor.parts[partDef.id]?.rect)
     .map((partDef) => partDef.label);
   const lines = [
@@ -2967,8 +3363,13 @@ function updateSpriteRigStatus() {
   } else {
     lines.push("Weapon pin: disabled.");
   }
+  if (isDeployableSpriteRigWorkshop() && state.spriteRigEditor.unitId === "turret") {
+    lines.push(`Turret barrel: ${getCurrentSpriteRigPartDefinition(state.spriteRigEditor.specialBehavior.aimPartId || "armFront")?.label || state.spriteRigEditor.specialBehavior.aimPartId}`);
+  }
   const keyframeCount = getSpriteRigKeyframesForSelection().length;
-  lines.push(`Selected part keyframes: ${keyframeCount}`);
+  lines.push(isDeployableSpriteRigWorkshop()
+    ? `Selected part states: A/B (${state.spriteRigEditor.selectedSimplePoseState.toUpperCase()} active)`
+    : `Selected part keyframes: ${keyframeCount}`);
   state.spriteRigEditor.statusText = lines.join("\n");
   els.spriteRigStatus.textContent = state.spriteRigEditor.statusText;
 }
@@ -2998,6 +3399,7 @@ function buildSpriteRigWorkshopProject() {
   return {
     kind: "tbr-sprite-rig-workshop",
     version: 1,
+    workshopTab: editor.workshopTab || "unit",
     unitId: editor.unitId || sanitizeRigAssetName(editor.sourceName) || "unit-rig",
     source: {
       name: editor.sourceName,
@@ -3019,10 +3421,13 @@ function buildSpriteRigWorkshopProject() {
       previewBlend: editor.previewBlend,
       previewMotionX: editor.previewMotionX,
       previewMotionY: editor.previewMotionY,
+      selectedSimplePoseState: editor.selectedSimplePoseState || "a",
     },
     weaponAttachment: cloneData(editor.weaponAttachment),
+    specialBehavior: cloneData(editor.specialBehavior),
     parts: cloneData(editor.parts),
     animations: serializeRigAnimationConfig(editor.animationConfig),
+    simpleAnimations: cloneData(normalizeSimpleRigAnimationConfig(editor.simpleAnimationConfig)),
   };
 }
 
@@ -3041,6 +3446,7 @@ async function loadSpriteRigWorkshopProject(project) {
     mimeType: project.source.mimeType || "image/png",
     dataUrl: project.source.dataUrl,
   });
+  editor.workshopTab = project.workshopTab === "deployable" ? "deployable" : "unit";
   editor.unitId = project.unitId || editor.unitId;
   editor.renderHeight = clamp(Number(project.layout?.renderHeight) || DEFAULT_RIG_LAYOUT.height, 16, 256);
   editor.anchorY = clamp(Number(project.layout?.anchorY) || DEFAULT_RIG_LAYOUT.anchorY, 0.5, 1.2);
@@ -3050,9 +3456,14 @@ async function loadSpriteRigWorkshopProject(project) {
     ...createEmptyRigWeaponAttachment(),
     ...(project.weaponAttachment || {}),
   };
+  editor.specialBehavior = {
+    aimPartId: "armFront",
+    ...(project.specialBehavior || {}),
+  };
   editor.parts = normalizeSpriteRigParts(project.parts);
   RIG_PART_IDS.forEach((id) => clampSpriteRigPartToImage(editor.parts[id]));
   editor.animationConfig = normalizeRigAnimationConfig(project.animations);
+  editor.simpleAnimationConfig = normalizeSimpleRigAnimationConfig(project.simpleAnimations);
   editor.selectedAnimationId = project.preview?.selectedAnimationId || "walk";
   editor.previewMode = project.preview?.previewMode || "composite";
   editor.previewBlend = clamp(Number(project.preview?.previewBlend) || 0.55, 0, 1);
@@ -3062,12 +3473,16 @@ async function loadSpriteRigWorkshopProject(project) {
   editor.previewMotionY = Number.isFinite(Number(project.preview?.previewMotionY))
     ? clamp(Number(project.preview.previewMotionY), -1, 1)
     : 0;
+  editor.selectedSimplePoseState = project.preview?.selectedSimplePoseState === "b" ? "b" : "a";
   editor.previewAutoplay = true;
   editor.previewTime = 0;
   editor.activePartId = "body";
   editor.keyframePose = createDefaultSpriteRigKeyframePoseState();
   clampSpriteRigWeaponAttachmentToImage();
   invalidateSpriteRigPackedArtifact();
+  populateSpriteRigUnitSelect();
+  populateSpriteRigAimPartSelect();
+  syncSpriteRigWorkshopTabUi();
   els.spriteRigUnitSelect.value = editor.unitId;
   els.spriteRigRenderHeight.value = `${editor.renderHeight}`;
   els.spriteRigAnchorY.value = `${editor.anchorY}`;
@@ -3090,6 +3505,7 @@ function buildSpriteRigManifestFromEditor() {
   const editor = state.spriteRigEditor;
   const body = editor.parts.body;
   if (!body?.rect || !body?.pivot) return null;
+  const resolvedAnimationConfig = getCurrentSpriteRigAnimationConfig();
   const armFront = editor.parts.armFront;
   const bodyPivot = body?.pivot || { x: 0, y: 0 };
   const partRects = RIG_PART_IDS
@@ -3154,9 +3570,21 @@ function buildSpriteRigManifestFromEditor() {
       rows: Math.ceil(RIG_PART_IDS.length / 4),
       order: [...RIG_PART_IDS],
     },
-    animations: serializeRigAnimationConfig(editor.animationConfig),
+    animations: serializeRigAnimationConfig(resolvedAnimationConfig),
     parts,
   };
+  if (isDeployableSpriteRigWorkshop()) {
+    manifest.authoring = {
+      workshopTab: "deployable",
+      simpleAnimations: cloneData(normalizeSimpleRigAnimationConfig(editor.simpleAnimationConfig)),
+    };
+    if (editor.unitId === "turret") {
+      manifest.specialBehavior = {
+        type: "turretAim",
+        aimPartId: editor.specialBehavior?.aimPartId || "armFront",
+      };
+    }
+  }
   if (
     editor.weaponAttachment?.enabled
     && armFront?.rect
@@ -3257,6 +3685,17 @@ async function writeTextToDirectory(directoryHandle, filename, text) {
   await writable.close();
 }
 
+async function directoryFileExists(directoryHandle, filename) {
+  if (!directoryHandle || !filename) return false;
+  try {
+    await directoryHandle.getFileHandle(filename);
+    return true;
+  } catch (error) {
+    if (error?.name === "NotFoundError") return false;
+    throw error;
+  }
+}
+
 function getSpriteRigProjectStem() {
   return state.spriteRigEditor.unitId || sanitizeRigAssetName(state.spriteRigEditor.sourceName) || "unit-rig";
 }
@@ -3272,14 +3711,34 @@ async function writeSpriteRigWorkshopSourceCopy(directoryHandle) {
   return `${RIG_WORKSHOP_SOURCE_DIR}/${sourceFileName}`;
 }
 
-async function saveSpriteRigWorkshopAsset() {
+async function confirmSpriteRigOverwriteIfNeeded(unitId, directoryHandle, filenames = []) {
+  if (!unitId) return true;
+  const rigStatus = await ensureUnitRigAvailability(unitId);
+  const existingFiles = [];
+  for (const filename of filenames) {
+    if (await directoryFileExists(directoryHandle, filename)) existingFiles.push(filename);
+  }
+  if (rigStatus !== "loaded" && !existingFiles.length) return true;
+  const unit = getUnitDefinition(unitId);
+  const fileNote = existingFiles.length ? ` Existing files in the selected directory: ${existingFiles.join(", ")}.` : "";
+  return window.confirm(`A rig for ${unit?.name || unitId} (${unitId}) already exists.${fileNote} Overwrite it?`);
+}
+
+async function saveSpriteRigWorkshopAsset(options = {}) {
   const project = buildSpriteRigWorkshopProject();
   if (!project) {
     els.spriteRigStatus.textContent = "Load a source sprite before saving a workshop asset.";
-    return;
+    return false;
   }
-  const directoryHandle = state.spriteRigEditor.exportDirectoryHandle;
+  const directoryHandle = options.directoryHandle || state.spriteRigEditor.exportDirectoryHandle;
   const filename = `${project.unitId}${RIG_WORKSHOP_FILE_EXTENSION}`;
+  if (!options.skipOverwriteConfirm) {
+    const shouldOverwrite = await confirmSpriteRigOverwriteIfNeeded(project.unitId, directoryHandle, [filename]);
+    if (!shouldOverwrite) {
+      els.spriteRigStatus.textContent = `Skipped saving ${filename}.`;
+      return false;
+    }
+  }
   if (directoryHandle) {
     try {
       const sourcePath = await writeSpriteRigWorkshopSourceCopy(directoryHandle);
@@ -3292,15 +3751,16 @@ async function saveSpriteRigWorkshopAsset() {
       };
       await writeTextToDirectory(directoryHandle, filename, JSON.stringify(projectWithSourceCopy, null, 2));
       els.spriteRigStatus.textContent = `Saved workshop asset ${filename} to ${state.spriteRigEditor.exportDirectoryName || "the selected directory"}.`;
-      return;
+      return true;
     } catch (error) {
       els.spriteRigStatus.textContent = `Could not save workshop asset: ${error.message || error}`;
-      return;
+      return false;
     }
   }
   const blob = new Blob([JSON.stringify(project, null, 2)], { type: "application/json" });
   triggerBlobDownload(blob, filename);
   els.spriteRigStatus.textContent = `Downloaded workshop asset ${filename}.`;
+  return true;
 }
 
 async function exportSpriteRigToDirectory() {
@@ -3312,10 +3772,20 @@ async function exportSpriteRigToDirectory() {
   try {
     const directoryHandle = state.spriteRigEditor.exportDirectoryHandle || await chooseSpriteRigExportDirectory();
     if (!directoryHandle) return;
+    const filenames = [
+      `${artifact.manifest.unitId}.png`,
+      `${artifact.manifest.unitId}.json`,
+      `${artifact.manifest.unitId}${RIG_WORKSHOP_FILE_EXTENSION}`,
+    ];
+    const shouldOverwrite = await confirmSpriteRigOverwriteIfNeeded(artifact.manifest.unitId, directoryHandle, filenames);
+    if (!shouldOverwrite) {
+      els.spriteRigStatus.textContent = `Skipped exporting rig for ${artifact.manifest.unitId}.`;
+      return;
+    }
     const pngBlob = await new Promise((resolve) => artifact.canvas.toBlob(resolve, "image/png"));
     await writeBlobToDirectory(directoryHandle, `${artifact.manifest.unitId}.png`, pngBlob);
     await writeTextToDirectory(directoryHandle, `${artifact.manifest.unitId}.json`, JSON.stringify(stripEditorFieldsFromManifest(artifact.manifest), null, 2));
-    await saveSpriteRigWorkshopAsset();
+    await saveSpriteRigWorkshopAsset({ skipOverwriteConfirm: true, directoryHandle });
     els.spriteRigStatus.textContent = `Exported ${artifact.manifest.unitId}.png, ${artifact.manifest.unitId}.json, and the workshop asset to ${state.spriteRigEditor.exportDirectoryName || "the selected directory"}.`;
   } catch (error) {
     if (error?.name !== "AbortError") {
@@ -3693,6 +4163,17 @@ function getHuntsmanIconSvgPaths() {
     <path d="M16 -9 L20 -5 L12 -1 Z" fill="#cfc7bb"></path>
     <path d="M-9 -1 L-15 -7 L-14 6 L-8 10 L-4 3 Z" fill="none" stroke="rgba(185, 224, 236, 0.92)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path>
     <path d="M-11 -4 L-6 1 M-13 0 L-5 5 M-12 7 L-7 2" fill="none" stroke="rgba(185, 224, 236, 0.82)" stroke-width="1.1" stroke-linecap="round"></path>
+  `;
+}
+
+function getWinterWitchIconSvgPaths() {
+  return `
+    <path fill="rgba(61, 77, 121, 0.96)" d="M0 -17 L10 -8 L8 12 L-8 12 L-10 -8 Z"></path>
+    <path fill="currentColor" d="M0 -14 L7 -6 L6 10 L-6 10 L-7 -6 Z"></path>
+    <circle cx="0" cy="-15" r="4.9" fill="rgba(244,250,255,0.76)"></circle>
+    <path d="M8 -4 L15 -16" fill="none" stroke="rgba(69, 86, 128, 0.95)" stroke-width="2.2" stroke-linecap="round"></path>
+    <circle cx="16.5" cy="-18.5" r="3" fill="#b8ecff"></circle>
+    <path d="M-10 -2 Q-15 -7 -18 -4" fill="none" stroke="rgba(224, 247, 255, 0.86)" stroke-width="1.7" stroke-linecap="round"></path>
   `;
 }
 
@@ -5680,30 +6161,30 @@ function getVeteranGoal(unitOrType) {
 function scaleVeteranStat(stat, value) {
   if (typeof value !== "number") return value;
   if (stat === "maxHealth") return value * VETERAN_BONUSES.maxHealth;
-  if (["damage", "heal", "backstabDamage", "slashDamage", "impulseDamage", "holdDamage", "poisonDamage", "igniteDamage", "biteDamage", "biteHeal", "regenPerSecond"].includes(stat)) return value * VETERAN_BONUSES.power;
-  if (["range", "abductRange", "splash", "deathSplash", "impulseRange", "impulseDistance", "holdRange", "resetRadius", "contagionRadius", "raiseRange", "graveRange", "graveDeadZone", "auraRadius", "aggroRadius", "netRange", "pierceWidth"].includes(stat)) return value * VETERAN_BONUSES.radius;
+  if (["damage", "heal", "backstabDamage", "slashDamage", "impulseDamage", "holdDamage", "poisonDamage", "igniteDamage", "biteDamage", "biteHeal", "regenPerSecond", "blizzardDamage"].includes(stat)) return value * VETERAN_BONUSES.power;
+  if (["range", "abductRange", "splash", "deathSplash", "impulseRange", "impulseDistance", "holdRange", "resetRadius", "contagionRadius", "raiseRange", "graveRange", "graveDeadZone", "auraRadius", "aggroRadius", "netRange", "pierceWidth", "blizzardRadius"].includes(stat)) return value * VETERAN_BONUSES.radius;
   if (stat === "speed") return value * VETERAN_BONUSES.speed;
   if (stat === "cooldown") return value * VETERAN_BONUSES.cooldown;
-  if (["holdDuration", "poisonDuration", "igniteDuration", "breathDuration", "netDuration"].includes(stat)) return value * VETERAN_BONUSES.duration;
+  if (["holdDuration", "poisonDuration", "igniteDuration", "breathDuration", "netDuration", "blizzardDuration", "freezeDuration"].includes(stat)) return value * VETERAN_BONUSES.duration;
   return value;
 }
 
 function scaleZombieStat(stat, value) {
   if (typeof value !== "number") return value;
   if (stat === "maxHealth") return value * ZOMBIE_PENALTIES.maxHealth;
-  if (["damage", "heal", "backstabDamage", "slashDamage", "impulseDamage", "holdDamage", "poisonDamage", "igniteDamage", "biteDamage", "biteHeal", "regenPerSecond"].includes(stat)) return value * ZOMBIE_PENALTIES.power;
-  if (["range", "abductRange", "splash", "deathSplash", "impulseRange", "impulseDistance", "holdRange", "resetRadius", "contagionRadius", "raiseRange", "graveRange", "graveDeadZone", "auraRadius", "aggroRadius", "netRange", "pierceWidth"].includes(stat)) return value * ZOMBIE_PENALTIES.radius;
+  if (["damage", "heal", "backstabDamage", "slashDamage", "impulseDamage", "holdDamage", "poisonDamage", "igniteDamage", "biteDamage", "biteHeal", "regenPerSecond", "blizzardDamage"].includes(stat)) return value * ZOMBIE_PENALTIES.power;
+  if (["range", "abductRange", "splash", "deathSplash", "impulseRange", "impulseDistance", "holdRange", "resetRadius", "contagionRadius", "raiseRange", "graveRange", "graveDeadZone", "auraRadius", "aggroRadius", "netRange", "pierceWidth", "blizzardRadius"].includes(stat)) return value * ZOMBIE_PENALTIES.radius;
   if (stat === "speed") return value * ZOMBIE_PENALTIES.speed;
   if (stat === "cooldown") return value * ZOMBIE_PENALTIES.cooldown;
-  if (["holdDuration", "poisonDuration", "igniteDuration", "breathDuration", "netDuration"].includes(stat)) return value * ZOMBIE_PENALTIES.duration;
+  if (["holdDuration", "poisonDuration", "igniteDuration", "breathDuration", "netDuration", "blizzardDuration", "freezeDuration"].includes(stat)) return value * ZOMBIE_PENALTIES.duration;
   return value;
 }
 
 function getUnitStats(unitOrType, unitDef = getUnitDefinition(unitOrType)) {
   const unit = typeof unitOrType === "string" ? null : unitOrType;
   const zombie = Boolean(unit && getUnitStatus(unit, "zombie"));
-  const hasSongBuff = Boolean(unit && (getUnitStatus(unit, "bardichaste") || getUnitStatus(unit, "bardicvalor")));
-  if (!unit?.veteran && !zombie && !unitDef.modifyStats && !hasSongBuff) return unitDef.stats;
+  const hasStatusModifiers = Boolean(unit && (getUnitStatus(unit, "bardichaste") || getUnitStatus(unit, "bardicvalor") || getUnitStatus(unit, "blizzard")));
+  if (!unit?.veteran && !zombie && !unitDef.modifyStats && !hasStatusModifiers) return unitDef.stats;
   const scaledStats = {};
   Object.entries(unitDef.stats).forEach(([stat, value]) => {
     let nextValue = value;
@@ -5741,7 +6222,34 @@ function modifyStatsForStatuses(unit, stats) {
       range: typeof modified.range === "number" ? modified.range * 1.05 : modified.range,
     };
   }
+  const blizzardModifiers = getBlizzardStatusModifiers(unit);
+  if (blizzardModifiers) {
+    modified = {
+      ...modified,
+      speed: typeof modified.speed === "number" ? modified.speed * blizzardModifiers.moveMultiplier : modified.speed,
+      cooldown: typeof modified.cooldown === "number" ? modified.cooldown / Math.max(0.01, blizzardModifiers.cooldownRate) : modified.cooldown,
+    };
+  }
   return modified;
+}
+
+function getWinterWitchResistanceAdjustedMultiplier(unit, multiplier) {
+  if (typeof multiplier !== "number") return multiplier;
+  if (unit?.type !== "winterwitch") return multiplier;
+  return lerp(1, multiplier, 2 / 3);
+}
+
+function getBlizzardStatusModifiers(unit) {
+  const status = getUnitStatus(unit, "blizzard");
+  if (!status) return null;
+  return {
+    moveMultiplier: getWinterWitchResistanceAdjustedMultiplier(unit, status.moveMultiplier ?? STATUS_DEFINITIONS.blizzard.moveMultiplier ?? 1),
+    cooldownRate: getWinterWitchResistanceAdjustedMultiplier(unit, status.cooldownRate ?? STATUS_DEFINITIONS.blizzard.cooldownRate ?? 1),
+  };
+}
+
+function getUnitCooldownTickRate(unit) {
+  return getBlizzardStatusModifiers(unit)?.cooldownRate ?? 1;
 }
 
 function syncUnitMaxHealth(unit, preserveRatio = true) {
@@ -5839,16 +6347,76 @@ function getUnitControlFactionId(unit, battle = null) {
   return phantom?.factionId || unit.factionId;
 }
 
+function getPossessionCleanupControllerFactionId(battle, livingUnits = null, unitLookup = null, factionLookup = null) {
+  if (!battle) return null;
+  if (!livingUnits && battle.transientCache && Object.prototype.hasOwnProperty.call(battle.transientCache, "possessionCleanupControllerId")) {
+    return battle.transientCache.possessionCleanupControllerId;
+  }
+  const directUnitLookup = unitLookup || null;
+  const directFactionLookup = factionLookup || null;
+  const getFactionById = (factionId) => {
+    if (!factionId) return null;
+    if (directFactionLookup?.get) return directFactionLookup.get(factionId) || null;
+    return battle.factions.find((entry) => entry.id === factionId) || null;
+  };
+  const getPossessionStatusDirect = (unit) => {
+    const status = unit?.statuses?.find((entry) => entry.kind === "possessed") || null;
+    if (!status) return null;
+    const source = status.sourceId
+      ? (directUnitLookup?.get ? directUnitLookup.get(status.sourceId) : findUnitById(battle, status.sourceId))
+      : null;
+    if (!source || source.dead || source.fled || source.type !== "phantom") return null;
+    return status;
+  };
+  const getUnitControlFactionIdDirect = (unit) => {
+    if (!unit) return null;
+    if (unit.thrallOwnerId) {
+      const owner = directUnitLookup?.get ? directUnitLookup.get(unit.thrallOwnerId) : findUnitById(battle, unit.thrallOwnerId);
+      if (owner && !owner.dead && !owner.fled) return getUnitControlFactionIdDirect(owner);
+    }
+    const possession = getPossessionStatusDirect(unit);
+    const phantom = possession?.sourceId
+      ? (directUnitLookup?.get ? directUnitLookup.get(possession.sourceId) : findUnitById(battle, possession.sourceId))
+      : null;
+    return phantom?.factionId || unit.factionId;
+  };
+  const resultLivingUnits = (livingUnits || [])
+    .filter((unit) => !unit.dead && !unit.fled)
+    .filter((unit) => !getFactionById(unit.factionId)?.excludeFromResults);
+  if (!resultLivingUnits.length) return null;
+  const resolveControlFactionId = directUnitLookup ? getUnitControlFactionIdDirect : (unit) => getUnitControlFactionId(unit, battle);
+  const resolvePossessionStatus = directUnitLookup ? getPossessionStatusDirect : (unit) => getPossessionStatus(unit, battle);
+  const controlFactionIds = new Set(resultLivingUnits.map((unit) => resolveControlFactionId(unit)).filter(Boolean));
+  if (controlFactionIds.size !== 1) return null;
+  const [controllerFactionId] = [...controlFactionIds];
+  const hasForeignPossessedHosts = resultLivingUnits.some((unit) => unit.factionId !== controllerFactionId && Boolean(resolvePossessionStatus(unit)));
+  return hasForeignPossessedHosts ? controllerFactionId : null;
+}
+
+function shouldForcePossessionCleanupHostility(unit, other, battle) {
+  if (!unit || !other || !battle) return false;
+  const controllerFactionId = getPossessionCleanupControllerFactionId(battle);
+  if (!controllerFactionId) return false;
+  const unitControlFactionId = getUnitControlFactionId(unit, battle);
+  const otherControlFactionId = getUnitControlFactionId(other, battle);
+  if (unitControlFactionId !== controllerFactionId || otherControlFactionId !== controllerFactionId) return false;
+  const unitIsForeignPossessedHost = unit.factionId !== controllerFactionId && Boolean(getPossessionStatus(unit, battle));
+  const otherIsForeignPossessedHost = other.factionId !== controllerFactionId && Boolean(getPossessionStatus(other, battle));
+  return unitIsForeignPossessedHost || otherIsForeignPossessedHost;
+}
+
 function areUnitsAllied(unit, other, battle) {
   if (!unit || !other) return false;
   if (unit.id === other.id) return true;
   if (unit.hostileToAll || other.hostileToAll) return false;
+  if (shouldForcePossessionCleanupHostility(unit, other, battle)) return false;
   return getUnitControlFactionId(unit, battle) === getUnitControlFactionId(other, battle);
 }
 
 function areUnitsHostile(unit, other, battle) {
   if (!unit || !other || unit.id === other.id) return false;
   if (unit.hostileToAll || other.hostileToAll) return true;
+  if (shouldForcePossessionCleanupHostility(unit, other, battle)) return true;
   return getUnitControlFactionId(unit, battle) !== getUnitControlFactionId(other, battle);
 }
 
@@ -5945,10 +6513,16 @@ function applyStatus(unit, kind, stacks = 1, duration = null, source = null, bat
   const statusDuration = duration
     ?? (kind === "poison" ? sourceStats?.poisonDuration : null)
     ?? (kind === "ignite" ? sourceStats?.igniteDuration : null)
+    ?? (kind === "frozen" ? sourceStats?.freezeDuration : null)
     ?? statusDef.defaultDuration;
   const statusDps = (kind === "poison" ? sourceStats?.poisonDamage : null)
     ?? (kind === "ignite" ? sourceStats?.igniteDamage : null)
+    ?? (kind === "blizzard" ? sourceStats?.blizzardDamage : null)
     ?? statusDef.dps;
+  const statusMoveMultiplier = (kind === "blizzard" ? sourceStats?.blizzardMoveMultiplier : null)
+    ?? statusDef.moveMultiplier;
+  const statusCooldownRate = (kind === "blizzard" ? sourceStats?.blizzardCooldownRate : null)
+    ?? statusDef.cooldownRate;
   if (!unit.statuses) unit.statuses = [];
   let status = getUnitStatus(unit, kind);
   if (!status) {
@@ -5961,6 +6535,8 @@ function applyStatus(unit, kind, stacks = 1, duration = null, source = null, bat
       sourceId: source?.id || null,
       sourceFactionId: source?.factionId || null,
       dps: statusDps,
+      moveMultiplier: statusMoveMultiplier,
+      cooldownRate: statusCooldownRate,
     };
     unit.statuses.push(status);
   }
@@ -5968,6 +6544,16 @@ function applyStatus(unit, kind, stacks = 1, duration = null, source = null, bat
   status.sourceId = source?.id || status.sourceId || null;
   status.sourceFactionId = source?.factionId || status.sourceFactionId || null;
   status.dps = Math.max(status.dps || 0, statusDps);
+  if (typeof statusMoveMultiplier === "number") {
+    status.moveMultiplier = typeof status.moveMultiplier === "number"
+      ? Math.min(status.moveMultiplier, statusMoveMultiplier)
+      : statusMoveMultiplier;
+  }
+  if (typeof statusCooldownRate === "number") {
+    status.cooldownRate = typeof status.cooldownRate === "number"
+      ? Math.min(status.cooldownRate, statusCooldownRate)
+      : statusCooldownRate;
+  }
   status.stacks = statusDef.stackable ? status.stacks + stacks : Math.max(status.stacks, stacks);
   if (kind === "zombie") syncUnitMaxHealth(unit, false);
   return status;
@@ -6018,6 +6604,7 @@ function getDefaultUnitActivity(unitOrType) {
   if (type === "artificer") return "Seeking a place to build a turret.";
   if (type === "turret") return "Scanning for targets.";
   if (type === "spiderswarm") return "Skittering in search of prey.";
+  if (type === "winterwitch") return "Seeking a place to conjure a blizzard.";
   return getUnitStats(type).range > 40 ? "Seeking a target to shoot." : "Seeking an enemy to engage.";
 }
 
@@ -6625,11 +7212,42 @@ function getRiggedUnitSpriteSource(unitId, options = {}) {
       image: null,
       url: null,
       manifest: null,
+      loadPromise: null,
     };
     state.riggedUnitSpriteSources.set(unitId, entry);
-    loadNextUnitRigCandidate(entry);
+    entry.loadPromise = loadNextUnitRigCandidate(entry);
   }
   return state.riggedUnitSpriteSources.get(unitId);
+}
+
+function refreshBattleRunningStateUi() {
+  if (!state.battle) {
+    renderSpeedControls();
+    return;
+  }
+  if (state.running && !state.battle.completed) {
+    resumeBattleAudio();
+  } else {
+    pauseBattleAudio();
+  }
+  els.battleState.textContent = state.running
+    ? (state.battle.completed
+      ? (state.tournament ? `${getCurrentMatchLabel(state.tournament)} complete` : "Complete")
+      : (state.tournament ? `${getCurrentMatchLabel(state.tournament)} in progress` : "Battling"))
+    : (state.battle.completed ? "Aftermath paused" : "Paused");
+  renderSpeedControls();
+}
+
+function setBattleSpeedFromShortcut(index) {
+  if (!Number.isInteger(index) || index < 0 || index >= SPEED_OPTIONS.length) return;
+  if (state.battle?.completed) return;
+  state.speedIndex = index;
+  if (state.battle && !state.battle.completed && !state.running && state.battle.time > 0) {
+    state.running = true;
+    refreshBattleRunningStateUi();
+    return;
+  }
+  renderSpeedControls();
 }
 
 function getStatusBadgeSource(statusId) {
@@ -6674,6 +7292,8 @@ async function loadNextUnitRigCandidate(entry) {
   const nextUrl = entry.candidates[entry.candidateIndex];
   if (!nextUrl) {
     entry.status = "missing";
+    entry.loadPromise = Promise.resolve(entry);
+    refreshSpriteRigUnitSelectAvailability();
     return;
   }
   try {
@@ -6688,9 +7308,12 @@ async function loadNextUnitRigCandidate(entry) {
     entry.url = nextUrl;
     entry.manifest = manifest;
     entry.image = image;
+    entry.loadPromise = Promise.resolve(entry);
+    refreshSpriteRigUnitSelectAvailability();
   } catch (error) {
     entry.candidateIndex += 1;
-    loadNextUnitRigCandidate(entry);
+    entry.loadPromise = loadNextUnitRigCandidate(entry);
+    return entry.loadPromise;
   }
 }
 
@@ -7468,13 +8091,15 @@ function getRigPartTransform(partId, animation, unit, manifest) {
       : null,
   );
   const strideDriver = getRigStrideDriverForPart(partId, animation.stride || 0);
-  const proceduralWalkPose = animation.previewKeyframeOverride?.clipId === "walk" && animation.previewKeyframeOverride?.partId === partId
+  const proceduralWalkPose = manifest?.authoring?.workshopTab === "deployable"
+    ? null
+    : animation.previewKeyframeOverride?.clipId === "walk" && animation.previewKeyframeOverride?.partId === partId
     ? null
     : getRigProceduralLegPoseForPart(partId, animation, manifest, unit);
   const strideContributionDriver = proceduralWalkPose ? 0 : strideDriver;
   const walkPoseWeight = proceduralWalkPose ? 0 : (animation.clipWeights?.walk ?? 0);
   const bobDriver = proceduralWalkPose ? 0 : (animation.bob || 0);
-  const rotationDeg = (
+  let rotationDeg = (
     (Number(basePart?.rotationOffsetDeg) || 0)
     + (tuning.rotation.stride || 0) * strideContributionDriver
     + (proceduralWalkPose?.rotationDeg || 0)
@@ -7485,6 +8110,9 @@ function getRigPartTransform(partId, animation, unit, manifest) {
     + walkPose.rotationDeg * walkPoseWeight
     + attackPose.rotationDeg * (animation.clipWeights?.attack ?? 0)
   );
+  if (manifest?.specialBehavior?.type === "turretAim" && partId === (manifest.specialBehavior.aimPartId || "armFront")) {
+    rotationDeg += radToDeg(unit?.turretAimAngle || 0);
+  }
   const x = (
     (tuning.x.stride || 0) * strideContributionDriver
     + (proceduralWalkPose?.x || 0)
@@ -7580,6 +8208,12 @@ function rebuildBattleTransientCaches(battle) {
     });
   });
 
+  const possessionCleanupControllerId = getPossessionCleanupControllerFactionId(battle, livingUnits, unitById, factionById);
+  battle.transientCache = {
+    ...(battle.transientCache || {}),
+    possessionCleanupControllerId,
+  };
+
   for (let i = 0; i < livingUnits.length; i += 1) {
     const left = livingUnits[i];
     const leftRelations = relations.get(left.id);
@@ -7606,6 +8240,7 @@ function rebuildBattleTransientCaches(battle) {
     factionById,
     relations,
     spatialHash,
+    possessionCleanupControllerId,
   };
   return battle.transientCache;
 }
@@ -7903,7 +8538,7 @@ function updateUnitStatuses(unit, battle, dt) {
     if (status.kind === "bleed") {
       const bleedDamage = (status.dps ?? statusDef.dps) * status.stacks * dt;
       if (bleedDamage > 0) {
-        applyDamage(unit, bleedDamage, battle, source, { damageKind: "status" });
+        applyDamage(unit, bleedDamage, battle, source, { damageKind: "status", statusKind: status.kind });
         if (unit.dead) return false;
       }
     } else {
@@ -7911,7 +8546,7 @@ function updateUnitStatuses(unit, battle, dt) {
       while (status.tickTimer >= statusDef.tickInterval) {
         status.tickTimer -= statusDef.tickInterval;
         const damagePerTick = (status.dps ?? statusDef.dps) * status.stacks * statusDef.tickInterval;
-        applyDamage(unit, damagePerTick, battle, source, { damageKind: "status" });
+        applyDamage(unit, damagePerTick, battle, source, { damageKind: "status", statusKind: status.kind });
         if (unit.dead) return false;
       }
     }
@@ -7922,6 +8557,12 @@ function updateUnitStatuses(unit, battle, dt) {
     if (status.kind === "ignite") {
       battle.particles.push({ x: unit.x + (Math.random() - 0.5) * 12, y: unit.y - 14 + Math.random() * 10, vx: (Math.random() - 0.5) * 12, vy: -20 - Math.random() * 10, life: 0.3 + Math.random() * 0.18, age: 0, color: Math.random() > 0.35 ? "#ff9f43" : "#ffe08a", size: 3 + Math.random() * 3 });
     }
+    if (status.kind === "blizzard" && Math.random() > 0.42) {
+      battle.particles.push({ x: unit.x + (Math.random() - 0.5) * 18, y: unit.y - 18 + Math.random() * 14, vx: (Math.random() - 0.5) * 14, vy: -12 - Math.random() * 10, life: 0.28 + Math.random() * 0.18, age: 0, color: Math.random() > 0.45 ? "#eef9ff" : "#9ed8ff", size: 2 + Math.random() * 2 });
+    }
+    if (status.kind === "frozen" && Math.random() > 0.55) {
+      battle.particles.push({ x: unit.x + (Math.random() - 0.5) * 10, y: unit.y - 16 + Math.random() * 10, vx: (Math.random() - 0.5) * 8, vy: -8 - Math.random() * 6, life: 0.2 + Math.random() * 0.12, age: 0, color: "#dff7ff", size: 2 + Math.random() * 2 });
+    }
     return status.duration > 0 && status.stacks > 0 && !unit.dead;
   });
 }
@@ -7929,17 +8570,7 @@ function updateUnitStatuses(unit, battle, dt) {
 function togglePauseBattle() {
   if (!state.battle || (!state.running && state.battle.time <= 0)) return;
   state.running = !state.running;
-  if (state.running && !state.battle.completed) {
-    resumeBattleAudio();
-  } else {
-    pauseBattleAudio();
-  }
-  els.battleState.textContent = state.running
-    ? (state.battle.completed
-      ? (state.tournament ? `${getCurrentMatchLabel(state.tournament)} complete` : "Complete")
-      : (state.tournament ? `${getCurrentMatchLabel(state.tournament)} in progress` : "Battling"))
-    : (state.battle.completed ? "Aftermath paused" : "Paused");
-  renderSpeedControls();
+  refreshBattleRunningStateUi();
 }
 
 function initializeBattleAudio() {
@@ -8099,6 +8730,17 @@ function updateUnit(unit, faction, battle, dt) {
   const unitDef = getUnitDefinition(unit);
   const stats = getUnitStats(unit, unitDef);
   const graves = battle.graves || [];
+  if (getUnitStatus(unit, "frozen")) {
+    updateUnitActivity(unit, "Frozen solid.");
+    unit.vx = 0;
+    unit.vy = 0;
+    updateUnitProceduralWalk(unit, dt, getUnitLocomotionProfile(unit), 0, 0);
+    updateUnitWalkBlend(unit, 0, dt);
+    unit.walkTilt += (0 - unit.walkTilt) * 0.26;
+    unit.stride += (0 - unit.stride) * 0.26;
+    unit.bob += (0 - unit.bob) * 0.22;
+    return;
+  }
   if (unit.liftedBySpellId) {
     updateUnitActivity(unit, "Suspended by hostile magic.");
     unit.vx = 0;
@@ -8176,7 +8818,7 @@ function updateUnit(unit, faction, battle, dt) {
       unit.vy *= 0.84;
     }
     if (!unitDef.managesOwnCooldown) {
-      unit.cooldown -= dt;
+      unit.cooldown -= dt * getUnitCooldownTickRate(unit);
     }
     if (unitDef.managesOwnCooldown || unit.cooldown <= 0) {
       const attackPerformed = unitDef.performAttack?.({ unit, target, battle, unitDef }) !== false;
@@ -8244,6 +8886,7 @@ function getAttackRange(unit, unitDef = getUnitDefinition(unit)) {
 
 function getUnitMoveSpeed(unit, unitDef = getUnitDefinition(unit)) {
   const stats = getUnitStats(unit, unitDef);
+  if (getUnitStatus(unit, "frozen")) return 0;
   if (getUnitStatus(unit, "immobilized")) return 0;
   if (unitDef.getMoveSpeed) return unitDef.getMoveSpeed(unit, unitDef);
   return stats.speed * (0.42 + 0.58 * (unit.health / unit.maxHealth));
@@ -8940,11 +9583,50 @@ function selectHuntsmanTarget({ unit, enemies, unitDef }) {
 }
 
 function updateHuntsmanState({ unit, dt }) {
-  unit.huntsmanKnifeCooldown = Math.max(0, (unit.huntsmanKnifeCooldown || 0) - dt);
-  unit.huntsmanNetCooldown = Math.max(0, (unit.huntsmanNetCooldown || 0) - dt);
+  const cooldownTick = getUnitCooldownTickRate(unit);
+  unit.huntsmanKnifeCooldown = Math.max(0, (unit.huntsmanKnifeCooldown || 0) - dt * cooldownTick);
+  unit.huntsmanNetCooldown = Math.max(0, (unit.huntsmanNetCooldown || 0) - dt * cooldownTick);
   if ((unit.huntsmanKnifeCooldown || 0) > 0 && (unit.huntsmanNetCooldown || 0) > 0 && !unit.focusTargetId) {
     updateUnitActivity(unit, "Resetting after a volley.");
   }
+}
+
+function selectWinterWitchTarget({ unit, enemies, allies, unitDef, battle }) {
+  const stats = getUnitStats(unit, unitDef);
+  const inRangeEnemies = enemies.filter((enemy) => Math.hypot(enemy.x - unit.x, enemy.y - unit.y) <= stats.range);
+  const pool = inRangeEnemies.length ? inRangeEnemies : enemies;
+  unit.currentTargetKind = pool.length ? "enemy" : null;
+  unit.currentGraveId = null;
+  let best = null;
+  let bestScore = -Infinity;
+  pool.forEach((enemy) => {
+    const distance = Math.hypot(enemy.x - unit.x, enemy.y - unit.y);
+    let enemyValue = 0;
+    enemies.forEach((other) => {
+      const zoneDistance = Math.hypot(other.x - enemy.x, other.y - enemy.y);
+      if (zoneDistance > stats.blizzardRadius) return;
+      enemyValue += 1.15 - (zoneDistance / Math.max(1, stats.blizzardRadius)) * 0.65;
+      enemyValue += (1 - (other.health / Math.max(1, other.maxHealth))) * 0.18;
+    });
+    let allyPenalty = 0;
+    allies.forEach((ally) => {
+      if (ally.id === unit.id) return;
+      const zoneDistance = Math.hypot(ally.x - enemy.x, ally.y - enemy.y);
+      if (zoneDistance > stats.blizzardRadius) return;
+      const resistance = ally.type === "winterwitch" ? 0.67 : 1;
+      allyPenalty += (1.18 - (zoneDistance / Math.max(1, stats.blizzardRadius)) * 0.7) * resistance;
+    });
+    const rangeBias = distance <= stats.range ? 26 : Math.max(-42, (stats.range - distance) * 0.24);
+    const stickyBias = unit.focusTargetId === enemy.id ? 11 : 0;
+    const score = (enemyValue * 28) - (allyPenalty * 40) + rangeBias + stickyBias - (distance * 0.05);
+    if (score > bestScore) {
+      bestScore = score;
+      best = enemy;
+    }
+  });
+  unit.focusTargetId = best?.id || null;
+  updateUnitActivity(unit, best ? `Sizing up a blizzard cast on ${getUnitActivityTargetLabel(best, battle)}.` : "Seeking a place to conjure a blizzard.");
+  return best;
 }
 
 function updateArtificerState({ unit, battle }) {
@@ -10077,6 +10759,32 @@ function performHuntsmanAttack({ unit, target, battle, unitDef }) {
   return true;
 }
 
+function performWinterWitchAttack({ unit, target, battle, unitDef }) {
+  const stats = getUnitStats(unit, unitDef);
+  if (!target) return false;
+  const spellId = `${unit.id}-blizzard-${Math.random().toString(36).slice(2, 7)}`;
+  battle.spells.push({
+    id: spellId,
+    kind: "winter-blizzard",
+    sourceId: unit.id,
+    targetId: target.id,
+    time: 0,
+    duration: stats.blizzardDuration,
+    radius: stats.blizzardRadius,
+    dps: stats.blizzardDamage,
+    moveMultiplier: stats.blizzardMoveMultiplier,
+    cooldownRate: stats.blizzardCooldownRate,
+    statusDuration: stats.blizzardStatusDuration,
+    x: target.x,
+    y: target.y,
+  });
+  updateUnitActivity(unit, `Casting a blizzard around ${getUnitActivityTargetLabel(target, battle)}.`);
+  spawnBurst(battle, target.x, target.y - 8, "#c6ebff", 10);
+  battle.particles.push({ kind: "ring", x: target.x, y: target.y, vx: 0, vy: 0, life: 0.42, age: 0, color: "rgba(164, 221, 255, 0.88)", size: stats.blizzardRadius * 0.94, lineWidth: 3 });
+  setHighlight(`${findFaction(battle, unit.factionId)?.title || "A faction"}'s Winter Witch calls up a cutting blizzard`);
+  return true;
+}
+
 function performMageAttack({ unit, target, battle, unitDef }) {
   const stats = getUnitStats(unit, unitDef);
   const spellExists = battle.spells.some((spell) => spell.sourceId === unit.id || spell.targetId === target.id);
@@ -10536,6 +11244,12 @@ function spawnCatapultImpactDebris(battle, x, y) {
 }
 function updateSpells(battle, dt) {
   battle.spells = battle.spells.filter((spell) => {
+    if (spell.kind === "winter-blizzard") {
+      spell.time += dt;
+      const source = findUnitById(battle, spell.sourceId);
+      const target = findUnitById(battle, spell.targetId);
+      return updateWinterBlizzardSpell(spell, battle, source, target, dt);
+    }
     if (spell.kind === "inklord-throw") {
       spell.time += dt;
       const source = findUnitById(battle, spell.sourceId);
@@ -10578,6 +11292,29 @@ function updateSpells(battle, dt) {
     }
     return true;
   });
+}
+
+function updateWinterBlizzardSpell(spell, battle, source, target, dt) {
+  if (target && !target.dead && !target.fled) {
+    spell.x = target.x;
+    spell.y = target.y;
+  }
+  getNearbyLivingUnits(battle, spell.x, spell.y, spell.radius).forEach((unit) => {
+    if (unit.dead || unit.fled) return;
+    const distance = Math.hypot(unit.x - spell.x, unit.y - spell.y);
+    if (distance > spell.radius) return;
+    const status = applyStatus(unit, "blizzard", 1, spell.statusDuration, source, battle);
+    if (status) {
+      status.dps = Math.max(status.dps || 0, spell.dps || 0);
+      status.moveMultiplier = typeof status.moveMultiplier === "number"
+        ? Math.min(status.moveMultiplier, spell.moveMultiplier ?? STATUS_DEFINITIONS.blizzard.moveMultiplier)
+        : (spell.moveMultiplier ?? STATUS_DEFINITIONS.blizzard.moveMultiplier);
+      status.cooldownRate = typeof status.cooldownRate === "number"
+        ? Math.min(status.cooldownRate, spell.cooldownRate ?? STATUS_DEFINITIONS.blizzard.cooldownRate)
+        : (spell.cooldownRate ?? STATUS_DEFINITIONS.blizzard.cooldownRate);
+    }
+  });
+  return spell.time < spell.duration;
 }
 
 function updateInkLordThrowSpell(spell, battle, source, target) {
@@ -10815,6 +11552,7 @@ function applyRawDamage(unit, amount, battle, attacker = null, options = {}) {
   if (!unit || unit.dead || amount <= 0) return 0;
   const unitDef = getUnitDefinition(unit);
   const damageKind = options.damageKind || "direct";
+  const statusKind = options.statusKind || null;
   if (damageKind === "status" && unitDef.immuneToStatusDamage) return 0;
   if (unit.type === "phantom" && damageKind === "direct" && Math.random() < 0.5) {
     battle?.particles?.push({
@@ -10830,6 +11568,9 @@ function applyRawDamage(unit, amount, battle, attacker = null, options = {}) {
     return 0;
   }
   let resolvedAmount = amount;
+  if (damageKind === "status" && statusKind === "blizzard" && unit.type === "winterwitch") {
+    resolvedAmount *= 2 / 3;
+  }
   const shieldStatus = getUnitStatus(unit, "shielded");
   if (damageKind !== "healing" && damageKind !== "status" && shieldStatus) {
     const shieldSource = shieldStatus.sourceId ? findUnitById(battle, shieldStatus.sourceId) : null;
@@ -10874,6 +11615,10 @@ function applyRawDamage(unit, amount, battle, attacker = null, options = {}) {
       }
     }
   }
+  if (damageKind === "direct" && actualDamage > 0 && unit.type === "winterwitch" && isMeleeHitAgainstWinterWitch(attacker, unit)) {
+    applyStatus(attacker, "frozen", 1, getUnitStats(unit).freezeDuration, unit, battle);
+    if (battle && Math.random() > 0.55) spawnBurst(battle, attacker.x, attacker.y - 8, "#bfe9ff", 6);
+  }
   if (unit.health <= 0) {
     if (possessingPhantom) {
       ejectPhantomFromHost(possessingPhantom, unit, battle, { gravesToConsume: 3 });
@@ -10893,6 +11638,13 @@ function applyRawDamage(unit, amount, battle, attacker = null, options = {}) {
     if (!options.skipDefaultDeathBurst) spawnBurst(battle, unit.x, unit.y, "#f3c58a", 16);
   }
   return actualDamage;
+}
+
+function isMeleeHitAgainstWinterWitch(attacker, target) {
+  if (!attacker || !target || attacker.dead || target.dead || attacker.id === target.id) return false;
+  const attackerRange = getAttackRange(attacker);
+  if (attackerRange > 42) return false;
+  return Math.hypot(attacker.x - target.x, attacker.y - target.y) <= Math.max(30, attackerRange + 8);
 }
 
 function handleBomberDeath({ unit, battle, attacker, unitDef }) {
@@ -11518,6 +12270,15 @@ function getStatusTooltipCopy(unit, status, battle) {
     const totalDps = (status.dps ?? definition.dps) * Math.max(1, status.stacks || 1);
     return `Loses ${formatHoverStatNumber(totalDps)} health per second until cleansed by support. ${Math.max(1, Math.round(status.stacks || 1))} stack${Math.round(status.stacks || 1) === 1 ? "" : "s"}.`;
   }
+  if (status.kind === "blizzard") {
+    const totalDps = (status.dps ?? definition.dps) * Math.max(1, status.stacks || 1);
+    const moveSlow = (1 - (status.moveMultiplier ?? definition.moveMultiplier ?? 1)) * 100;
+    const attackSlow = (1 - (status.cooldownRate ?? definition.cooldownRate ?? 1)) * 100;
+    return `Caught in freezing winds for ${formatHoverDuration(status.duration)}. Move speed is reduced by ${formatHoverStatNumber(moveSlow)}%, attack recovery is slowed by ${formatHoverStatNumber(attackSlow)}%, and it suffers ${formatHoverStatNumber(totalDps)} damage per second.`;
+  }
+  if (status.kind === "frozen") {
+    return `Frozen solid for ${formatHoverDuration(status.duration)}. The unit cannot move or attack.`;
+  }
   if (status.kind === "possessed") {
     const source = status.sourceId ? findUnitById(battle, status.sourceId) : null;
     return `Body seized${source ? ` by ${getUnitDefinition(source).name}` : ""}. The host fights for the possessor's side until the spirit is knocked loose.`;
@@ -11588,10 +12349,31 @@ function refreshFocusedBattleUnitFromPointer() {
 }
 
 function onWindowKeyDown(event) {
+  const target = event.target;
+  const targetTag = target?.tagName;
+  const isTypingTarget = target?.isContentEditable || targetTag === "INPUT" || targetTag === "TEXTAREA" || targetTag === "SELECT";
   if (event.ctrlKey && !event.altKey && !event.metaKey && event.code === "Digit1") {
     event.preventDefault();
     setDevPanelVisible(!state.devPanelVisible);
     return;
+  }
+  if (!isTypingTarget && !event.ctrlKey && !event.altKey && !event.metaKey) {
+    if (event.code === "Digit0") {
+      event.preventDefault();
+      if (state.running) togglePauseBattle();
+      return;
+    }
+    if (event.code === "Space") {
+      event.preventDefault();
+      togglePauseBattle();
+      return;
+    }
+    const digitMatch = /^Digit([1-5])$/.exec(event.code || "");
+    if (digitMatch) {
+      event.preventDefault();
+      setBattleSpeedFromShortcut(Number(digitMatch[1]) - 1);
+      return;
+    }
   }
   if (event.key !== "Shift") return;
   if (!state.hover.inspectSlowActive) {
@@ -14058,6 +14840,25 @@ function drawUnitStatusOverlay(unit, scale) {
     ctx.arc(0, -3 * scale / 2.1, 13 * scale / 2.1, 0, Math.PI * 2);
     ctx.stroke();
   }
+  if (getStatusStacks(unit, "blizzard") > 0) {
+    const blizzardPulse = 0.1 + Math.max(0, Math.sin(battleTime * 9 + unit.statusVisualSeed * 1.4)) * 0.18;
+    ctx.fillStyle = `rgba(179, 225, 255, ${blizzardPulse})`;
+    ctx.beginPath();
+    ctx.ellipse(0, -2 * scale / 2.1, 13.5 * scale / 2.1, 18.5 * scale / 2.1, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  if (getStatusStacks(unit, "frozen") > 0) {
+    const frozenPulse = 0.2 + Math.max(0, Math.sin(battleTime * 7 + unit.statusVisualSeed)) * 0.14;
+    ctx.fillStyle = `rgba(106, 178, 255, ${frozenPulse})`;
+    ctx.beginPath();
+    ctx.ellipse(0, -2 * scale / 2.1, 14 * scale / 2.1, 19 * scale / 2.1, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = `rgba(222, 247, 255, ${frozenPulse + 0.18})`;
+    ctx.lineWidth = 1.2 * scale / 2.1;
+    ctx.beginPath();
+    ctx.arc(0, -3 * scale / 2.1, 14 * scale / 2.1, 0, Math.PI * 2);
+    ctx.stroke();
+  }
   if (getStatusStacks(unit, "possessed") > 0) {
     const possessor = state.battle ? getPossessingPhantom(unit, state.battle) : null;
     const possessorFaction = possessor && state.battle ? findFaction(state.battle, possessor.factionId) : null;
@@ -14122,6 +14923,8 @@ function drawStatusBadge(badge, x, y, scale) {
     if (badge.kind === "bloodfrenzy") drawBloodFrenzyBadgeIcon(scale, badge.accentColor);
     if (badge.kind === "immobilized") drawImmobilizedBadgeIcon(scale, badge.accentColor);
     if (badge.kind === "bleed") drawBleedBadgeIcon(scale, badge.accentColor);
+    if (badge.kind === "blizzard") drawBlizzardBadgeIcon(scale, badge.accentColor);
+    if (badge.kind === "frozen") drawFrozenBadgeIcon(scale, badge.accentColor);
     if (badge.kind === "possessed") drawPossessedBadgeIcon(scale, badge.accentColor);
   }
   if (badge.stacks > 1) {
@@ -14329,6 +15132,53 @@ function drawMage(main, dark, light, scale, unit) {
   });
 }
 
+function drawWinterWitch(main, dark, light, scale, unit) {
+  const attack = getUnitAttackSwing(unit, 0.98);
+  drawStepLegs(dark, scale, unit, 5.4, 9.2);
+  ctx.fillStyle = main;
+  ctx.beginPath();
+  ctx.moveTo(0, -15 * scale / 2.1);
+  ctx.lineTo(9.5 * scale / 2.1, -5 * scale / 2.1);
+  ctx.lineTo(7.5 * scale / 2.1, 10 * scale / 2.1);
+  ctx.lineTo(-7.5 * scale / 2.1, 10 * scale / 2.1);
+  ctx.lineTo(-9.5 * scale / 2.1, -5 * scale / 2.1);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = "rgba(196, 228, 255, 0.24)";
+  ctx.beginPath();
+  ctx.moveTo(0, -12 * scale / 2.1);
+  ctx.lineTo(5.2 * scale / 2.1, -6 * scale / 2.1);
+  ctx.lineTo(4.6 * scale / 2.1, 8.5 * scale / 2.1);
+  ctx.lineTo(-4.6 * scale / 2.1, 8.5 * scale / 2.1);
+  ctx.lineTo(-5.2 * scale / 2.1, -6 * scale / 2.1);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = light;
+  ctx.beginPath();
+  ctx.arc(0, -15 * scale / 2.1, 5 * scale / 2.1, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = dark;
+  ctx.lineWidth = 2 * scale / 2.1;
+  drawSwingArm(scale, 8, -4, 15.5, -15.5, attack, -1.08, ({ scaled, length }) => {
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(length, 0);
+    ctx.stroke();
+    ctx.fillStyle = "#bcecff";
+    ctx.beginPath();
+    ctx.arc(length + 1.4 * scaled, -2.2 * scaled, 3.1 * scaled, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(238, 249, 255, 0.86)";
+    ctx.lineWidth = 1.1 * scaled;
+    ctx.beginPath();
+    ctx.moveTo(length - 1.6 * scaled, -5.5 * scaled);
+    ctx.lineTo(length + 4.2 * scaled, 1.2 * scaled);
+    ctx.moveTo(length - 1.6 * scaled, 1.2 * scaled);
+    ctx.lineTo(length + 4.2 * scaled, -5.5 * scaled);
+    ctx.stroke();
+  });
+}
+
 function drawShieldedBadgeIcon(scale, color) {
   ctx.fillStyle = color;
   ctx.beginPath();
@@ -14508,6 +15358,42 @@ function drawBleedBadgeIcon(scale, color) {
   ctx.beginPath();
   ctx.ellipse(-1.6 * scaled, -1.8 * scaled, 1.5 * scaled, 2.4 * scaled, -0.4, 0, Math.PI * 2);
   ctx.fill();
+}
+
+function drawBlizzardBadgeIcon(scale, color) {
+  const scaled = scale / 2.1;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.5 * scaled;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(0, -5.6 * scaled);
+  ctx.lineTo(0, 5.6 * scaled);
+  ctx.moveTo(-4.8 * scaled, -2.8 * scaled);
+  ctx.lineTo(4.8 * scaled, 2.8 * scaled);
+  ctx.moveTo(-4.8 * scaled, 2.8 * scaled);
+  ctx.lineTo(4.8 * scaled, -2.8 * scaled);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(0, 0, 1.6 * scaled, 0, Math.PI * 2);
+  ctx.fillStyle = color;
+  ctx.fill();
+}
+
+function drawFrozenBadgeIcon(scale, color) {
+  const scaled = scale / 2.1;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.5 * scaled;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(0, -5.8 * scaled);
+  ctx.lineTo(0, 5.8 * scaled);
+  ctx.moveTo(-5.4 * scaled, 0);
+  ctx.lineTo(5.4 * scaled, 0);
+  ctx.moveTo(-3.9 * scaled, -3.9 * scaled);
+  ctx.lineTo(3.9 * scaled, 3.9 * scaled);
+  ctx.moveTo(-3.9 * scaled, 3.9 * scaled);
+  ctx.lineTo(3.9 * scaled, -3.9 * scaled);
+  ctx.stroke();
 }
 
 function drawPossessedBadgeIcon(scale, color) {
@@ -15702,6 +16588,10 @@ function drawTraces(viewport, traces) {
 
 function drawSpells(viewport, battle) {
   battle.spells.forEach((spell) => {
+    if (spell.kind === "winter-blizzard") {
+      drawWinterBlizzardSpell(viewport, spell);
+      return;
+    }
     const source = findUnitById(battle, spell.sourceId);
     const target = findUnitById(battle, spell.targetId);
     if (!source || !target) return;
@@ -15728,6 +16618,54 @@ function drawSpells(viewport, battle) {
     ctx.lineTo(end.x, end.y);
     ctx.stroke();
   });
+}
+
+function drawWinterBlizzardSpell(viewport, spell) {
+  const point = worldToScreen(spell.x, spell.y, viewport);
+  const radius = spell.radius * point.scale;
+  const pulse = 0.74 + Math.sin((state.battle?.time || 0) * 3.4 + spell.time * 2.1) * 0.06;
+  const gradient = ctx.createRadialGradient(point.x, point.y, radius * 0.18, point.x, point.y, radius);
+  gradient.addColorStop(0, "rgba(237, 249, 255, 0.18)");
+  gradient.addColorStop(0.42, "rgba(162, 215, 255, 0.12)");
+  gradient.addColorStop(1, "rgba(135, 188, 255, 0.015)");
+  ctx.fillStyle = gradient;
+  ctx.beginPath();
+  ctx.ellipse(point.x, point.y, radius, radius * 0.72, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = `rgba(201, 236, 255, ${0.16 + pulse * 0.08})`;
+  ctx.lineWidth = Math.max(1.1, point.scale * 1.4);
+  ctx.beginPath();
+  ctx.ellipse(point.x, point.y, radius * pulse, radius * 0.72 * pulse, 0, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.strokeStyle = "rgba(221, 244, 255, 0.14)";
+  ctx.lineWidth = Math.max(0.7, point.scale * 0.7);
+  for (let arm = 0; arm < 3; arm += 1) {
+    ctx.beginPath();
+    for (let step = 0; step <= 18; step += 1) {
+      const t = step / 18;
+      const spiralRadius = radius * (0.14 + t * 0.72);
+      const angle = spell.time * (0.93 + arm * 0.06) + (t * 5.4) + arm * (Math.PI * 2 / 3);
+      const x = point.x + Math.cos(angle) * spiralRadius;
+      const y = point.y + Math.sin(angle) * spiralRadius * 0.72;
+      if (step === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+
+  for (let i = 0; i < 26; i += 1) {
+    const band = i % 3;
+    const t = ((i * 0.19) + spell.time * (0.183 + band * 0.027)) % 1;
+    const spiralRadius = radius * (0.1 + t * 0.78);
+    const angle = spell.time * (1.4 + band * 0.117) + (t * 6.4) + band * (Math.PI * 2 / 3) + i * 0.11;
+    const flakeX = point.x + Math.cos(angle) * spiralRadius;
+    const flakeY = point.y + Math.sin(angle) * spiralRadius * 0.72;
+    ctx.fillStyle = i % 2 === 0 ? "rgba(242, 251, 255, 0.62)" : "rgba(170, 224, 255, 0.48)";
+    ctx.beginPath();
+    ctx.arc(flakeX, flakeY, Math.max(0.45, point.scale * 0.42), 0, Math.PI * 2);
+    ctx.fill();
+  }
 }
 
 function drawFireBreathSpell(viewport, spell, source, target) {

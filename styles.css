@@ -1506,6 +1506,18 @@ canvas.is-dragging { cursor: grabbing; }
   min-height: calc(100vh - 36px);
 }
 
+.sprite-rig-tab-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.sprite-rig-tab-row button.active {
+  border-color: rgba(255, 211, 128, 0.42);
+  box-shadow: 0 0 0 1px rgba(255, 211, 128, 0.18);
+  background: rgba(255, 241, 217, 0.1);
+}
+
 .sprite-rig-layout {
   display: grid;
   grid-template-columns: minmax(320px, 0.92fr) minmax(0, 1.38fr);
