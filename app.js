@@ -44,6 +44,12 @@ const TOURNAMENT_VIEW_SYNC_INTERVAL_MS = 500;
 const INKLORD_FACTION_ID = "neutral-inklord";
 const INKLORD_FACTION_TITLE = "InkLord";
 const INKLORD_COLOR = "#161418";
+const PERFORMANCE_CALIBRATION_TARGET_FPS = 40;
+const PERFORMANCE_CALIBRATION_ACCEPTABLE_FPS = 39;
+const PERFORMANCE_CALIBRATION_STARTING_UNITS = 20;
+const PERFORMANCE_CALIBRATION_MIN_STEP = 5;
+const PERFORMANCE_CALIBRATION_SAMPLE_MS = 650;
+const PERFORMANCE_CALIBRATION_INITIAL_SAMPLE_MS = 900;
 const INKLORD_TAUNTS = [
   "Perish, Inklings!",
   "I give you a 0/10 on my INDIE scale!",
@@ -240,7 +246,7 @@ const DEFAULT_RIG_LAYOUT = { height: 60, anchorX: 0.5, anchorY: 0.88, healthBarO
 const RIG_EDITOR_CANVAS_SIZE = 640;
 const RIG_WORKSHOP_FILE_EXTENSION = ".tbr-sprite-rig.json";
 const RIG_WORKSHOP_SOURCE_DIR = ".sprite-rig-sources";
-const SPRITE_RIG_DEPLOYABLE_SUMMON_UNIT_IDS = ["turret", "spiderswarm"];
+const SPRITE_RIG_DEPLOYABLE_SUMMON_UNIT_IDS = ["turret", "spiderswarm", "catapult"];
 const SPRITE_RIG_WORKSHOP_TAB_COPY = {
   unit: {
     hint: "Upload a single character sprite, mark precise limb regions and pivots, preview the procedural gait/attack motion, then export a packed rig sheet and manifest for the game runtime.",
@@ -275,6 +281,17 @@ const SPRITE_RIG_ALT_PART_LABELS = {
     legBackThigh: "Abdomen Rear",
     legBackShin: "Tail / Stinger",
     weapon: "Fangs / Effect",
+  },
+  catapult: {
+    body: "Frame",
+    head: "Throw Arm",
+    armFront: "Front Brace",
+    armBack: "Rear Brace",
+    legFrontThigh: "Front Wheel",
+    legFrontShin: "Front Support",
+    legBackThigh: "Rear Wheel",
+    legBackShin: "Rear Support",
+    weapon: "Bucket / Stone",
   },
 };
 const RIG_ANIMATION_CLIP_DEFINITIONS = [
@@ -376,11 +393,12 @@ const STATUS_DEFINITIONS = {
     name: "Ignited",
     negative: true,
     stackable: false,
-    defaultDuration: 3.6,
+    defaultDuration: 2.4,
     tickInterval: 0.4,
     dps: 8.5,
-    contagionRadius: 42,
-    contagionInterval: 0.55,
+    contagionRadius: 34,
+    contagionInterval: 0.7,
+    transmissionChance: 0.32,
     badgeColor: "#ff9b54",
     accentColor: "#ffe0a8",
   },
@@ -731,8 +749,10 @@ const UNIT_DEFINITIONS = {
     name: "Firebreather",
     keywords: ["fire", "flame", "breath", "burn", "dragonfire"],
     description: "Firebreathers excel at close-range area pressure. Their flame cone can catch multiple enemies at once, ignite survivors for follow-up burn damage, and even spread fire through packed formations if opponents let the blaze jump between targets.",
-    stats: { maxHealth: 76, speed: 46, range: 118, damage: 22, coneAngle: 0.85, breathDuration: 1.05, ignitionExposure: 0.95, exposureGrace: 0.18, igniteStacks: 1, igniteDuration: 3.6, igniteDamage: 8.5, contagionRadius: 42, cooldown: 1.85 },
+    immuneStatuses: ["ignite"],
+    stats: { maxHealth: 76, speed: 46, range: 118, damage: 22, coneAngle: 0.85, breathDuration: 2, ignitionExposure: 0.95, exposureGrace: 0.18, igniteStacks: 1, igniteDuration: 2.4, igniteDamage: 8.5, contagionRadius: 34, igniteTransmissionChance: 0.32, cooldown: 10 },
     healthBarWidth: 22,
+    initialCooldownMultiplier: 0.2,
     iconPaths: getFirebreatherIconSvgPaths,
     getDesiredDestination: getFirebreatherDestination,
     getMoveSpeed: (unit, unitDef) => (unit.activeSpellId ? getUnitStats(unit, unitDef).speed * 0.35 : getUnitStats(unit, unitDef).speed),
@@ -1479,6 +1499,7 @@ const state = {
     overlapShadowCasters: 0,
     fps: 0,
   },
+  performanceCalibration: createPerformanceCalibrationState(),
   lastBattleHighlightAt: -Infinity,
   lastTournamentViewSyncAt: -Infinity,
   spriteRigEditor: createSpriteRigEditorState(),
@@ -1508,6 +1529,7 @@ const els = {
   tournamentMinFactionsInput: document.getElementById("tournamentMinFactionsInput"),
   tournamentMaxFactionsInput: document.getElementById("tournamentMaxFactionsInput"),
   tournamentMaxUnitsInput: document.getElementById("tournamentMaxUnitsInput"),
+  autoCalibratePerformanceBtn: document.getElementById("autoCalibratePerformanceBtn"),
   tournamentPaperbackOnlyInput: document.getElementById("tournamentPaperbackOnlyInput"),
   tournamentConfigSummary: document.getElementById("tournamentConfigSummary"),
   battleTicker: document.getElementById("battleTicker"),
@@ -1689,6 +1711,7 @@ function bindUi() {
   [els.tournamentMinFactionsInput, els.tournamentMaxFactionsInput, els.tournamentMaxUnitsInput, els.tournamentPaperbackOnlyInput]
     .filter(Boolean)
     .forEach((input) => input.addEventListener("change", commitTournamentConfigFromInputs));
+  els.autoCalibratePerformanceBtn?.addEventListener("click", startPerformanceCalibration);
   els.seedSampleBtn.addEventListener("click", () => {
     state.factions = cloneData(SAMPLE_BOOKS).map(withFactionDefaults);
     state.roundsApplied = 0;
@@ -4234,6 +4257,21 @@ function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
 
+function createPerformanceCalibrationState() {
+  return {
+    active: false,
+    phase: "idle",
+    currentUnits: 0,
+    bestUnits: 0,
+    lowBound: 0,
+    highBound: 0,
+    evaluateAt: 0,
+    sampleStartedAt: 0,
+    samples: [],
+    arena: null,
+  };
+}
+
 function normalizeTournamentConfig(config = {}) {
   const maxFactionsPerHeat = clampInt(
     config.maxFactionsPerHeat ?? DEFAULT_TOURNAMENT_CONFIG.maxFactionsPerHeat,
@@ -4335,6 +4373,12 @@ function renderTournamentConfigPanel() {
   if (els.tournamentMaxUnitsInput) {
     els.tournamentMaxUnitsInput.value = String(config.maxUnitsOnBattlefield);
   }
+  if (els.autoCalibratePerformanceBtn) {
+    els.autoCalibratePerformanceBtn.disabled = state.performanceCalibration.active;
+    els.autoCalibratePerformanceBtn.textContent = state.performanceCalibration.active
+      ? "Calibrating..."
+      : "Auto-Calibrate Performance";
+  }
   if (els.tournamentPaperbackOnlyInput) {
     els.tournamentPaperbackOnlyInput.checked = config.paperbackOnly === true;
   }
@@ -4348,7 +4392,10 @@ function renderTournamentConfigPanel() {
     const paperbackText = config.paperbackOnly
       ? "Tournament heats only include paperback submissions."
       : "Tournament heats include all submissions.";
-    els.tournamentConfigSummary.textContent = `${heatText}. ${unitText} ${paperbackText}`;
+    const calibrationText = state.performanceCalibration.active
+      ? ` Calibration is probing ${state.performanceCalibration.currentUnits} units.`
+      : "";
+    els.tournamentConfigSummary.textContent = `${heatText}. ${unitText} ${paperbackText}${calibrationText}`;
   }
 }
 
@@ -5120,6 +5167,7 @@ function sizeCanvas() {
 }
 
 function resetBattle(options = {}) {
+  cancelPerformanceCalibration({ silent: true });
   const preserveArenaVisuals = Boolean(options.preserveArenaVisuals);
   const regenerateTerrain = options.regenerateTerrain !== false;
   const terrainMirrorKey = options.terrainMirrorKey || "";
@@ -5256,6 +5304,10 @@ function resetCamera() {
 }
 
 function startBattle() {
+  if (state.performanceCalibration.active) {
+    setTicker("Performance calibration is already running.");
+    return;
+  }
   if (state.tournamentResult) {
     showTournamentVictoryCard(state.tournamentResult);
     setTicker("The bracket is complete. Start the next tournament when you're ready.");
@@ -5347,7 +5399,8 @@ function buildBattle(factionPool = state.factions, arena = createArenaVariant(0,
       image: getFactionImage(faction.coverUrl),
     };
   });
-  const unitCapSummary = applyBattlefieldUnitCap(factions, state.tournamentConfig.maxUnitsOnBattlefield);
+  const maxUnitsOnBattlefield = options.maxUnitsOnBattlefieldOverride ?? state.tournamentConfig.maxUnitsOnBattlefield;
+  const unitCapSummary = applyBattlefieldUnitCap(factions, maxUnitsOnBattlefield);
   const terrainTexture = getSharedBattleTerrainTexture(field, arena, {
     regenerate: options.regenerateTerrain,
     preserveCurrentMirror: canReuseScene,
@@ -5392,6 +5445,9 @@ function buildBattle(factionPool = state.factions, arena = createArenaVariant(0,
       landingY: field.centerY,
     },
   };
+  if (unitCapSummary.totalRemoved > 0) {
+    queuePreBattleCullEffects(battle, unitCapSummary);
+  }
   initializeBattleHealthTimeline(battle);
   return battle;
 }
@@ -5406,18 +5462,28 @@ function applyBattlefieldUnitCap(factions, maxUnitsOnBattlefield) {
     factions.forEach((faction) => {
       faction.alive = faction.units.length > 0;
     });
-    return { cap, totalBefore: totalUnits, totalAfter: totalUnits, totalRemoved: 0, removedByFaction: {} };
+    return { cap, totalBefore: totalUnits, totalAfter: totalUnits, totalRemoved: 0, removedByFaction: {}, removedUnits: [] };
   }
 
   const guaranteedUnits = cap >= entries.length ? 1 : 0;
   const availableWeightedUnits = entries.map((entry) => Math.max(0, entry.count - guaranteedUnits));
   const proportionalTargets = allocateProportionalIntegers(availableWeightedUnits, Math.max(0, cap - (guaranteedUnits * entries.length)));
   const removedByFaction = {};
+  const removedUnits = [];
   let totalAfter = 0;
   entries.forEach((entry, index) => {
     const target = Math.min(entry.count, guaranteedUnits + proportionalTargets[index]);
     shuffleInPlace(entry.faction.units);
     const removed = Math.max(0, entry.count - target);
+    const removedSlice = entry.faction.units.slice(target);
+    removedSlice.forEach((unit) => {
+      removedUnits.push({
+        x: unit.x,
+        y: unit.y,
+        type: unit.type,
+        factionId: unit.factionId,
+      });
+    });
     entry.faction.units = entry.faction.units.slice(0, target);
     entry.faction.alive = target > 0;
     removedByFaction[entry.faction.id] = removed;
@@ -5435,7 +5501,199 @@ function applyBattlefieldUnitCap(factions, maxUnitsOnBattlefield) {
     totalAfter,
     totalRemoved: Math.max(0, totalUnits - totalAfter),
     removedByFaction,
+    removedUnits,
   };
+}
+
+function queuePreBattleCullEffects(battle, unitCapSummary) {
+  if (!battle || !unitCapSummary?.removedUnits?.length) return;
+  battle.preBattleCullFxActive = true;
+  unitCapSummary.removedUnits.forEach((unit, index) => {
+    const color = index % 2 === 0 ? "#7dd7ff" : "#f7c6ff";
+    battle.particles.push({
+      kind: "blast-glow",
+      x: unit.x,
+      y: unit.y - 4,
+      vx: 0,
+      vy: 0,
+      life: 0.32 + Math.random() * 0.08,
+      age: 0,
+      color,
+      size: 11 + Math.random() * 5,
+    });
+    battle.particles.push({
+      kind: "ring",
+      x: unit.x,
+      y: unit.y - 2,
+      vx: 0,
+      vy: 0,
+      life: 0.38 + Math.random() * 0.12,
+      age: 0,
+      color,
+      size: 10 + Math.random() * 6,
+      lineWidth: 3,
+    });
+    for (let spark = 0; spark < 4; spark += 1) {
+      battle.particles.push({
+        x: unit.x,
+        y: unit.y - 6,
+        vx: (Math.random() - 0.5) * 120,
+        vy: -25 - Math.random() * 55,
+        life: 0.24 + Math.random() * 0.16,
+        age: 0,
+        color,
+        size: 2 + Math.random() * 3,
+      });
+    }
+  });
+}
+
+function buildCalibrationFaction(unitTotal, index) {
+  const armySize = Math.max(1, Math.round(unitTotal / 2));
+  const archerCount = Math.max(1, Math.round(armySize * 0.4));
+  const mageCount = Math.max(1, Math.round(armySize * 0.25));
+  const knightCount = Math.max(1, armySize - archerCount - mageCount);
+  return withFactionDefaults({
+    id: `calibration-faction-${index}`,
+    title: index === 0 ? "Calibration Vanguard" : "Calibration Gauntlet",
+    coverUrl: "",
+    armySize,
+    submissionType: "digital",
+    composition: {
+      ...DEFAULT_COMPOSITION,
+      archer: archerCount,
+      mage: mageCount,
+      knight: knightCount,
+    },
+    fledReserve: 0,
+  }, index);
+}
+
+function createPerformanceCalibrationBattle(unitTotal, arena = null) {
+  const factions = [
+    buildCalibrationFaction(unitTotal, 0),
+    buildCalibrationFaction(unitTotal, 1),
+  ];
+  return buildBattle(
+    factions,
+    arena || createRandomArenaVariant(0, 0, factions.length),
+    { calibration: true },
+    { maxUnitsOnBattlefieldOverride: 0 },
+  );
+}
+
+function startPerformanceCalibration() {
+  if (state.performanceCalibration.active) return;
+  endBattleAudio();
+  closeWinnerModal();
+  clearKnockoutAnnouncement();
+  clearBossAnnouncement();
+  state.tournament = null;
+  state.tournamentResult = null;
+  state.running = true;
+  state.performanceCalibration = {
+    active: true,
+    phase: "ramp",
+    currentUnits: PERFORMANCE_CALIBRATION_STARTING_UNITS,
+    bestUnits: PERFORMANCE_CALIBRATION_STARTING_UNITS,
+    lowBound: PERFORMANCE_CALIBRATION_STARTING_UNITS,
+    highBound: 0,
+    evaluateAt: performance.now() + PERFORMANCE_CALIBRATION_INITIAL_SAMPLE_MS,
+    sampleStartedAt: performance.now(),
+    samples: [],
+    arena: createRandomArenaVariant(0, 0, 2),
+  };
+  state.battle = createPerformanceCalibrationBattle(PERFORMANCE_CALIBRATION_STARTING_UNITS, state.performanceCalibration.arena);
+  queueBattleTerrainTextureGeneration(state.battle);
+  resetCamera();
+  els.battleState.textContent = "Calibrating Performance";
+  els.winnerLabel.textContent = "Benchmarking";
+  renderTournamentConfigPanel();
+  renderBracketTracker();
+  updateAdvanceButtonLabel();
+  setTicker("Running a calibration battle with archers, mages, and knights.");
+}
+
+function cancelPerformanceCalibration(options = {}) {
+  if (!state.performanceCalibration.active) return;
+  state.performanceCalibration = createPerformanceCalibrationState();
+  renderTournamentConfigPanel();
+  if (!options.silent) {
+    setTicker("Performance calibration was cancelled.");
+  }
+}
+
+function updatePerformanceCalibration(timestamp) {
+  const calibration = state.performanceCalibration;
+  if (!calibration.active || !state.battle) return;
+  if (state.battle.completed) {
+    state.battle = createPerformanceCalibrationBattle(calibration.currentUnits, calibration.arena);
+    queueBattleTerrainTextureGeneration(state.battle);
+    calibration.samples = [];
+    calibration.sampleStartedAt = timestamp;
+    calibration.evaluateAt = timestamp + PERFORMANCE_CALIBRATION_SAMPLE_MS;
+    return;
+  }
+  if (timestamp < calibration.evaluateAt) {
+    calibration.samples.push(state.renderDebug.fps);
+    return;
+  }
+  const averageFps = calibration.samples.length
+    ? (calibration.samples.reduce((sum, value) => sum + value, 0) / calibration.samples.length)
+    : state.renderDebug.fps;
+  calibration.samples = [];
+  const meetsTarget = averageFps >= PERFORMANCE_CALIBRATION_ACCEPTABLE_FPS;
+  if (meetsTarget) {
+    calibration.bestUnits = Math.max(calibration.bestUnits, calibration.currentUnits);
+    calibration.lowBound = Math.max(calibration.lowBound, calibration.currentUnits);
+    if (calibration.phase === "ramp") {
+      const step = Math.max(5, Math.round(calibration.currentUnits * 0.12));
+      calibration.currentUnits += step;
+    } else if ((calibration.highBound - calibration.lowBound) <= PERFORMANCE_CALIBRATION_MIN_STEP) {
+      finishPerformanceCalibration(calibration.bestUnits, averageFps);
+      return;
+    } else {
+      calibration.currentUnits = roundCalibrationUnits((calibration.currentUnits + calibration.highBound) / 2);
+    }
+  } else if (calibration.phase === "ramp") {
+    calibration.phase = "refine";
+    calibration.highBound = calibration.currentUnits;
+    calibration.currentUnits = roundCalibrationUnits((calibration.lowBound + calibration.highBound) / 2);
+  } else {
+    calibration.highBound = Math.min(calibration.highBound || calibration.currentUnits, calibration.currentUnits);
+    if ((calibration.highBound - calibration.lowBound) <= PERFORMANCE_CALIBRATION_MIN_STEP) {
+      finishPerformanceCalibration(Math.max(PERFORMANCE_CALIBRATION_STARTING_UNITS, calibration.bestUnits || calibration.lowBound), averageFps);
+      return;
+    }
+    calibration.currentUnits = roundCalibrationUnits((calibration.lowBound + calibration.highBound) / 2);
+  }
+  calibration.sampleStartedAt = timestamp;
+  calibration.evaluateAt = timestamp + PERFORMANCE_CALIBRATION_SAMPLE_MS;
+  state.battle = createPerformanceCalibrationBattle(calibration.currentUnits, calibration.arena);
+  queueBattleTerrainTextureGeneration(state.battle);
+  els.battleState.textContent = `Calibrating Performance (${calibration.currentUnits} units)`;
+  renderTournamentConfigPanel();
+  setTicker(`Calibration probing ${calibration.currentUnits} units at about ${averageFps.toFixed(1)} FPS.`);
+}
+
+function roundCalibrationUnits(value) {
+  return Math.max(PERFORMANCE_CALIBRATION_STARTING_UNITS, Math.round(value / 5) * 5);
+}
+
+function finishPerformanceCalibration(bestUnits, sampledFps) {
+  const resolvedUnits = clampInt(bestUnits, PERFORMANCE_CALIBRATION_STARTING_UNITS, MAX_BATTLEFIELD_UNIT_CAP);
+  state.performanceCalibration = createPerformanceCalibrationState();
+  state.tournamentConfig = normalizeTournamentConfig({
+    ...state.tournamentConfig,
+    maxUnitsOnBattlefield: resolvedUnits,
+  });
+  saveState();
+  resetBattle({ regenerateTerrain: false, terrainMirrorKey: nextTerrainReflectionKey("post-calibration") });
+  els.battleState.textContent = "Ready";
+  els.winnerLabel.textContent = "None yet";
+  renderTournamentConfigPanel();
+  setHighlight(`Performance tuned for about ${PERFORMANCE_CALIBRATION_TARGET_FPS} FPS`);
+  setTicker(`Auto-calibration set the battlefield cap to ${resolvedUnits} units after sampling around ${sampledFps.toFixed(1)} FPS.`);
 }
 
 function allocateProportionalIntegers(weights, targetTotal) {
@@ -6508,6 +6766,7 @@ function applyStatus(unit, kind, stacks = 1, duration = null, source = null, bat
   const statusDef = getStatusDefinition(kind);
   const unitDef = getUnitDefinition(unit);
   if (!unit || unit.dead || !statusDef || stacks <= 0) return null;
+  if (unitDef.immuneStatuses?.includes(kind)) return null;
   if (unitDef.immuneToStatusDamage && (statusDef.dps || 0) > 0) return null;
   const sourceStats = source ? getUnitStats(source) : null;
   const statusDuration = duration
@@ -6616,6 +6875,9 @@ function updateUnitActivity(unit, text) {
 function makeUnit(factionId, type, x, y) {
   const stats = getUnitStats(type);
   const unitDef = getUnitDefinition(type);
+  const initialCooldownMultiplier = typeof unitDef.initialCooldownMultiplier === "number"
+    ? unitDef.initialCooldownMultiplier
+    : 1;
   return {
     id: `${factionId}-${type}-${Math.random().toString(36).slice(2, 8)}`,
     factionId,
@@ -6631,7 +6893,7 @@ function makeUnit(factionId, type, x, y) {
     vy: 0,
     health: stats.maxHealth,
     maxHealth: stats.maxHealth,
-    cooldown: Math.random() * stats.cooldown,
+    cooldown: Math.random() * stats.cooldown * initialCooldownMultiplier,
     bravery: 0.05 + Math.random() * 0.4,
     dead: false,
     fled: false,
@@ -6669,6 +6931,9 @@ function makeUnit(factionId, type, x, y) {
     wanderTargetX: x,
     wanderTargetY: y,
     wanderTimer: 0,
+    panicTargetX: x,
+    panicTargetY: y,
+    panicRetargetAt: 0,
     lifeTimer: typeof stats.lifetime === "number" ? stats.lifetime : null,
     expiredByTimer: false,
     hostileToAll: Boolean(unitDef.hostileToAll),
@@ -6880,13 +7145,65 @@ function createTournamentHeatGroups(factionIds, config = state.tournamentConfig)
   const normalized = normalizeTournamentConfig(config);
   const factionCount = factionIds.length;
   if (factionCount <= 0) return [];
-  if (factionCount <= normalized.maxFactionsPerHeat) return [factionIds.slice()];
+  if (factionCount <= normalized.maxFactionsPerHeat && !normalized.maxUnitsOnBattlefield) return [factionIds.slice()];
   const minGroupCount = Math.ceil(factionCount / normalized.maxFactionsPerHeat);
   const maxGroupCount = Math.max(1, Math.floor(factionCount / normalized.minFactionsPerHeat));
-  const groupCount = minGroupCount <= maxGroupCount
-    ? minGroupCount
-    : minGroupCount;
-  return chunkEvenly(factionIds, groupCount);
+  const records = factionIds.map((factionId) => {
+    const source = findSourceFaction(factionId);
+    return {
+      factionId,
+      armySize: Math.max(1, source?.armySize || 0),
+    };
+  });
+  let bestGrouping = null;
+  for (let groupCount = minGroupCount; groupCount <= maxGroupCount; groupCount += 1) {
+    const candidate = buildTournamentHeatGrouping(records, groupCount, normalized);
+    if (!candidate) continue;
+    if (!bestGrouping || candidate.score < bestGrouping.score) {
+      bestGrouping = candidate;
+    }
+  }
+  return bestGrouping?.groups || chunkEvenly(factionIds, minGroupCount);
+}
+
+function buildTournamentHeatGrouping(records, groupCount, normalizedConfig) {
+  if (!records.length || groupCount <= 0) return null;
+  const baseSize = Math.floor(records.length / groupCount);
+  const extra = records.length % groupCount;
+  const targets = Array.from({ length: groupCount }, (_, index) => baseSize + (index < extra ? 1 : 0));
+  if (targets.some((size) => size < normalizedConfig.minFactionsPerHeat || size > normalizedConfig.maxFactionsPerHeat)) return null;
+  const groups = targets.map((targetSize, index) => ({
+    index,
+    targetSize,
+    totalArmySize: 0,
+    factionIds: [],
+  }));
+  records
+    .slice()
+    .sort((left, right) => right.armySize - left.armySize)
+    .forEach((record) => {
+      const group = groups
+        .filter((entry) => entry.factionIds.length < entry.targetSize)
+        .sort((left, right) => {
+          const leftSpace = left.targetSize - left.factionIds.length;
+          const rightSpace = right.targetSize - right.factionIds.length;
+          if (rightSpace !== leftSpace) return rightSpace - leftSpace;
+          if (left.totalArmySize !== right.totalArmySize) return left.totalArmySize - right.totalArmySize;
+          return left.index - right.index;
+        })[0];
+      if (!group) return;
+      group.factionIds.push(record.factionId);
+      group.totalArmySize += record.armySize;
+    });
+  const cap = clampInt(normalizedConfig.maxUnitsOnBattlefield, 0, MAX_BATTLEFIELD_UNIT_CAP);
+  const overflow = cap > 0
+    ? groups.reduce((sum, group) => sum + Math.max(0, group.totalArmySize - cap), 0)
+    : 0;
+  const maxArmyLoad = groups.reduce((max, group) => Math.max(max, group.totalArmySize), 0);
+  return {
+    groups: groups.map((group) => group.factionIds),
+    score: (overflow * 100000) + (groupCount * 1000) + maxArmyLoad,
+  };
 }
 
 function getTerrainMirrorFlags(seed) {
@@ -8287,6 +8604,11 @@ function loop(timestamp) {
   const simDt = dt * getBattleSpeedMultiplier();
   if (HAS_BATTLE_PAGE) {
     if (state.running && state.battle) stepBattle(state.battle, simDt);
+    if (!state.running && state.battle?.preBattleCullFxActive) {
+      updateParticles(state.battle, dt);
+      state.battle.preBattleCullFxActive = state.battle.particles.length > 0;
+    }
+    updatePerformanceCalibration(timestamp);
     if (state.tournament || state.running || state.battle?.completed) syncTournamentViewState();
     updateAudioFades(dt);
     updateCamera(dt);
@@ -8714,12 +9036,18 @@ function spreadIgniteStatus(unit, status, battle, dt) {
   const stats = status.sourceId ? getUnitStats(findUnitById(battle, status.sourceId)) : null;
   const contagionRadius = stats?.contagionRadius || STATUS_DEFINITIONS.ignite.contagionRadius;
   const contagionInterval = STATUS_DEFINITIONS.ignite.contagionInterval;
+  const transmissionChance = clamp(
+    stats?.igniteTransmissionChance ?? STATUS_DEFINITIONS.ignite.transmissionChance ?? 1,
+    0,
+    1,
+  );
   if (status.contagionTimer < contagionInterval) return;
   status.contagionTimer = 0;
   battle.factions.forEach((faction) => {
     faction.units.forEach((other) => {
       if (other.id === unit.id || other.dead || other.fled) return;
       if (Math.hypot(other.x - unit.x, other.y - unit.y) > contagionRadius) return;
+      if (Math.random() > transmissionChance) return;
       applyStatus(other, "ignite", 1, stats?.igniteDuration || STATUS_DEFINITIONS.ignite.defaultDuration, unit, battle);
     });
   });
@@ -8788,6 +9116,7 @@ function updateUnit(unit, faction, battle, dt) {
   }
 
   let destination = getDesiredDestination(unit, unitDef, target, distance, battle, allies, enemies, graves);
+  const igniteStatus = getUnitStatus(unit, "ignite");
   if (unit.fleeing) {
     const awayX = unit.x - battle.field.centerX;
     const awayY = unit.y - battle.field.centerY;
@@ -8796,6 +9125,9 @@ function updateUnit(unit, faction, battle, dt) {
       x: unit.x + (awayX / awayLength) * 120,
       y: unit.y + (awayY / awayLength) * 120,
     };
+  } else if (igniteStatus) {
+    destination = getIgnitePanicDestination(unit, battle);
+    updateUnitActivity(unit, "Panicking through the flames.");
   }
 
   const dx = destination.x - unit.x;
@@ -8811,7 +9143,7 @@ function updateUnit(unit, faction, battle, dt) {
   updateWalkTilt(unit, dt);
 
   const attackRange = getAttackRange(unit, unitDef);
-  if (!unit.fleeing && target && distance <= attackRange) {
+  if (!unit.fleeing && !igniteStatus && target && distance <= attackRange) {
     const shouldSlowForAttack = unitDef.shouldSlowForAttack ? unitDef.shouldSlowForAttack({ unit, faction, battle, target, unitDef }) : true;
     if (shouldSlowForAttack) {
       unit.vx *= 0.84;
@@ -8994,10 +9326,12 @@ function selectMedicTarget({ unit, allies }) {
 
 function updateBardState({ unit, faction, allies, enemies, battle, unitDef, dt }) {
   unit.songTimer = Math.max(0, (unit.songTimer || 0) - dt);
+  const songPulse = Math.max(0, Math.sin((battle.time || 0) * 6.4));
   const factionSongState = faction.bardSongState || null;
   if (factionSongState?.kind && battle.time < (factionSongState.endsAt || 0)) {
     unit.activeSongKind = factionSongState.kind;
     unit.songTimer = Math.max(0, factionSongState.endsAt - battle.time);
+    unit.attackSwing = Math.max(unit.attackSwing || 0, songPulse);
     updateUnitActivity(unit, `Playing ${getStatusDefinition(unit.activeSongKind)?.name.toLowerCase() || "a battle song"} for nearby allies.`);
     return;
   }
@@ -9011,6 +9345,7 @@ function updateBardState({ unit, faction, allies, enemies, battle, unitDef, dt }
   };
   unit.activeSongKind = nextSong;
   unit.songTimer = duration;
+  unit.attackSwing = 1;
   updateUnitActivity(unit, `Playing ${getStatusDefinition(nextSong)?.name.toLowerCase() || "a battle song"} for nearby allies.`);
   if (battle && Math.random() > 0.45) {
     setHighlight(`${findFaction(battle, unit.factionId)?.title || "A faction"}'s bards strike up ${getStatusDefinition(unit.activeSongKind)?.name.toLowerCase() || "a new song"}`);
@@ -9589,6 +9924,22 @@ function updateHuntsmanState({ unit, dt }) {
   if ((unit.huntsmanKnifeCooldown || 0) > 0 && (unit.huntsmanNetCooldown || 0) > 0 && !unit.focusTargetId) {
     updateUnitActivity(unit, "Resetting after a volley.");
   }
+}
+
+function getIgnitePanicDestination(unit, battle) {
+  const needsNewTarget = !Number.isFinite(unit.panicTargetX)
+    || !Number.isFinite(unit.panicTargetY)
+    || (battle.time || 0) >= (unit.panicRetargetAt || 0)
+    || Math.hypot((unit.panicTargetX || unit.x) - unit.x, (unit.panicTargetY || unit.y) - unit.y) < 18;
+  if (needsNewTarget) {
+    unit.panicTargetX = clamp(unit.x + (Math.random() - 0.5) * 220, 24, battle.field.width - 24);
+    unit.panicTargetY = clamp(unit.y + (Math.random() - 0.5) * 180, 24, battle.field.height - 24);
+    unit.panicRetargetAt = (battle.time || 0) + 0.35 + Math.random() * 0.45;
+  }
+  return {
+    x: unit.panicTargetX,
+    y: unit.panicTargetY,
+  };
 }
 
 function selectWinterWitchTarget({ unit, enemies, allies, unitDef, battle }) {
@@ -10661,8 +11012,12 @@ function selectCatapultTarget({ unit, enemies }) {
 
 function getFirebreatherDestination({ unit, target, allies, distance, destination }) {
   if (!target) return destination;
+  const stats = getUnitStats(unit);
+  if (!unit.activeSpellId && (unit.cooldown || 0) > Math.max(0.15, stats.cooldown * 0.12)) {
+    return getRetreatingDestination(stats.range * 1.4, 1.22)({ unit, target, distance, destination });
+  }
   const nearbyAllies = allies.filter((ally) => ally.id !== unit.id && Math.hypot(ally.x - unit.x, ally.y - unit.y) <= 84);
-  if (nearbyAllies.length && distance <= getUnitStats(unit).range * 1.1) {
+  if (nearbyAllies.length && distance <= stats.range * 1.1) {
     const centroid = nearbyAllies.reduce((acc, ally) => ({ x: acc.x + ally.x, y: acc.y + ally.y }), { x: 0, y: 0 });
     centroid.x /= nearbyAllies.length;
     centroid.y /= nearbyAllies.length;
