@@ -636,7 +636,7 @@ const UNIT_DEFINITIONS = {
     name: "Bodyguard",
     keywords: ["tank", "shield", "guard", "protector", "melee", "aura"],
     description: "Bodyguards are slow defensive anchors who hold the army together. Their shielding aura is lighter than before, but if a nearby ally is struck they can zip in, take the hit themselves, and hurl that ally back behind the line before returning to the brawl.",
-    stats: { maxHealth: 204, speed: 24, range: 24, damage: 21, cooldown: 1.28, auraRadius: 96, aggroRadius: 132, shieldReduction: 0.18, interceptRadiusFactor: 0.5, interceptCooldown: 5 },
+    stats: { maxHealth: 220, speed: 24, range: 24, damage: 21, cooldown: 1.28, auraRadius: 96, aggroRadius: 132, shieldReduction: 0.18, interceptRadiusFactor: 0.5, interceptCooldown: 5 },
     healthBarWidth: 28,
     iconPaths: getBodyguardIconSvgPaths,
     getMoveSpeed: (unit, unitDef) => getUnitStats(unit, unitDef).speed,
@@ -652,7 +652,7 @@ const UNIT_DEFINITIONS = {
     keywords: ["heal", "support", "frail"],
     description: "Medics contribute no direct offense, but they can swing long fights by repeatedly restoring allies on the front line. They are fragile and need protection, yet a well-screened medic can make an entire formation much harder to grind down.",
     supportOnly: true,
-    stats: { maxHealth: 36, speed: 56, range: 16, heal: 18, cooldown: 1.9 },
+    stats: { maxHealth: 36, speed: 56, range: 16, heal: 25, cooldown: 1.9 },
     healthBarWidth: 20,
     iconPaths: getMedicIconSvgPaths,
     canActWithoutEnemies: true,
@@ -829,7 +829,7 @@ const UNIT_DEFINITIONS = {
     name: "Krieger",
     keywords: ["titan", "hulk", "brute", "regeneration", "blood frenzy", "melee"],
     description: "Kriegers are towering lurching hulks that crush whatever they reach. They regenerate steadily, hit like siege beasts in melee, and can lose all sense of allegiance in a blood frenzy after a kill, turning on the nearest body no matter whose banner it serves.",
-    stats: { maxHealth: 384, speed: 22, range: 32, damage: 58, cooldown: 1.55, regenPerSecond: 4.2, frenzyChance: 0.32 },
+    stats: { maxHealth: 240, speed: 22, range: 32, damage: 58, cooldown: 1.55, regenPerSecond: 4.2, frenzyChance: 0.32 },
     healthBarWidth: 36,
     iconPaths: getKriegerIconSvgPaths,
     canActWithoutEnemies: true,
@@ -999,6 +999,7 @@ const UNIT_DEFINITIONS = {
     iconPaths: getInkLordIconSvgPaths,
     draftable: false,
     hostileToAll: true,
+    routingImmune: true,
     canActWithoutEnemies: true,
     isTargetable: ({ unit }) => !unit.spawnInvulnerable,
     beforeStep: updateInkLordPresence,
@@ -9458,7 +9459,37 @@ function canUnitBeTargeted(unit, attacker = null) {
   return unitDef.isTargetable ? unitDef.isTargetable({ unit, attacker, unitDef }) : true;
 }
 
+function getUnitPersonalSpaceRadius(unit, unitDef = getUnitDefinition(unit)) {
+  const stats = getUnitStats(unit, unitDef);
+  return clamp(18 + (stats.range || 0) * 0.16 + (stats.speed || 0) * 0.12, 28, 56);
+}
+
+function findPersonalSpaceIntruder(unit, enemies = [], battle = null, unitDef = getUnitDefinition(unit)) {
+  if (!unit || !enemies.length) return null;
+  const radius = getUnitPersonalSpaceRadius(unit, unitDef);
+  let best = null;
+  let bestDistance = Infinity;
+  enemies.forEach((enemy) => {
+    if (!enemy || enemy.dead || enemy.fled) return;
+    if (battle && !areUnitsHostile(unit, enemy, battle)) return;
+    if (!canUnitBeTargeted(enemy, unit)) return;
+    const distance = getBattlefieldEllipseDistance(enemy.x - unit.x, enemy.y - unit.y);
+    if (distance > radius || distance >= bestDistance) return;
+    best = enemy;
+    bestDistance = distance;
+  });
+  return best;
+}
+
 function selectUnitTarget(unit, unitDef, enemies, allies, graves = [], battle = null) {
+  const intruder = findPersonalSpaceIntruder(unit, enemies, battle, unitDef);
+  if (intruder) {
+    unit.currentTargetKind = "enemy";
+    unit.currentGraveId = null;
+    unit.focusTargetId = intruder.id;
+    updateUnitActivity(unit, `Fending off ${getUnitActivityTargetLabel(intruder, battle)} who got too close.`);
+    return intruder;
+  }
   return (unitDef.selectTarget || selectDefaultTarget)({ unit, unitDef, enemies, allies, graves, battle });
 }
 
@@ -10545,18 +10576,56 @@ function handleNecromancerDeath({ unit, battle }) {
   });
 }
 
-function selectGraverobberTarget({ unit, enemies, graves }) {
+function selectGraverobberTarget({ unit, enemies, graves, battle, unitDef }) {
+  const stats = getUnitStats(unit, unitDef);
+  const lockedEnemy = unit.graverobberAttackTargetId
+    ? enemies.find((enemy) => enemy.id === unit.graverobberAttackTargetId && !enemy.dead && !enemy.fled)
+    : null;
+  if ((unit.graverobberAttackSwingsRemaining || 0) > 0 && lockedEnemy) {
+    unit.currentTargetKind = "enemy";
+    unit.currentGraveId = null;
+    unit.focusTargetId = lockedEnemy.id;
+    updateUnitActivity(unit, `Taking a detour to shank ${getUnitActivityTargetLabel(lockedEnemy, battle)} before robbing more graves.`);
+    return lockedEnemy;
+  }
+  unit.graverobberAttackSwingsRemaining = 0;
+  unit.graverobberAttackTargetId = null;
+
   const grave = findNearestGrave(unit, graves);
+  const enemyTarget = enemies.length ? selectDefaultTarget({ unit, enemies, allies: [] }) : null;
+  const enemyDistance = enemyTarget ? Math.hypot(enemyTarget.x - unit.x, enemyTarget.y - unit.y) : Infinity;
+  const shouldPickFight = Boolean(
+    enemyTarget
+    && (
+      enemyDistance <= Math.max(stats.range * 3.4, 92)
+      || (grave && enemyDistance <= Math.max(stats.graveRange * 0.7, 120) && Math.random() < 0.38)
+      || (!grave && Math.random() < 0.75)
+    )
+  );
+
+  if (shouldPickFight) {
+    unit.currentTargetKind = "enemy";
+    unit.currentGraveId = null;
+    unit.focusTargetId = enemyTarget.id;
+    unit.graverobberAttackTargetId = enemyTarget.id;
+    unit.graverobberAttackSwingsRemaining = 1 + (Math.random() < 0.45 ? 1 : 0);
+    updateUnitActivity(unit, `Sizing up ${getUnitActivityTargetLabel(enemyTarget, battle)} before going back to the graves.`);
+    return enemyTarget;
+  }
+
   if (grave) {
     unit.currentTargetKind = "grave";
     unit.currentGraveId = grave.id;
+    unit.focusTargetId = null;
     updateUnitActivity(unit, "Seeking a gravestone to rob.");
     return grave;
   }
   unit.currentTargetKind = "enemy";
   unit.currentGraveId = null;
+  unit.graverobberAttackTargetId = enemyTarget?.id || null;
+  unit.graverobberAttackSwingsRemaining = enemyTarget ? 1 + (Math.random() < 0.45 ? 1 : 0) : 0;
   updateUnitActivity(unit, "Seeking someone to shank with a shovel.");
-  return selectDefaultTarget({ unit, enemies });
+  return enemyTarget;
 }
 
 function getGraverobberAttackRange(unitDef, unit) {
@@ -10586,6 +10655,8 @@ function performGraverobberAttack({ unit, target, battle, unitDef }) {
   if (Math.hypot(target.x - unit.x, target.y - unit.y) > stats.range + 4) return;
   updateUnitActivity(unit, `Slashing at ${getUnitActivityTargetLabel(target, battle)}.`);
   applyDamage(target, stats.damage * (0.92 + Math.random() * 0.36), battle, unit);
+  unit.graverobberAttackTargetId = target.id;
+  unit.graverobberAttackSwingsRemaining = Math.max(0, (unit.graverobberAttackSwingsRemaining || 0) - 1);
   battle.swipes.push({ x: target.x, y: target.y - 11, angle: unit.facing, life: 0.2, maxLife: 0.2, color: "rgba(178, 146, 104, 0.86)" });
   spawnBurst(battle, target.x, target.y - 1, "#e0c089", 8);
 }
@@ -11756,9 +11827,9 @@ function resolveBombProjectile(projectile, battle) {
 function resolvePoisonBottleProjectile(projectile, battle) {
   const source = findUnitById(battle, projectile.sourceId);
   battle.factions.forEach((faction) => {
-    if (source && faction.id === source.factionId) return;
     faction.units.forEach((unit) => {
       if (unit.dead || unit.fled) return;
+      if (source && !areUnitsHostile(source, unit, battle)) return;
       const dist = getBattlefieldEllipseDistance(unit.x - projectile.endX, unit.y - projectile.endY);
       if (dist > projectile.radius) return;
       applyDamage(unit, projectile.damage * Math.max(0.25, 1 - dist / projectile.radius), battle, source);
@@ -11812,11 +11883,13 @@ function resolveCatapultProjectile(projectile, battle) {
 }
 
 function resolveOrbProjectile(projectile, battle) {
+  const source = findUnitById(battle, projectile.sourceId);
   battle.factions.forEach((faction) => {
     faction.units.forEach((unit) => {
       if (unit.dead || unit.fled) return;
+      if (source && !areUnitsHostile(source, unit, battle)) return;
       const dist = getBattlefieldEllipseDistance(unit.x - projectile.endX, unit.y - projectile.endY);
-      if (dist <= projectile.radius) applyDamage(unit, projectile.damage * Math.max(0.3, 1 - dist / projectile.radius), battle, findUnitById(battle, projectile.sourceId));
+      if (dist <= projectile.radius) applyDamage(unit, projectile.damage * Math.max(0.3, 1 - dist / projectile.radius), battle, source);
     });
   });
   spawnBurst(battle, projectile.endX, projectile.endY, "#7ce7ff", 18);
