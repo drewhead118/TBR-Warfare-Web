@@ -1074,6 +1074,7 @@ const PROP_RENDERERS = {
   signpost: drawPropSignpost,
 };
 const EXPLOSION_READABILITY_INSET = 5;
+const BATTLEFIELD_ELLIPSE_Y_SCALE = 0.75;
 const BATTLE_HIGHLIGHT_COOLDOWN_MS = 1000;
 const SAMPLE_BOOKS = [
   {
@@ -8887,7 +8888,7 @@ function updateBodyguardAuras(battle) {
       const stats = getUnitStats(bodyguard);
       getNearbyLivingUnits(battle, bodyguard.x, bodyguard.y, stats.auraRadius).forEach((ally) => {
         if (!areUnitsAllied(bodyguard, ally, battle)) return;
-        if (Math.hypot(ally.x - bodyguard.x, ally.y - bodyguard.y) <= stats.auraRadius) {
+        if (getBattlefieldEllipseDistance(ally.x - bodyguard.x, ally.y - bodyguard.y) <= stats.auraRadius) {
           applyStatus(ally, "shielded", 1, 0.3, bodyguard, battle);
         }
       });
@@ -8905,7 +8906,7 @@ function updateBardAuras(battle) {
       const songKind = bard.activeSongKind || "bardichaste";
       getNearbyLivingUnits(battle, bard.x, bard.y, stats.auraRadius).forEach((ally) => {
         if (!areUnitsAllied(bard, ally, battle)) return;
-        if (Math.hypot(ally.x - bard.x, ally.y - bard.y) <= stats.auraRadius) {
+        if (getBattlefieldEllipseDistance(ally.x - bard.x, ally.y - bard.y) <= stats.auraRadius) {
           applyStatus(ally, songKind, 1, 0.35, bard, battle);
         }
       });
@@ -9431,9 +9432,9 @@ function updateBardState({ unit, faction, allies, enemies, battle, unitDef, dt }
 
 function chooseBardSong(unit, allies, enemies, unitDef = getUnitDefinition(unit)) {
   const stats = getUnitStats(unit, unitDef);
-  const nearbyAllies = allies.filter((ally) => Math.hypot(ally.x - unit.x, ally.y - unit.y) <= stats.auraRadius);
+  const nearbyAllies = allies.filter((ally) => getBattlefieldEllipseDistance(ally.x - unit.x, ally.y - unit.y) <= stats.auraRadius);
   const woundedNearby = nearbyAllies.filter((ally) => ally.health / Math.max(1, ally.maxHealth) < 0.62).length;
-  const nearbyEnemies = enemies.filter((enemy) => Math.hypot(enemy.x - unit.x, enemy.y - unit.y) <= stats.auraRadius * 1.2).length;
+  const nearbyEnemies = enemies.filter((enemy) => getBattlefieldEllipseDistance(enemy.x - unit.x, enemy.y - unit.y) <= stats.auraRadius * 1.2).length;
   const weightedSongs = [];
   const addSong = (kind, weight) => {
     for (let i = 0; i < weight; i += 1) weightedSongs.push(kind);
@@ -9558,7 +9559,7 @@ function getBodyguardEngagementDestination(unit, target, allies = [], enemies = 
     ally.id !== unit.id
     && !ally.dead
     && !ally.fled
-    && Math.hypot(ally.x - target.x, ally.y - target.y) <= stats.auraRadius * 1.3
+    && getBattlefieldEllipseDistance(ally.x - target.x, ally.y - target.y) <= stats.auraRadius * 1.3
   ));
   const supportAnchor = nearbyAllies.length
     ? nearbyAllies.reduce((acc, ally) => ({ x: acc.x + ally.x, y: acc.y + ally.y }), { x: 0, y: 0 })
@@ -9607,7 +9608,7 @@ function selectBodyguardTarget({ unit, enemies, allies, battle, unitDef }) {
       .filter((ally) => ally.id !== unit.id && !ally.dead && !ally.fled)
       .map((ally) => ({
         ally,
-        distance: Math.hypot(enemy.x - ally.x, enemy.y - ally.y),
+        distance: getBattlefieldEllipseDistance(enemy.x - ally.x, enemy.y - ally.y),
       }));
     const closestThreatenedAlly = alliedDistances.reduce((closest, entry) => {
       if (!closest || entry.distance < closest.distance) return entry;
@@ -10031,7 +10032,7 @@ function selectWinterWitchTarget({ unit, enemies, allies, unitDef, battle }) {
     const distance = Math.hypot(enemy.x - unit.x, enemy.y - unit.y);
     let enemyValue = 0;
     enemies.forEach((other) => {
-      const zoneDistance = Math.hypot(other.x - enemy.x, other.y - enemy.y);
+      const zoneDistance = getBattlefieldEllipseDistance(other.x - enemy.x, other.y - enemy.y);
       if (zoneDistance > stats.blizzardRadius) return;
       enemyValue += 1.15 - (zoneDistance / Math.max(1, stats.blizzardRadius)) * 0.65;
       enemyValue += (1 - (other.health / Math.max(1, other.maxHealth))) * 0.18;
@@ -10039,7 +10040,7 @@ function selectWinterWitchTarget({ unit, enemies, allies, unitDef, battle }) {
     let allyPenalty = 0;
     allies.forEach((ally) => {
       if (ally.id === unit.id) return;
-      const zoneDistance = Math.hypot(ally.x - enemy.x, ally.y - enemy.y);
+      const zoneDistance = getBattlefieldEllipseDistance(ally.x - enemy.x, ally.y - enemy.y);
       if (zoneDistance > stats.blizzardRadius) return;
       const resistance = ally.type === "winterwitch" ? 0.67 : 1;
       allyPenalty += (1.18 - (zoneDistance / Math.max(1, stats.blizzardRadius)) * 0.7) * resistance;
@@ -10238,7 +10239,7 @@ function performTurretAttack({ unit, target, battle, unitDef }) {
     faction.units.forEach((enemy) => {
       if (enemy.dead || enemy.fled || enemy.id === unit.id) return;
       if (!areUnitsHostile(unit, enemy, battle)) return;
-      const distance = Math.hypot(enemy.x - target.x, enemy.y - target.y);
+      const distance = getBattlefieldEllipseDistance(enemy.x - target.x, enemy.y - target.y);
       if (distance > stats.splash) return;
       applyDamage(enemy, stats.damage * Math.max(0.45, 1 - distance / stats.splash), battle, unit);
     });
@@ -10795,7 +10796,7 @@ function selectInkLordTarget({ unit, enemies }) {
     const distance = Math.hypot(enemy.x - unit.x, enemy.y - unit.y);
     let clusterScore = 0;
     enemies.forEach((other) => {
-      const neighborDistance = Math.hypot(other.x - enemy.x, other.y - enemy.y);
+      const neighborDistance = getBattlefieldEllipseDistance(other.x - enemy.x, other.y - enemy.y);
       if (neighborDistance <= 92) clusterScore += 1 - neighborDistance / 92;
     });
     const score = clusterScore * 30 - distance * 0.22 - enemy.health * 0.04 + Math.random() * 2;
@@ -10843,7 +10844,7 @@ function getEnemiesWithinRadius(battle, attacker, x, y, radius) {
     unit.id !== attacker.id
     && canUnitBeTargeted(unit, attacker)
     && areUnitsHostile(attacker, unit, battle)
-    && Math.hypot(unit.x - x, unit.y - y) <= radius
+    && getBattlefieldEllipseDistance(unit.x - x, unit.y - y) <= radius
   ));
 }
 
@@ -10889,10 +10890,10 @@ function performInkLordThrow(unit, target, battle, stats) {
 
 function performInkLordNova(unit, battle, stats) {
   getEnemiesWithinRadius(battle, unit, unit.x, unit.y, stats.novaRange)
-    .sort((a, b) => Math.hypot(a.x - unit.x, a.y - unit.y) - Math.hypot(b.x - unit.x, b.y - unit.y))
+    .sort((a, b) => getBattlefieldEllipseDistance(a.x - unit.x, a.y - unit.y) - getBattlefieldEllipseDistance(b.x - unit.x, b.y - unit.y))
     .slice(0, 4)
     .forEach((enemy) => {
-    const distance = Math.hypot(enemy.x - unit.x, enemy.y - unit.y);
+    const distance = getBattlefieldEllipseDistance(enemy.x - unit.x, enemy.y - unit.y);
     applyDamage(enemy, stats.novaDamage * clamp(1 - distance / stats.novaRange, 0.45, 1), battle, unit);
     if (distance <= stats.novaRange * 0.8) {
       launchUnitByInkLord(unit, enemy, battle, {
@@ -10914,10 +10915,10 @@ function performInkLordSkyfall(unit, target, battle, stats) {
   const centerX = clamp(target.x + (Math.random() - 0.5) * 24, 40, battle.field.width - 40);
   const centerY = clamp(target.y + (Math.random() - 0.5) * 24, 40, battle.field.height - 40);
   getEnemiesWithinRadius(battle, unit, centerX, centerY, stats.skyfallRadius)
-    .sort((a, b) => Math.hypot(a.x - centerX, a.y - centerY) - Math.hypot(b.x - centerX, b.y - centerY))
+    .sort((a, b) => getBattlefieldEllipseDistance(a.x - centerX, a.y - centerY) - getBattlefieldEllipseDistance(b.x - centerX, b.y - centerY))
     .slice(0, 3)
     .forEach((enemy) => {
-    const distance = Math.hypot(enemy.x - centerX, enemy.y - centerY);
+    const distance = getBattlefieldEllipseDistance(enemy.x - centerX, enemy.y - centerY);
     applyDamage(enemy, stats.skyfallDamage * clamp(1 - distance / stats.skyfallRadius, 0.35, 1), battle, unit);
     launchUnitByInkLord(unit, enemy, battle, {
       distance: stats.throwDistance * (0.66 + Math.random() * 0.22),
@@ -10980,7 +10981,7 @@ function launchUnitByInkLord(source, target, battle, options = {}) {
 
 function launchUnitsAroundPoint(battle, source, x, y, radius, damage, throwDistance, falloff = 1) {
   getEnemiesWithinRadius(battle, source, x, y, radius).forEach((enemy) => {
-    const distance = Math.hypot(enemy.x - x, enemy.y - y);
+    const distance = getBattlefieldEllipseDistance(enemy.x - x, enemy.y - y);
     applyDamage(enemy, damage * clamp(1 - distance / radius, 0.45, 1) * falloff, battle, source);
     launchUnitByInkLord(source, enemy, battle, {
       distance: throwDistance * clamp(1 - distance / radius, 0.55, 1),
@@ -11027,13 +11028,13 @@ function selectBomberTarget({ unit, enemies, allies, unitDef }) {
     const inRangeBias = distance <= stats.range ? 44 : Math.max(-36, (stats.range - distance) * 0.24);
     let clusterScore = 0;
     enemies.forEach((other) => {
-      const neighborDistance = Math.hypot(other.x - enemy.x, other.y - enemy.y);
+      const neighborDistance = getBattlefieldEllipseDistance(other.x - enemy.x, other.y - enemy.y);
       if (neighborDistance <= stats.splash * 1.9) {
         clusterScore += 1 - (neighborDistance / (stats.splash * 1.9));
       }
     });
     const nearestAlly = nonSelfAllies.length
-      ? Math.min(...nonSelfAllies.map((ally) => Math.hypot(enemy.x - ally.x, enemy.y - ally.y)))
+      ? Math.min(...nonSelfAllies.map((ally) => getBattlefieldEllipseDistance(enemy.x - ally.x, enemy.y - ally.y)))
       : Infinity;
     const allyDangerPenalty = Number.isFinite(nearestAlly) && nearestAlly < stats.splash * 1.25
       ? (stats.splash * 1.25 - nearestAlly) * 0.9
@@ -11075,7 +11076,7 @@ function selectCatapultTarget({ unit, enemies }) {
     if (distance > stats.range) return;
     let cluster = 0;
     enemies.forEach((other) => {
-      const neighborDistance = Math.hypot(other.x - enemy.x, other.y - enemy.y);
+      const neighborDistance = getBattlefieldEllipseDistance(other.x - enemy.x, other.y - enemy.y);
       if (neighborDistance <= 78) cluster += 1 - (neighborDistance / 78) * 0.7;
     });
     const score = cluster * 30 - distance * 0.04 + Math.random() * 4;
@@ -11497,7 +11498,7 @@ function maybeTriggerPaladinConsecration(attacker, battle) {
   battle.factions.forEach((faction) => {
     faction.units.forEach((ally) => {
       if (ally.dead || ally.fled || !areUnitsAllied(attacker, ally, battle)) return;
-      if (Math.hypot(ally.x - attacker.x, ally.y - attacker.y) > stats.consecrationRadius) return;
+      if (getBattlefieldEllipseDistance(ally.x - attacker.x, ally.y - attacker.y) > stats.consecrationRadius) return;
       const healed = applyHealing(ally, stats.consecrationHeal, battle, attacker, { ignoreZombieInversion: true });
       const cleansed = clearPoisonStatuses(ally);
       if (healed > 0 || cleansed) affectedAllies += 1;
@@ -11584,7 +11585,7 @@ function resolvePoisonBottleProjectile(projectile, battle) {
     if (source && faction.id === source.factionId) return;
     faction.units.forEach((unit) => {
       if (unit.dead || unit.fled) return;
-      const dist = Math.hypot(unit.x - projectile.endX, unit.y - projectile.endY);
+      const dist = getBattlefieldEllipseDistance(unit.x - projectile.endX, unit.y - projectile.endY);
       if (dist > projectile.radius) return;
       applyDamage(unit, projectile.damage * Math.max(0.25, 1 - dist / projectile.radius), battle, source);
       applyStatus(unit, "poison", projectile.poisonStacks, projectile.poisonDuration, source, battle);
@@ -11640,7 +11641,7 @@ function resolveOrbProjectile(projectile, battle) {
   battle.factions.forEach((faction) => {
     faction.units.forEach((unit) => {
       if (unit.dead || unit.fled) return;
-      const dist = Math.hypot(unit.x - projectile.endX, unit.y - projectile.endY);
+      const dist = getBattlefieldEllipseDistance(unit.x - projectile.endX, unit.y - projectile.endY);
       if (dist <= projectile.radius) applyDamage(unit, projectile.damage * Math.max(0.3, 1 - dist / projectile.radius), battle, findUnitById(battle, projectile.sourceId));
     });
   });
@@ -11739,7 +11740,7 @@ function updateWinterBlizzardSpell(spell, battle, source, target, dt) {
   }
   getNearbyLivingUnits(battle, spell.x, spell.y, spell.radius).forEach((unit) => {
     if (unit.dead || unit.fled) return;
-    const distance = Math.hypot(unit.x - spell.x, unit.y - spell.y);
+    const distance = getBattlefieldEllipseDistance(unit.x - spell.x, unit.y - spell.y);
     if (distance > spell.radius) return;
     const status = applyStatus(unit, "blizzard", 1, spell.statusDuration, source, battle);
     if (status) {
@@ -11959,7 +11960,7 @@ function explodeAt(battle, x, y, radius, damage, attacker, color, burstCount, sh
   const readableRadius = getExplosionReadableRadius(radius);
   if (readableRadius > 0) {
     getNearbyLivingUnits(battle, x, y, readableRadius).forEach((unit) => {
-      const dist = Math.hypot(unit.x - x, unit.y - y);
+      const dist = getBattlefieldEllipseDistance(unit.x - x, unit.y - y);
       if (dist <= readableRadius) {
         applyDamage(unit, damage * Math.max(0.70, 1 - dist / readableRadius), battle, attacker);
       }
@@ -15096,12 +15097,12 @@ function drawBodyguardAuras(viewport, factions) {
       ctx.strokeStyle = hexToRgba(faction.color, pulse * 0.42);
       ctx.lineWidth = Math.max(1.4, (pulse * 0.9) * point.scale);
       ctx.beginPath();
-      ctx.arc(point.x, point.y, radius, 0, Math.PI * 2);
+      traceBattlefieldEllipse(ctx, point.x, point.y, radius);
       ctx.stroke();
       ctx.setLineDash([]);
       ctx.fillStyle = hexToRgba(shadeColor(faction.color, 0.18), pulse * 0.09);
       ctx.beginPath();
-      ctx.arc(point.x, point.y, radius, 0, Math.PI * 2);
+      traceBattlefieldEllipse(ctx, point.x, point.y, radius);
       ctx.fill();
       ctx.restore();
     });
@@ -15190,12 +15191,12 @@ function drawBardAuras(viewport, factions) {
       ctx.strokeStyle = hexToRgba(visuals.color, pulse * 0.42);
       ctx.lineWidth = Math.max(1.4, (pulse * 0.9) * point.scale);
       ctx.beginPath();
-      ctx.arc(point.x, point.y, radius, 0, Math.PI * 2);
+      traceBattlefieldEllipse(ctx, point.x, point.y, radius);
       ctx.stroke();
       ctx.setLineDash([]);
       ctx.fillStyle = hexToRgba(visuals.color, pulse * 0.09);
       ctx.beginPath();
-      ctx.arc(point.x, point.y, radius, 0, Math.PI * 2);
+      traceBattlefieldEllipse(ctx, point.x, point.y, radius);
       ctx.fill();
       for (let i = 0; i < 3; i += 1) {
         const orbit = battleTime * (1.4 + i * 0.22) + unit.statusVisualSeed + i * (Math.PI * 2 / 3);
@@ -17249,7 +17250,7 @@ function drawParticles(viewport, particles) {
       ctx.strokeStyle = hexToRgba(particle.color, particle.kind === "shockwave" ? alpha * 0.85 : particle.kind === "debug-ring" ? alpha : alpha * 0.45);
       ctx.lineWidth = (particle.lineWidth || 4) * point.scale / (particle.kind === "debug-ring" ? 1 : 2.1) * (particle.kind === "shockwave" ? (1 - alpha * 0.25) : 1);
       ctx.beginPath();
-      ctx.arc(point.x, point.y, particle.size * point.scale, 0, Math.PI * 2);
+      traceBattlefieldEllipse(ctx, point.x, point.y, particle.size * point.scale);
       ctx.stroke();
       return;
     }
@@ -17292,6 +17293,13 @@ function drawParticles(viewport, particles) {
       ctx.restore();
       return;
     }
+    if (particle.kind === "blast-glow") {
+      ctx.fillStyle = hexToRgba(particle.color, alpha * 0.22);
+      ctx.beginPath();
+      traceBattlefieldEllipse(ctx, point.x, point.y, particle.size * point.scale);
+      ctx.fill();
+      return;
+    }
     ctx.fillStyle = hexToRgba(particle.color, particle.kind === "blast-glow" ? alpha * 0.22 : alpha);
     ctx.beginPath();
     ctx.arc(point.x, point.y, particle.size * point.scale * (particle.kind === "blast-glow" ? 1 : alpha), 0, Math.PI * 2);
@@ -17300,6 +17308,14 @@ function drawParticles(viewport, particles) {
 }
 
 function lerp(a, b, t) { return a + (b - a) * t; }
+function getBattlefieldEllipseDistance(dx, dy, yScale = BATTLEFIELD_ELLIPSE_Y_SCALE) {
+  return Math.hypot(dx, dy / Math.max(0.001, yScale));
+}
+
+function traceBattlefieldEllipse(context, x, y, radiusX, yScale = BATTLEFIELD_ELLIPSE_Y_SCALE) {
+  context.ellipse(x, y, radiusX, radiusX * yScale, 0, 0, Math.PI * 2);
+}
+
 function smoothStep(edge0, edge1, value) {
   const t = clamp((value - edge0) / Math.max(0.0001, edge1 - edge0), 0, 1);
   return t * t * (3 - 2 * t);
