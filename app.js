@@ -635,8 +635,8 @@ const UNIT_DEFINITIONS = {
     id: "bodyguard",
     name: "Bodyguard",
     keywords: ["tank", "shield", "guard", "protector", "melee", "aura"],
-    description: "Bodyguards are slow defensive anchors who hold the army together. They project a shielding aura around themselves, drift toward the banner-centroid when idle, and only peel off to brawl with enemies that stray into their aggro circle.",
-    stats: { maxHealth: 188, speed: 24, range: 24, damage: 24, cooldown: 1.28, auraRadius: 96, aggroRadius: 132, shieldReduction: 0.25 },
+    description: "Bodyguards are slow defensive anchors who hold the army together. Their shielding aura is lighter than before, but if a nearby ally is struck they can zip in, take the hit themselves, and hurl that ally back behind the line before returning to the brawl.",
+    stats: { maxHealth: 204, speed: 24, range: 24, damage: 21, cooldown: 1.28, auraRadius: 96, aggroRadius: 132, shieldReduction: 0.18, interceptRadiusFactor: 0.5, interceptCooldown: 5 },
     healthBarWidth: 28,
     iconPaths: getBodyguardIconSvgPaths,
     getMoveSpeed: (unit, unitDef) => getUnitStats(unit, unitDef).speed,
@@ -5439,6 +5439,7 @@ function buildBattle(factionPool = state.factions, arena = createArenaVariant(0,
     projectiles: [],
     particles: [],
     spells: [],
+    bodyguardRescues: [],
     swipes: [],
     traces: [],
     bossBubbles: [],
@@ -6778,6 +6779,87 @@ function getStatusDefinition(kind) {
 
 function getUnitStatus(unit, kind) {
   return unit?.statuses?.find((status) => status.kind === kind) || null;
+}
+
+function findBodyguardInterceptor(unit, battle) {
+  if (!unit || !battle || unit.dead || unit.fled || unit.type === "bodyguard" || unit.bodyguardRescueId) return null;
+  const livingUnits = ensureBattleTransientCaches(battle)?.livingUnits || [];
+  let best = null;
+  let bestDistance = Infinity;
+  livingUnits.forEach((candidate) => {
+    if (!candidate || candidate.id === unit.id || candidate.type !== "bodyguard" || candidate.dead || candidate.fled) return;
+    if (!areUnitsAllied(candidate, unit, battle)) return;
+    if ((candidate.bodyguardInterceptCooldownUntil || 0) > (battle.time || 0)) return;
+    if (getUnitStatus(candidate, "knockdown") || getUnitStatus(candidate, "frozen")) return;
+    if (candidate.liftedBySpellId || candidate.displacedBySpellId || candidate.bodyguardRescueId) return;
+    const stats = getUnitStats(candidate);
+    const rescueRadius = (stats.auraRadius || 0) * (stats.interceptRadiusFactor ?? 0.5);
+    if (rescueRadius <= 0) return;
+    const distance = getBattlefieldEllipseDistance(unit.x - candidate.x, unit.y - candidate.y);
+    if (distance > rescueRadius || distance >= bestDistance) return;
+    best = candidate;
+    bestDistance = distance;
+  });
+  return best;
+}
+
+function triggerBodyguardIntercept(defended, bodyguard, battle) {
+  if (!defended || !bodyguard || !battle) return false;
+  const bodyguardStartX = bodyguard.x;
+  const bodyguardStartY = bodyguard.y;
+  const defendedStartX = defended.x;
+  const defendedStartY = defended.y;
+  const sprintDistance = Math.hypot(defendedStartX - bodyguardStartX, defendedStartY - bodyguardStartY);
+  const rescueId = `${bodyguard.id}-rescue-${Math.random().toString(36).slice(2, 8)}`;
+  if (!Array.isArray(battle.bodyguardRescues)) battle.bodyguardRescues = [];
+  bodyguard.vx = 0;
+  bodyguard.vy = 0;
+  bodyguard.z = 0;
+  bodyguard.bodyguardInterceptingId = rescueId;
+  defended.bodyguardRescueId = rescueId;
+  defended.vx = 0;
+  defended.vy = 0;
+  bodyguard.bodyguardInterceptCooldownUntil = (battle.time || 0) + (getUnitStats(bodyguard).interceptCooldown ?? 5);
+  battle.bodyguardRescues.push({
+    id: rescueId,
+    bodyguardId: bodyguard.id,
+    defendedUnitId: defended.id,
+    phase: "dash",
+    dashStartX: bodyguardStartX,
+    dashStartY: bodyguardStartY,
+    dashEndX: defendedStartX,
+    dashEndY: defendedStartY,
+    throwStartX: defendedStartX,
+    throwStartY: defendedStartY,
+    throwEndX: bodyguardStartX,
+    throwEndY: bodyguardStartY,
+    dashDuration: clamp(0.08 + sprintDistance / 720, 0.09, 0.22),
+    throwDuration: 0.5,
+    arcHeight: 38,
+    elapsed: 0,
+    knockdownDuration: STATUS_DEFINITIONS.knockdown.defaultDuration,
+    pendingDamageAmount: 0,
+    pendingDamageAttackerId: null,
+    pendingDamageOptions: null,
+  });
+  spawnBurst(battle, defendedStartX, defendedStartY - 8, "#f2e6c9", 9);
+  battle.particles.push({
+    kind: "ring",
+    x: defendedStartX,
+    y: defendedStartY - 2,
+    vx: 0,
+    vy: 0,
+    life: 0.18,
+    age: 0,
+    color: "rgba(250, 238, 208, 0.72)",
+    size: 20,
+    lineWidth: 2.5,
+  });
+  const faction = findFaction(battle, bodyguard.factionId);
+  const defendedName = getUnitDefinition(defended).name.toLowerCase();
+  const article = /^[aeiou]/i.test(defendedName) ? "an" : "a";
+  setHighlight(`${faction?.title || "A faction"}'s bodyguard dives in front of ${article} ${defendedName}`);
+  return true;
 }
 
 function getKnockdownRigBlend(unit) {
@@ -8686,6 +8768,7 @@ function stepBattle(battle, dt) {
   battle.time += dt;
   rebuildBattleTransientCaches(battle);
   updateInkLordEvent(battle, dt);
+  updateBodyguardRescues(battle, dt);
   updateBodyguardAuras(battle);
   updateBardAuras(battle);
   updateStatuses(battle, dt);
@@ -8876,6 +8959,74 @@ function updateFactionBanner(faction) {
 function updateStatuses(battle, dt) {
   battle.factions.forEach((faction) => {
     faction.units.forEach((unit) => updateUnitStatuses(unit, battle, dt));
+  });
+}
+
+function updateBodyguardRescues(battle, dt) {
+  if (!Array.isArray(battle.bodyguardRescues) || !battle.bodyguardRescues.length) return;
+  battle.bodyguardRescues = battle.bodyguardRescues.filter((event) => {
+    const defended = findUnitById(battle, event.defendedUnitId);
+    const bodyguard = findUnitById(battle, event.bodyguardId);
+    if (bodyguard && bodyguard.bodyguardInterceptingId === event.id && (bodyguard.dead || bodyguard.fled)) {
+      bodyguard.bodyguardInterceptingId = null;
+    }
+    if (!defended || defended.dead || defended.fled) {
+      if (bodyguard?.bodyguardInterceptingId === event.id) bodyguard.bodyguardInterceptingId = null;
+      return false;
+    }
+    event.elapsed = (event.elapsed || 0) + dt;
+    defended.vx = 0;
+    defended.vy = 0;
+    if (event.phase === "dash") {
+      if (!bodyguard || bodyguard.dead || bodyguard.fled) {
+        defended.bodyguardRescueId = null;
+        return false;
+      }
+      const progress = clamp(event.elapsed / Math.max(0.001, event.dashDuration || 0.12), 0, 1);
+      const sprintProgress = 1 - ((1 - progress) * (1 - progress));
+      bodyguard.x = lerp(event.dashStartX, event.dashEndX, sprintProgress);
+      bodyguard.y = lerp(event.dashStartY, event.dashEndY, sprintProgress);
+      bodyguard.vx = 0;
+      bodyguard.vy = 0;
+      bodyguard.z = 0;
+      keepOnField(bodyguard, battle.field);
+      if (progress < 1) return true;
+      bodyguard.x = event.dashEndX;
+      bodyguard.y = event.dashEndY;
+      const attacker = event.pendingDamageAttackerId ? findUnitById(battle, event.pendingDamageAttackerId) : null;
+      const damageOptions = event.pendingDamageOptions ? { ...event.pendingDamageOptions } : { bypassBodyguardIntercept: true };
+      const damageAmount = Math.max(0, event.pendingDamageAmount || 0);
+      if (damageAmount > 0) {
+        applyRawDamage(bodyguard, damageAmount, battle, attacker, damageOptions);
+      }
+      bodyguard.bodyguardInterceptingId = null;
+      event.phase = "throw";
+      event.elapsed = 0;
+      return true;
+    }
+    const progress = clamp(event.elapsed / Math.max(0.001, event.throwDuration || 0.5), 0, 1);
+    defended.x = lerp(event.throwStartX, event.throwEndX, progress);
+    defended.y = lerp(event.throwStartY, event.throwEndY, progress);
+    defended.z = Math.sin(progress * Math.PI) * (event.arcHeight || 38);
+    if (progress < 1) return true;
+    defended.z = 0;
+    defended.bodyguardRescueId = null;
+    const source = bodyguard || defended;
+    applyStatus(defended, "knockdown", 1, event.knockdownDuration ?? STATUS_DEFINITIONS.knockdown.defaultDuration, source, battle);
+    spawnBurst(battle, defended.x, defended.y - 4, "#e7d8b5", 10);
+    battle.particles.push({
+      kind: "ring",
+      x: defended.x,
+      y: defended.y + 2,
+      vx: 0,
+      vy: 0,
+      life: 0.2,
+      age: 0,
+      color: "rgba(241, 224, 195, 0.72)",
+      size: 16,
+      lineWidth: 2,
+    });
+    return false;
   });
 }
 
@@ -9146,6 +9297,28 @@ function updateUnit(unit, faction, battle, dt) {
     unit.bob += (0 - unit.bob) * 0.22;
     return;
   }
+  if (unit.bodyguardRescueId) {
+    updateUnitActivity(unit, "Being hurled out of danger by a bodyguard.");
+    unit.vx = 0;
+    unit.vy = 0;
+    updateUnitProceduralWalk(unit, dt, getUnitLocomotionProfile(unit), 0, 0);
+    updateUnitWalkBlend(unit, 0, dt);
+    unit.walkTilt += (0 - unit.walkTilt) * 0.24;
+    unit.stride += (0 - unit.stride) * 0.24;
+    unit.bob += (0 - unit.bob) * 0.18;
+    return;
+  }
+  if (unit.bodyguardInterceptingId) {
+    updateUnitActivity(unit, "Sprinting to shield an ally.");
+    unit.vx = 0;
+    unit.vy = 0;
+    updateUnitProceduralWalk(unit, dt, getUnitLocomotionProfile(unit), 0, 0);
+    updateUnitWalkBlend(unit, 0, dt);
+    unit.walkTilt += (0 - unit.walkTilt) * 0.24;
+    unit.stride += (0 - unit.stride) * 0.24;
+    unit.bob += (0 - unit.bob) * 0.18;
+    return;
+  }
   if (unit.liftedBySpellId) {
     updateUnitActivity(unit, "Suspended by hostile magic.");
     unit.vx = 0;
@@ -9280,6 +9453,7 @@ function getTargetableEnemies(battle, factionId, attacker) {
 }
 
 function canUnitBeTargeted(unit, attacker = null) {
+  if (unit?.bodyguardRescueId) return false;
   const unitDef = getUnitDefinition(unit);
   return unitDef.isTargetable ? unitDef.isTargetable({ unit, attacker, unitDef }) : true;
 }
@@ -11996,6 +12170,18 @@ function applyRawDamage(unit, amount, battle, attacker = null, options = {}) {
   const damageKind = options.damageKind || "direct";
   const statusKind = options.statusKind || null;
   if (damageKind === "status" && unitDef.immuneToStatusDamage) return 0;
+  if (damageKind === "direct" && !options.bypassBodyguardIntercept) {
+    const interceptor = findBodyguardInterceptor(unit, battle);
+    if (interceptor && triggerBodyguardIntercept(unit, interceptor, battle)) {
+      const rescueEvent = battle.bodyguardRescues?.[battle.bodyguardRescues.length - 1];
+      if (rescueEvent) {
+        rescueEvent.pendingDamageAmount = amount;
+        rescueEvent.pendingDamageAttackerId = attacker?.id || null;
+        rescueEvent.pendingDamageOptions = { ...options, bypassBodyguardIntercept: true };
+      }
+      return 0;
+    }
+  }
   if (unit.type === "phantom" && damageKind === "direct" && Math.random() < 0.5) {
     battle?.particles?.push({
       x: unit.x + (Math.random() - 0.5) * 8,
@@ -12016,7 +12202,7 @@ function applyRawDamage(unit, amount, battle, attacker = null, options = {}) {
   const shieldStatus = getUnitStatus(unit, "shielded");
   if (damageKind !== "healing" && damageKind !== "status" && shieldStatus) {
     const shieldSource = shieldStatus.sourceId ? findUnitById(battle, shieldStatus.sourceId) : null;
-    const reduction = getUnitStats(shieldSource || "bodyguard").shieldReduction ?? 0.25;
+    const reduction = getUnitStats(shieldSource || "bodyguard").shieldReduction ?? 0.18;
     resolvedAmount *= Math.max(0, 1 - reduction);
   }
   const bardGuardStatus = getUnitStatus(unit, "bardicguard");
@@ -12688,7 +12874,7 @@ function getStatusTooltipCopy(unit, status, battle) {
   }
   if (status.kind === "shielded") {
     const source = status.sourceId ? findUnitById(battle, status.sourceId) : null;
-    const reduction = (getUnitStats(source || "bodyguard").shieldReduction ?? 0.25) * 100;
+    const reduction = (getUnitStats(source || "bodyguard").shieldReduction ?? 0.18) * 100;
     return `Protected${source ? ` by ${getUnitDefinition(source).name}` : ""}. Reduces incoming direct damage by ${formatHoverStatNumber(reduction)}% for ${formatHoverDuration(status.duration)}.`;
   }
   if (status.kind === "bardichaste") {
