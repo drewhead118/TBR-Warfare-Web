@@ -298,6 +298,7 @@ const RIG_ANIMATION_CLIP_DEFINITIONS = [
   { id: "idle", label: "Idle", loop: true, speed: 1 },
   { id: "walk", label: "Walk", loop: true, speed: 1 },
   { id: "attack", label: "Attack", loop: false, speed: 1 },
+  { id: "knockdown", label: "Knockdown", loop: false, speed: 1 },
 ];
 const RIG_ANIMATION_FIELD_DEFINITIONS = {
   idle: [
@@ -527,6 +528,17 @@ const STATUS_DEFINITIONS = {
     badgeColor: "#5ca7ff",
     accentColor: "#d9efff",
   },
+  knockdown: {
+    kind: "knockdown",
+    name: "Knocked Down",
+    negative: true,
+    stackable: false,
+    defaultDuration: 1,
+    tickInterval: 1,
+    dps: 0,
+    badgeColor: "#d5b07d",
+    accentColor: "#fff0d1",
+  },
 };
 const DEFAULT_PROP_WEIGHTS = {
   stones: 5,
@@ -639,6 +651,7 @@ const UNIT_DEFINITIONS = {
     name: "Medic",
     keywords: ["heal", "support", "frail"],
     description: "Medics contribute no direct offense, but they can swing long fights by repeatedly restoring allies on the front line. They are fragile and need protection, yet a well-screened medic can make an entire formation much harder to grind down.",
+    supportOnly: true,
     stats: { maxHealth: 36, speed: 56, range: 16, heal: 18, cooldown: 1.9 },
     healthBarWidth: 20,
     iconPaths: getMedicIconSvgPaths,
@@ -654,6 +667,7 @@ const UNIT_DEFINITIONS = {
     name: "Bard",
     keywords: ["music", "song", "support", "aura", "minstrel", "buff"],
     description: "Bards are battlefield conductors. They drift behind the line and keep nearby allies under one of several songs, swapping between pace, valor, and guarding refrains depending on how the fight is unfolding.",
+    supportOnly: true,
     stats: { maxHealth: 58, speed: 34, range: 0, auraRadius: 108, marchSpeedBonus: 1.24, marchCooldownBonus: 0.82, valorPowerBonus: 1.18, valorRangeBonus: 1.05, guardReduction: 0.18, songDuration: 4.8 },
     healthBarWidth: 20,
     iconPaths: getBardIconSvgPaths,
@@ -720,7 +734,7 @@ const UNIT_DEFINITIONS = {
     name: "Catapult",
     keywords: ["siege", "stone", "artillery", "boulder"],
     description: "Catapults are siege engines with the longest reach in the roster. They fire slowly and are vulnerable if pressured, but their arcing stones can hammer enemy groups from extreme range and force the battle to revolve around protecting or diving them.",
-    stats: { maxHealth: 35, speed: 10, range: 370, damage: 34, splash: 20, cooldown: 6, variance: 60 },
+    stats: { maxHealth: 35, speed: 10, range: 400, damage: 45, splash: 20, cooldown: 4, variance: 40 },
     healthBarWidth: 26,
     iconPaths: getCatapultIconSvgPaths,
     selectTarget: selectCatapultTarget,
@@ -1041,6 +1055,7 @@ const PROJECTILE_DEFINITIONS = {
     arcHeight: 120,
     update: updateStandardProjectile,
     resolve: resolveCatapultProjectile,
+    renderShadow: drawCatapultProjectileShadow,
     render: drawCatapultProjectile,
   },
 };
@@ -3186,9 +3201,10 @@ function buildSpriteRigPreviewState(manifest, now) {
     stride: 0,
     bob: 0,
     attack: 0,
+    knockdown: 0,
     idle: 0,
-    clipTimes: { idle: idleTime, walk: walkTime, attack: attackTime },
-    clipWeights: { idle: 0, walk: 0, attack: 0 },
+    clipTimes: { idle: idleTime, walk: walkTime, attack: attackTime, knockdown: scrubTime ?? 0 },
+    clipWeights: { idle: 0, walk: 0, attack: 0, knockdown: 0 },
   };
   let label = getRigAnimationClipDefinition(selectedClipId).label;
   if (editor.previewMode === "composite") {
@@ -3210,12 +3226,14 @@ function buildSpriteRigPreviewState(manifest, now) {
       stride: previewUnit.stride,
       bob: previewUnit.bob,
       attack: previewUnit.attackSwing,
+      knockdown: 0,
       idle: Math.sin((idleTime * Math.PI * 2) + 0.2) * 0.02,
-      clipTimes: { idle: idleTime, walk: walkTime, attack: attackTime },
+      clipTimes: { idle: idleTime, walk: walkTime, attack: attackTime, knockdown: scrubTime ?? 0 },
       clipWeights: {
         idle: 1 - blend,
         walk: blend,
         attack: previewUnit.attackSwing > 0.001 ? 1 : 0,
+        knockdown: 0,
       },
     };
     label = blend < 0.2 ? "Mostly Idle" : blend < 0.65 ? "Walk Blend" : "Attack Blend";
@@ -3223,7 +3241,7 @@ function buildSpriteRigPreviewState(manifest, now) {
     animationState = {
       ...animationState,
       idle: Math.sin((idleTime * Math.PI * 2) + 0.2) * 0.02,
-      clipWeights: { idle: 1, walk: 0, attack: 0 },
+      clipWeights: { idle: 1, walk: 0, attack: 0, knockdown: 0 },
     };
     label = "Idle";
   } else if (selectedClipId === "attack") {
@@ -3232,9 +3250,16 @@ function buildSpriteRigPreviewState(manifest, now) {
     animationState = {
       ...animationState,
       attack: attackSwing,
-      clipWeights: { idle: 0, walk: 0, attack: 1 },
+      clipWeights: { idle: 0, walk: 0, attack: 1, knockdown: 0 },
     };
     label = "Attack";
+  } else if (selectedClipId === "knockdown") {
+    animationState = {
+      ...animationState,
+      knockdown: 1,
+      clipWeights: { idle: 0, walk: 0, attack: 0, knockdown: 1 },
+    };
+    label = "Knockdown";
   } else {
     previewUnit = {
       ...previewUnit,
@@ -3250,7 +3275,7 @@ function buildSpriteRigPreviewState(manifest, now) {
       ...animationState,
       stride: previewUnit.stride,
       bob: previewUnit.bob,
-      clipWeights: { idle: 0, walk: 1, attack: 0 },
+      clipWeights: { idle: 0, walk: 1, attack: 0, knockdown: 0 },
     };
     label = "Walk";
   }
@@ -5432,7 +5457,7 @@ function buildBattle(factionPool = state.factions, arena = createArenaVariant(0,
       ? { ...(meta || {}), unitCapSummary }
       : meta,
     time: 0,
-    notes: { dwindled: {}, slaughter: {}, killstreaks: {}, extinguished: {} },
+    notes: { dwindled: {}, slaughter: {}, killstreaks: {}, extinguished: {}, supportOnlyRouted: {} },
     knockoutQueue: [],
     activeKnockout: null,
     inklordEvent: {
@@ -6754,6 +6779,16 @@ function getUnitStatus(unit, kind) {
   return unit?.statuses?.find((status) => status.kind === kind) || null;
 }
 
+function getKnockdownRigBlend(unit) {
+  const status = getUnitStatus(unit, "knockdown");
+  if (!status) return 0;
+  const initialDuration = Math.max(0.001, status.initialDuration || STATUS_DEFINITIONS.knockdown.defaultDuration || 1);
+  const remaining = clamp(status.duration / initialDuration, 0, 1);
+  const recoveryWindow = Math.min(0.26, initialDuration * 0.26);
+  if (remaining >= recoveryWindow) return 1;
+  return clamp(smoothStep(0, recoveryWindow, remaining), 0, 1);
+}
+
 function getStatusStacks(unit, kind) {
   return getUnitStatus(unit, kind)?.stacks || 0;
 }
@@ -6789,6 +6824,7 @@ function applyStatus(unit, kind, stacks = 1, duration = null, source = null, bat
       kind,
       stacks: 0,
       duration: statusDuration,
+      initialDuration: statusDuration,
       tickTimer: 0,
       contagionTimer: 0,
       sourceId: source?.id || null,
@@ -6797,9 +6833,15 @@ function applyStatus(unit, kind, stacks = 1, duration = null, source = null, bat
       moveMultiplier: statusMoveMultiplier,
       cooldownRate: statusCooldownRate,
     };
+    if (kind === "knockdown") {
+      status.side = source
+        ? (unit.x >= source.x ? 1 : -1)
+        : (unit.displayFacingX || 1);
+    }
     unit.statuses.push(status);
   }
   status.duration = Math.max(status.duration, statusDuration);
+  status.initialDuration = Math.max(Number(status.initialDuration) || 0, statusDuration);
   status.sourceId = source?.id || status.sourceId || null;
   status.sourceFactionId = source?.factionId || status.sourceFactionId || null;
   status.dps = Math.max(status.dps || 0, statusDps);
@@ -8015,27 +8057,34 @@ function buildRigAnimationState(unit, manifest) {
   const stride = unit?.stride || 0;
   const bob = unit?.bob || 0;
   const attack = clamp(unit?.attackSwing || 0, 0, 1);
+  const knockdown = clamp(getKnockdownRigBlend(unit), 0, 1);
   const walkBlend = clamp(unit?.walkBlend ?? smoothStep(0.08, 0.92, Math.max(Math.abs(stride), bob)), 0, 1);
   const idle = Math.sin((now * 2.1 * (config.clips.idle?.speed || 1)) + (unit?.statusVisualSeed || 0)) * 0.02;
   const walkTime = wrap01(Number.isFinite(unit?.proceduralWalk?.phase)
     ? unit.proceduralWalk.phase
     : ((unit?.gaitPhase || now * 7) / (Math.PI * 2)));
   const attackTime = clamp(attack > 0 ? 1 - attack : 1, 0, 1);
+  const knockdownStatus = getUnitStatus(unit, "knockdown");
+  const knockdownDuration = Math.max(0.001, knockdownStatus?.initialDuration || STATUS_DEFINITIONS.knockdown.defaultDuration || 1);
+  const knockdownTime = clamp(1 - ((knockdownStatus?.duration ?? 0) / knockdownDuration), 0, 1);
   return {
     stride,
     bob,
     attack,
+    knockdown,
     idle,
     locomotion: getUnitLocomotionProfile(unit),
     clipTimes: {
       idle: wrap01(now * 0.35 * (config.clips.idle?.speed || 1)),
       walk: walkTime,
       attack: attackTime,
+      knockdown: knockdownTime,
     },
     clipWeights: {
-      idle: 1 - walkBlend,
-      walk: walkBlend,
-      attack: attack > 0.001 ? 1 : 0,
+      idle: (1 - walkBlend) * (1 - knockdown),
+      walk: walkBlend * (1 - knockdown),
+      attack: attack > 0.001 ? (1 - knockdown) : 0,
+      knockdown,
     },
   };
 }
@@ -8407,6 +8456,15 @@ function getRigPartTransform(partId, animation, unit, manifest) {
       ? animation.previewKeyframeOverride.pose
       : null,
   );
+  const knockdownPose = sampleRigClipPose(
+    manifest,
+    "knockdown",
+    partId,
+    animation.clipTimes?.knockdown ?? 0,
+    animation.previewKeyframeOverride?.clipId === "knockdown" && animation.previewKeyframeOverride?.partId === partId
+      ? animation.previewKeyframeOverride.pose
+      : null,
+  );
   const strideDriver = getRigStrideDriverForPart(partId, animation.stride || 0);
   const proceduralWalkPose = manifest?.authoring?.workshopTab === "deployable"
     ? null
@@ -8426,6 +8484,7 @@ function getRigPartTransform(partId, animation, unit, manifest) {
     + idlePose.rotationDeg * (animation.clipWeights?.idle ?? 0)
     + walkPose.rotationDeg * walkPoseWeight
     + attackPose.rotationDeg * (animation.clipWeights?.attack ?? 0)
+    + knockdownPose.rotationDeg * (animation.clipWeights?.knockdown ?? 0)
   );
   if (manifest?.specialBehavior?.type === "turretAim" && partId === (manifest.specialBehavior.aimPartId || "armFront")) {
     rotationDeg += radToDeg(unit?.turretAimAngle || 0);
@@ -8439,6 +8498,7 @@ function getRigPartTransform(partId, animation, unit, manifest) {
     + idlePose.x * (animation.clipWeights?.idle ?? 0)
     + walkPose.x * walkPoseWeight
     + attackPose.x * (animation.clipWeights?.attack ?? 0)
+    + knockdownPose.x * (animation.clipWeights?.knockdown ?? 0)
   );
   const y = (
     (tuning.y.stride || 0) * strideContributionDriver
@@ -8449,6 +8509,7 @@ function getRigPartTransform(partId, animation, unit, manifest) {
     + idlePose.y * (animation.clipWeights?.idle ?? 0)
     + walkPose.y * walkPoseWeight
     + attackPose.y * (animation.clipWeights?.attack ?? 0)
+    + knockdownPose.y * (animation.clipWeights?.knockdown ?? 0)
   );
   const scaleX = (
     (tuning.scaleX.stride || 0) * strideContributionDriver
@@ -8459,6 +8520,7 @@ function getRigPartTransform(partId, animation, unit, manifest) {
     + idlePose.scaleX * (animation.clipWeights?.idle ?? 0)
     + walkPose.scaleX * walkPoseWeight
     + attackPose.scaleX * (animation.clipWeights?.attack ?? 0)
+    + knockdownPose.scaleX * (animation.clipWeights?.knockdown ?? 0)
   );
   const scaleY = (
     (tuning.scaleY.stride || 0) * strideContributionDriver
@@ -8469,6 +8531,7 @@ function getRigPartTransform(partId, animation, unit, manifest) {
     + idlePose.scaleY * (animation.clipWeights?.idle ?? 0)
     + walkPose.scaleY * walkPoseWeight
     + attackPose.scaleY * (animation.clipWeights?.attack ?? 0)
+    + knockdownPose.scaleY * (animation.clipWeights?.knockdown ?? 0)
   );
   return {
     x,
@@ -8625,6 +8688,7 @@ function stepBattle(battle, dt) {
   updateBodyguardAuras(battle);
   updateBardAuras(battle);
   updateStatuses(battle, dt);
+  updateSupportOnlyFactionRouting(battle);
   battle.factions.forEach((faction) => {
     updateFactionBanner(faction);
     faction.alive = faction.units.some((unit) => !unit.dead && !unit.fled);
@@ -9058,6 +9122,18 @@ function updateUnit(unit, faction, battle, dt) {
   const unitDef = getUnitDefinition(unit);
   const stats = getUnitStats(unit, unitDef);
   const graves = battle.graves || [];
+  if (getUnitStatus(unit, "knockdown")) {
+    updateUnitActivity(unit, "Knocked down and struggling back up.");
+    unit.vx = 0;
+    unit.vy = 0;
+    unit.attackSwing += (0 - unit.attackSwing) * 0.3;
+    updateUnitProceduralWalk(unit, dt, getUnitLocomotionProfile(unit), 0, 0);
+    updateUnitWalkBlend(unit, 0, dt);
+    unit.walkTilt += (0 - unit.walkTilt) * 0.32;
+    unit.stride += (0 - unit.stride) * 0.32;
+    unit.bob += (0 - unit.bob) * 0.2;
+    return;
+  }
   if (getUnitStatus(unit, "frozen")) {
     updateUnitActivity(unit, "Frozen solid.");
     unit.vx = 0;
@@ -9220,6 +9296,7 @@ function getUnitMoveSpeed(unit, unitDef = getUnitDefinition(unit)) {
   const stats = getUnitStats(unit, unitDef);
   if (getUnitStatus(unit, "frozen")) return 0;
   if (getUnitStatus(unit, "immobilized")) return 0;
+  if (getUnitStatus(unit, "knockdown")) return 0;
   if (unitDef.getMoveSpeed) return unitDef.getMoveSpeed(unit, unitDef);
   return stats.speed * (0.42 + 0.58 * (unit.health / unit.maxHealth));
 }
@@ -11237,6 +11314,7 @@ function castMountainImpulse(unit, target, battle, unitDef) {
     startY: target.y,
     endX: clamp(target.x + directionX * stats.impulseDistance, 24, battle.field.width - 24),
     endY: clamp(target.y + directionY * stats.impulseDistance * 0.72, 24, battle.field.height - 24),
+    knockdownDuration: 1,
     color: "#9fe1a7",
   });
   target.displacedBySpellId = spellId;
@@ -11280,25 +11358,27 @@ function performCatapultAttack({ unit, target, battle, unitDef }) {
   if (!target) return;
   const distance = Math.hypot(target.x - unit.x, target.y - unit.y);
   if (distance > stats.range) return;
-  updateUnitActivity(unit, `Launching a stone at ${getUnitActivityTargetLabel(target, battle)}.`);
-  const scatterScale = stats.variance * (0.8 + Math.random() * 0.8);
-  const endX = clamp(target.x + (Math.random() - 0.5) * scatterScale * 2.1, 28, battle.field.width - 28);
-  const endY = clamp(target.y + (Math.random() - 0.5) * scatterScale * 1.7, 28, battle.field.height - 28);
-  const flightDistance = Math.hypot(endX - unit.x, endY - unit.y);
-  battle.projectiles.push({
-    kind: "catapultStone",
-    sourceId: unit.id,
-    progress: 0,
-    duration: clamp(0.9 + flightDistance / 240 + Math.random() * 0.22, 1.05, 2.1),
-    startX: unit.x + (unit.displayFacingX || 1) * 16,
-    startY: unit.y - 20,
-    endX,
-    endY,
-    damage: stats.damage,
-    radius: stats.splash,
-    impactAngle: Math.atan2(endY - unit.y, endX - unit.x),
-    spin: (Math.random() > 0.5 ? 1 : -1) * (4.5 + Math.random() * 2.5),
-  });
+  updateUnitActivity(unit, `Launching a stone barrage at ${getUnitActivityTargetLabel(target, battle)}.`);
+  for (let volleyIndex = 0; volleyIndex < 3; volleyIndex += 1) {
+    const scatterScale = stats.variance * (1.05 + Math.random() * 0.95);
+    const endX = clamp(target.x + (Math.random() - 0.5) * scatterScale * 2.35, 28, battle.field.width - 28);
+    const endY = clamp(target.y + (Math.random() - 0.5) * scatterScale * 1.95, 28, battle.field.height - 28);
+    const flightDistance = Math.hypot(endX - unit.x, endY - unit.y);
+    battle.projectiles.push({
+      kind: "catapultStone",
+      sourceId: unit.id,
+      progress: 0,
+      duration: clamp(0.88 + flightDistance / 245 + Math.random() * 0.24 + volleyIndex * 0.03, 1.02, 2.15),
+      startX: unit.x + (unit.displayFacingX || 1) * 16,
+      startY: unit.y - 20,
+      endX,
+      endY,
+      damage: stats.damage,
+      radius: stats.splash,
+      impactAngle: Math.atan2(endY - unit.y, endX - unit.x),
+      spin: (Math.random() > 0.5 ? 1 : -1) * (4.5 + Math.random() * 2.5),
+    });
+  }
 }
 
 function applyHealing(target, amount, battle, source = null, options = {}) {
@@ -11550,7 +11630,7 @@ function resolveHuntingKnifeProjectile(projectile, battle) {
 function resolveCatapultProjectile(projectile, battle) {
   const source = findUnitById(battle, projectile.sourceId);
   explodeAt(battle, projectile.endX, projectile.endY, projectile.radius, projectile.damage, source, "#c69a62", 24);
-  spawnCatapultImpactDebris(battle, projectile.endX, projectile.endY);
+  spawnCatapultImpactDebris(battle, projectile.endX, projectile.endY, projectile.radius);
   battle.particles.push({ kind: "blast-glow", x: projectile.endX, y: projectile.endY, vx: 0, vy: 0, life: 0.34, age: 0, color: "#ffd2a1", size: projectile.radius * 1.06 });
   battle.particles.push({ kind: "shockwave", x: projectile.endX, y: projectile.endY, vx: 0, vy: 0, life: 0.48, age: 0, color: "#f1c07f", size: projectile.radius * 0.34, startSize: projectile.radius * 0.34, maxSize: projectile.radius * 1.18, lineWidth: clamp(projectile.radius * 0.08, 8, 18) });
   setHighlight(`${findFaction(battle, source?.factionId || "")?.title || "A catapult"} lands a crushing catapult strike`);
@@ -11567,33 +11647,36 @@ function resolveOrbProjectile(projectile, battle) {
   spawnBurst(battle, projectile.endX, projectile.endY, "#7ce7ff", 18);
 }
 
-function spawnCatapultImpactDebris(battle, x, y) {
-  for (let i = 0; i < 18; i += 1) {
+function spawnCatapultImpactDebris(battle, x, y, radius = 20) {
+  const radiusScale = Math.max(0.75, radius / 32);
+  const debrisCount = Math.round(14 + radiusScale * 8);
+  const dustCount = Math.round(10 + radiusScale * 7);
+  for (let i = 0; i < debrisCount; i += 1) {
     battle.particles.push({
       kind: "debris",
       x,
       y,
-      vx: (Math.random() - 0.5) * 180,
-      vy: -40 - Math.random() * 130,
+      vx: (Math.random() - 0.5) * (160 + radiusScale * 55),
+      vy: -40 - Math.random() * (110 + radiusScale * 38),
       life: 0.55 + Math.random() * 0.45,
       age: 0,
       color: Math.random() > 0.45 ? "#8f8474" : "#6a5640",
-      size: 3 + Math.random() * 6,
+      size: (3 + Math.random() * 6) * Math.min(1.55, 0.88 + radiusScale * 0.24),
       rotation: Math.random() * Math.PI * 2,
       spin: (Math.random() - 0.5) * 12,
     });
   }
-  for (let i = 0; i < 14; i += 1) {
+  for (let i = 0; i < dustCount; i += 1) {
     battle.particles.push({
       kind: "dust",
       x,
       y,
-      vx: (Math.random() - 0.5) * 90,
-      vy: -20 - Math.random() * 35,
-      life: 0.4 + Math.random() * 0.35,
+      vx: (Math.random() - 0.5) * (80 + radiusScale * 28),
+      vy: -20 - Math.random() * (32 + radiusScale * 12),
+      life: 0.42 + Math.random() * 0.38,
       age: 0,
       color: "#d0b08a",
-      size: 6 + Math.random() * 10,
+      size: (6 + Math.random() * 10) * Math.min(1.7, 0.92 + radiusScale * 0.28),
     });
   }
 }
@@ -11632,7 +11715,7 @@ function updateSpells(battle, dt) {
       releaseSpellUnitState(spell, source, target);
       return false;
     }
-    if (spell.kind === "mountain-impulse") return updateMountainImpulseSpell(spell, source, target);
+    if (spell.kind === "mountain-impulse") return updateMountainImpulseSpell(spell, battle, source, target);
     if (spell.kind === "mountain-hold") return updateMountainHoldSpell(spell, battle, source, target, dt);
     const progress = clamp(spell.time / spell.duration, 0, 1);
     target.x = lerp(spell.startX, spell.endX, progress);
@@ -11759,7 +11842,7 @@ function spawnFireBreathParticles(battle, source, breathAngle, spell) {
   }
 }
 
-function updateMountainImpulseSpell(spell, source, target) {
+function updateMountainImpulseSpell(spell, battle, source, target) {
   const progress = clamp(spell.time / spell.duration, 0, 1);
   target.x = lerp(spell.startX, spell.endX, progress);
   target.y = lerp(spell.startY, spell.endY, progress);
@@ -11768,6 +11851,9 @@ function updateMountainImpulseSpell(spell, source, target) {
   target.vy = 0;
   if (progress >= 1) {
     target.z = 0;
+    applyStatus(target, "knockdown", 1, spell.knockdownDuration ?? STATUS_DEFINITIONS.knockdown.defaultDuration, source, battle);
+    spawnBurst(battle, target.x, target.y - 4, "#dbc7a2", 12);
+    battle.particles.push({ kind: "ring", x: target.x, y: target.y + 3, vx: 0, vy: 0, life: 0.22, age: 0, color: "rgba(241, 220, 182, 0.74)", size: 18, lineWidth: 2.5 });
     releaseSpellUnitState(spell, source, target);
     return false;
   }
@@ -13162,10 +13248,11 @@ function render() {
   drawField(viewport, state.battle);
   drawGroundDecor(viewport, state.battle);
   drawStuckArrows(viewport, state.battle.stuckArrows);
-  drawProjectiles(viewport, state.battle.projectiles);
+  drawProjectileShadows(viewport, state.battle.projectiles);
   drawBodyguardAuras(viewport, state.battle.factions);
   drawBardAuras(viewport, state.battle.factions);
   drawDepthSortedGroundEntities(viewport, state.battle);
+  drawProjectiles(viewport, state.battle.projectiles);
   drawBossBubbles(viewport, state.battle);
   drawNecromancerLinks(viewport, state.battle);
   drawSwipes(viewport, state.battle.swipes);
@@ -14214,6 +14301,38 @@ function truncateTitle(text, maxLength) {
   return `${text.slice(0, Math.max(0, maxLength - 1)).trim()}ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦`;
 }
 
+function drawProjectileShadows(viewport, projectiles) {
+  projectiles.forEach((projectile) => {
+    const current = getProjectilePoint(projectile, projectile.progress);
+    const point = worldToScreen(current.x, current.y, viewport);
+    getProjectileDefinition(projectile)?.renderShadow?.({ projectile, point, viewport });
+  });
+}
+
+function isSupportOnlyUnit(unit) {
+  return Boolean(getUnitDefinition(unit)?.supportOnly);
+}
+
+function isSupportOnlyFaction(faction) {
+  const livingUnits = faction.units.filter((unit) => !unit.dead && !unit.fled);
+  return livingUnits.length > 0 && livingUnits.every((unit) => isSupportOnlyUnit(unit));
+}
+
+function updateSupportOnlyFactionRouting(battle) {
+  battle.factions.forEach((faction) => {
+    if (faction.excludeFromResults || !isSupportOnlyFaction(faction)) return;
+    faction.units.forEach((unit) => {
+      if (unit.dead || unit.fled || isUnitRoutingImmune(unit)) return;
+      unit.fleeing = true;
+      updateUnitActivity(unit, "Routing because no one in the army can deal damage.");
+    });
+    if (!battle.notes.supportOnlyRouted[faction.id]) {
+      battle.notes.supportOnlyRouted[faction.id] = true;
+      setHighlight(`${faction.title} has only support units left and immediately routs`);
+    }
+  });
+}
+
 function drawProjectiles(viewport, projectiles) {
   projectiles.forEach((projectile) => {
     const current = getProjectilePoint(projectile, projectile.progress);
@@ -14346,7 +14465,7 @@ function drawHuntingKnifeProjectile({ projectile, point, viewport }) {
   ctx.restore();
 }
 
-function drawCatapultProjectile({ projectile, point, viewport }) {
+function drawCatapultProjectileShadow({ projectile, point, viewport }) {
   const ground = getProjectileGroundPoint(projectile, projectile.progress);
   const groundPoint = worldToScreen(ground.x, ground.y, viewport);
   const altitude = Math.max(0, groundPoint.y - point.y);
@@ -14355,7 +14474,9 @@ function drawCatapultProjectile({ projectile, point, viewport }) {
   ctx.beginPath();
   ctx.ellipse(groundPoint.x, groundPoint.y + 3 * groundPoint.scale / 2.1, 10 * groundPoint.scale / 2.1 * shadowScale, 5 * groundPoint.scale / 2.1 * shadowScale, 0, 0, Math.PI * 2);
   ctx.fill();
+}
 
+function drawCatapultProjectile({ projectile, point }) {
   ctx.save();
   ctx.translate(point.x, point.y);
   ctx.rotate(projectile.progress * projectile.spin);
@@ -14597,7 +14718,8 @@ function drawSingleUnit(viewport, unit, renderEntry = null) {
   const unitDef = getUnitDefinition(unit);
   const { pose, renderScale, healthBarY, healthBarX, hpWidth } = getUnitHoverMetrics(unit, viewport);
   const { point, scale, bodyY } = pose;
-  const strideMotion = getUnitStrideMotionOffset(unit, scale);
+  const knockdownPose = getUnitKnockdownPose(unit, renderScale);
+  const strideMotion = knockdownPose ? { x: 0, y: 0 } : getUnitStrideMotionOffset(unit, scale);
   const main = unit.factionColor;
   const dark = shadeColor(main, -0.28);
   const light = shadeColor(main, 0.26);
@@ -14607,7 +14729,15 @@ function drawSingleUnit(viewport, unit, renderEntry = null) {
   }
   ctx.fillStyle = "rgba(0,0,0,0.22)";
   ctx.beginPath();
-  ctx.ellipse(point.x, point.y + 10 * scale / 2.1, (10 + Math.abs(unit.stride) * 1.6) * renderScale / 2.1, (5 - unit.bob * 0.9) * renderScale / 2.1, 0, 0, Math.PI * 2);
+  ctx.ellipse(
+    point.x,
+    point.y + (knockdownPose ? 12 : 10) * scale / 2.1,
+    (knockdownPose ? 16 : (10 + Math.abs(unit.stride) * 1.6)) * renderScale / 2.1,
+    (knockdownPose ? 6.4 : (5 - unit.bob * 0.9)) * renderScale / 2.1,
+    0,
+    0,
+    Math.PI * 2,
+  );
   ctx.fill();
   if (unit.type === "inklord") {
     drawInkLordGroundAura(point, scale, unit);
@@ -14618,9 +14748,12 @@ function drawSingleUnit(viewport, unit, renderEntry = null) {
   }
   ctx.save();
   ctx.globalAlpha = unitDef.getRenderAlpha ? unitDef.getRenderAlpha(unit, unitDef) : 1;
-  ctx.translate(point.x + strideMotion.x, bodyY + strideMotion.y);
-  ctx.rotate((unit.walkTilt || 0) + (unit.rotation || 0));
-  ctx.scale(unit.displayFacingX, 1);
+  ctx.translate(
+    point.x + strideMotion.x + (knockdownPose?.offsetX || 0),
+    bodyY + strideMotion.y + (knockdownPose?.offsetY || 0),
+  );
+  ctx.rotate((unit.walkTilt || 0) + (unit.rotation || 0) + (knockdownPose?.rotation || 0));
+  ctx.scale((unit.displayFacingX || 1) * (knockdownPose?.scaleX || 1), knockdownPose?.scaleY || 1);
   if (!drawUnitSprite(unit, main, scale)) {
     unitDef.render?.(main, dark, light, renderScale, unit);
   }
@@ -14634,6 +14767,22 @@ function drawSingleUnit(viewport, unit, renderEntry = null) {
     ctx.fillRect(healthBarX - hpWidth / 2, healthBarY, hpWidth * (unit.health / unit.maxHealth), 4 * scale / 2.1);
   }
   if (isHovered) drawHoveredUnitLabels(unit, pose, renderScale, healthBarX, healthBarY, hpWidth);
+}
+
+function getUnitKnockdownPose(unit, renderScale) {
+  const status = getUnitStatus(unit, "knockdown");
+  if (!status) return null;
+  const downAmount = getKnockdownRigBlend(unit);
+  if (downAmount <= 0.001) return null;
+  const side = status.side || unit.displayFacingX || 1;
+  const scale = renderScale / 2.1;
+  return {
+    rotation: degToRad(88 * side * downAmount),
+    offsetX: 2.4 * scale * side * downAmount,
+    offsetY: 8.5 * scale * downAmount,
+    scaleX: 1 + downAmount * 0.06,
+    scaleY: 1 - downAmount * 0.28,
+  };
 }
 
 function getGroundPropSortDepth(viewport, prop) {
@@ -15214,6 +15363,18 @@ function drawUnitStatusOverlay(unit, scale) {
     ctx.arc(0, -3 * scale / 2.1, 14 * scale / 2.1, 0, Math.PI * 2);
     ctx.stroke();
   }
+  if (getStatusStacks(unit, "knockdown") > 0) {
+    const knockPulse = 0.14 + Math.max(0, Math.sin(battleTime * 8 + unit.statusVisualSeed * 1.1)) * 0.18;
+    ctx.fillStyle = `rgba(232, 204, 163, ${knockPulse})`;
+    for (let i = 0; i < 3; i += 1) {
+      const angle = battleTime * 1.9 + i * ((Math.PI * 2) / 3);
+      const orbitX = Math.cos(angle) * 8.5 * scale / 2.1;
+      const orbitY = -18 * scale / 2.1 + Math.sin(angle) * 3.2 * scale / 2.1;
+      ctx.beginPath();
+      ctx.arc(orbitX, orbitY, 2.1 * scale / 2.1, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
   if (getStatusStacks(unit, "possessed") > 0) {
     const possessor = state.battle ? getPossessingPhantom(unit, state.battle) : null;
     const possessorFaction = possessor && state.battle ? findFaction(state.battle, possessor.factionId) : null;
@@ -15280,6 +15441,7 @@ function drawStatusBadge(badge, x, y, scale) {
     if (badge.kind === "bleed") drawBleedBadgeIcon(scale, badge.accentColor);
     if (badge.kind === "blizzard") drawBlizzardBadgeIcon(scale, badge.accentColor);
     if (badge.kind === "frozen") drawFrozenBadgeIcon(scale, badge.accentColor);
+    if (badge.kind === "knockdown") drawKnockdownBadgeIcon(scale, badge.accentColor);
     if (badge.kind === "possessed") drawPossessedBadgeIcon(scale, badge.accentColor);
   }
   if (badge.stacks > 1) {
@@ -15749,6 +15911,24 @@ function drawFrozenBadgeIcon(scale, color) {
   ctx.moveTo(-3.9 * scaled, 3.9 * scaled);
   ctx.lineTo(3.9 * scaled, -3.9 * scaled);
   ctx.stroke();
+}
+
+function drawKnockdownBadgeIcon(scale, color) {
+  const scaled = scale / 2.1;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.3 * scaled;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(-5.6 * scaled, 3.6 * scaled);
+  ctx.lineTo(5.6 * scaled, 3.6 * scaled);
+  ctx.moveTo(-3.8 * scaled, 1.4 * scaled);
+  ctx.lineTo(-0.4 * scaled, -4.8 * scaled);
+  ctx.lineTo(3.8 * scaled, 0.6 * scaled);
+  ctx.stroke();
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.arc(-1.8 * scaled, -1.8 * scaled, 1.25 * scaled, 0, Math.PI * 2);
+  ctx.fill();
 }
 
 function drawPossessedBadgeIcon(scale, color) {
