@@ -8,6 +8,7 @@ const POST_BATTLE_REVIEW_SPEED = 0.5;
 const AUDIO_DEFAULT_FADE_SECONDS = 1.8;
 const AUDIO_END_FADE_SECONDS = 0.4;
 const AUDIO_PAUSE_DUCK_FACTOR = 0.24;
+const SHIFT_INSPECT_TOOLTIP_COOLDOWN_MS = 1000;
 const AUDIO_TRACKS = {
   main: {
     src: "assets/music/main_battle_music_loop.mp3",
@@ -37,6 +38,7 @@ const MAX_BATTLEFIELD_UNIT_CAP = 5000;
 const ROUTING_ESCAPE_DISTANCE = 150;
 const WEATHER_RAIN_LIGHT_ASSET = "assets/WeatherFX/rain light.png";
 const WEATHER_RAIN_HEAVY_ASSET = "assets/WeatherFX/rain heavy.png";
+const BANNER_BASE_ASSET = "Assets/Banners/banner empty.png";
 const INKLORD_DEBUG_DELAY = 60;
 const HEALTH_CHART_SAMPLE_INTERVAL = 0.16;
 const HEALTH_CHART_VISIBLE_SECONDS = 30;
@@ -459,6 +461,18 @@ const STATUS_DEFINITIONS = {
     badgeColor: "#d98cff",
     accentColor: "#f3ddff",
   },
+  bardichealing: {
+    kind: "bardichealing",
+    name: "Healing Song",
+    negative: false,
+    stackable: false,
+    defaultDuration: 0.35,
+    tickInterval: 1,
+    dps: 0,
+    healPerSecond: 7,
+    badgeColor: "#7fdf9c",
+    accentColor: "#e1ffe8",
+  },
   bloodfrenzy: {
     kind: "bloodfrenzy",
     name: "Blood Frenzy",
@@ -665,8 +679,8 @@ const UNIT_DEFINITIONS = {
   bard: {
     id: "bard",
     name: "Bard",
-    keywords: ["music", "song", "support", "aura", "minstrel", "buff"],
-    description: "Bards are battlefield conductors. They drift behind the line and keep nearby allies under one of several songs, swapping between pace, valor, and guarding refrains depending on how the fight is unfolding.",
+    keywords: ["music", "song", "support", "aura", "minstrel", "buff", "heal"],
+    description: "Bards are battlefield conductors. They drift behind the line and keep nearby allies under one of several songs, swapping between pace, valor, guarding refrains, and the occasional healing chorus depending on how the fight is unfolding.",
     supportOnly: true,
     stats: { maxHealth: 58, speed: 34, range: 0, auraRadius: 108, marchSpeedBonus: 1.24, marchCooldownBonus: 0.82, valorPowerBonus: 1.18, valorRangeBonus: 1.05, guardReduction: 0.18, songDuration: 4.8 },
     healthBarWidth: 20,
@@ -1458,6 +1472,7 @@ const state = {
   },
   tintedUnitSprites: new Map(),
   tintedGroundProps: new Map(),
+  tintedBanners: new Map(),
   running: false,
   roundsApplied: 0,
   tournamentConfig: normalizeTournamentConfig(),
@@ -1468,6 +1483,7 @@ const state = {
   alwaysShowHealthbars: false,
   showRenderDebug: false,
   propResizeMode: false,
+  disableShiftInspectTooltipCooldown: false,
   selectedPropId: null,
   propScaleOverrides: {},
   devPanelVisible: false,
@@ -1501,6 +1517,8 @@ const state = {
     insideCanvas: false,
     shiftHeld: false,
     inspectSlowActive: false,
+    lastTooltipUpdateAt: -Infinity,
+    lastTooltipUnitId: null,
   },
   compositionModal: {
     factionId: null,
@@ -1563,6 +1581,7 @@ const els = {
   alwaysShowHealthbarsToggle: document.getElementById("alwaysShowHealthbarsToggle"),
   showRenderDebugToggle: document.getElementById("showRenderDebugToggle"),
   propResizeToggle: document.getElementById("propResizeToggle"),
+  disableShiftInspectTooltipCooldownToggle: document.getElementById("disableShiftInspectTooltipCooldownToggle"),
   knockoutAnnouncement: document.getElementById("knockoutAnnouncement"),
   bossAnnouncement: document.getElementById("bossAnnouncement"),
   winnerCard: document.getElementById("winnerCard"),
@@ -1703,6 +1722,7 @@ async function bootstrap() {
     setAlwaysShowHealthbars(state.alwaysShowHealthbars);
     setShowRenderDebug(state.showRenderDebug);
     setPropResizeMode(state.propResizeMode);
+    setDisableShiftInspectTooltipCooldown(state.disableShiftInspectTooltipCooldown);
     setDevPanelVisible(false);
     initializeBattleAudio();
     renderSpeedControls();
@@ -1764,6 +1784,9 @@ function bindUi() {
   });
   els.propResizeToggle?.addEventListener("change", () => {
     setPropResizeMode(Boolean(els.propResizeToggle.checked));
+  });
+  els.disableShiftInspectTooltipCooldownToggle?.addEventListener("change", () => {
+    setDisableShiftInspectTooltipCooldown(Boolean(els.disableShiftInspectTooltipCooldownToggle.checked));
   });
   els.compositionSearch.addEventListener("input", () => {
     state.compositionModal.search = els.compositionSearch.value;
@@ -4335,6 +4358,7 @@ function loadState() {
     state.alwaysShowHealthbars = saved.alwaysShowHealthbars === true;
     state.showRenderDebug = saved.showRenderDebug === true;
     state.propResizeMode = saved.propResizeMode === true;
+    state.disableShiftInspectTooltipCooldown = saved.disableShiftInspectTooltipCooldown === true;
     state.propScaleOverrides = typeof saved.propScaleOverrides === "object" && saved.propScaleOverrides
       ? saved.propScaleOverrides
       : {};
@@ -4354,6 +4378,7 @@ function saveState() {
     alwaysShowHealthbars: state.alwaysShowHealthbars,
     showRenderDebug: state.showRenderDebug,
     propResizeMode: state.propResizeMode,
+    disableShiftInspectTooltipCooldown: state.disableShiftInspectTooltipCooldown,
     propScaleOverrides: state.propScaleOverrides,
   }));
   syncTournamentViewState(true);
@@ -4506,6 +4531,14 @@ function setPropResizeMode(enabled) {
     if (state.battle) {
       state.battle.props = buildFieldProps(state.battle.field, state.battle.arena);
     }
+  }
+  saveState();
+}
+
+function setDisableShiftInspectTooltipCooldown(enabled) {
+  state.disableShiftInspectTooltipCooldown = Boolean(enabled);
+  if (els.disableShiftInspectTooltipCooldownToggle) {
+    els.disableShiftInspectTooltipCooldownToggle.checked = state.disableShiftInspectTooltipCooldown;
   }
   saveState();
 }
@@ -9084,6 +9117,11 @@ function updateUnitStatuses(unit, battle, dt) {
       status.tickTimer += dt;
       while (status.tickTimer >= statusDef.tickInterval) {
         status.tickTimer -= statusDef.tickInterval;
+        const healingPerTick = (status.healPerSecond ?? statusDef.healPerSecond ?? 0) * status.stacks * statusDef.tickInterval;
+        if (healingPerTick > 0) {
+          const healed = applyHealing(unit, healingPerTick, battle, source);
+          if (healed > 0 && source) recordUnitContribution(source, "healing", healed, battle);
+        }
         const damagePerTick = (status.dps ?? statusDef.dps) * status.stacks * statusDef.tickInterval;
         applyDamage(unit, damagePerTick, battle, source, { damageKind: "status", statusKind: status.kind });
         if (unit.dead) return false;
@@ -9647,6 +9685,7 @@ function chooseBardSong(unit, allies, enemies, unitDef = getUnitDefinition(unit)
   addSong("bardichaste", 2 + (nearbyEnemies <= 1 ? 2 : 0));
   addSong("bardicvalor", 2 + (nearbyEnemies >= 3 ? 2 : 0));
   addSong("bardicguard", 1 + (woundedNearby >= 2 ? 3 : 0) + (nearbyEnemies >= nearbyAllies.length ? 1 : 0));
+  addSong("bardichealing", 1 + (woundedNearby >= 1 ? 1 : 0) + (woundedNearby >= 3 ? 2 : 0));
   return weightedSongs[Math.floor(Math.random() * weightedSongs.length)] || "bardichaste";
 }
 
@@ -12802,6 +12841,8 @@ function updateBattleHighlights(battle) {
 function clearBattleHover() {
   state.hover.insideCanvas = false;
   if (!state.hover.shiftHeld) state.hover.focusedUnitId = null;
+  state.hover.lastTooltipUnitId = null;
+  state.hover.lastTooltipUpdateAt = -Infinity;
   if (els.battleUnitTooltip) {
     els.battleUnitTooltip.classList.add("hidden");
     els.battleUnitTooltip.innerHTML = "";
@@ -12961,6 +13002,10 @@ function getStatusTooltipCopy(unit, status, battle) {
     const reduction = (getUnitStats(source || "bard").guardReduction ?? 0.18) * 100;
     return `Protected by a guarding ballad. Incoming direct damage is reduced by ${formatHoverStatNumber(reduction)}% while the bard maintains the refrain nearby.`;
   }
+  if (status.kind === "bardichealing") {
+    const healingPerSecond = definition.healPerSecond ?? 0;
+    return `Steadied by a healing song. Restores ${formatHoverStatNumber(healingPerSecond)} health per second while the bard keeps the refrain nearby.`;
+  }
   if (status.kind === "bloodfrenzy") {
     return `Berserk for ${formatHoverDuration(status.duration)}. Attacks the closest unit in reach, including allies.`;
   }
@@ -13029,9 +13074,21 @@ function renderBattleUnitTooltip(unit, battle, viewport) {
     activity: currentActivity,
     statuses: (unit.statuses || []).map((status) => `${status.kind}:${formatHoverDuration(status.duration)}:${Math.round(status.stacks || 1)}`).join("|"),
   });
-  if (els.battleUnitTooltip.dataset.tooltipKey !== tooltipKey) {
+  const now = performance.now();
+  const isSameTooltipUnit = state.hover.lastTooltipUnitId === unit.id;
+  const cooldownElapsed = (now - state.hover.lastTooltipUpdateAt) >= SHIFT_INSPECT_TOOLTIP_COOLDOWN_MS;
+  const shouldApplyTooltipUpdate = els.battleUnitTooltip.dataset.tooltipKey !== tooltipKey
+    && (
+      state.disableShiftInspectTooltipCooldown
+      || !isSameTooltipUnit
+      || cooldownElapsed
+      || !els.battleUnitTooltip.dataset.tooltipKey
+    );
+  if (shouldApplyTooltipUpdate) {
     els.battleUnitTooltip.innerHTML = tooltipMarkup;
     els.battleUnitTooltip.dataset.tooltipKey = tooltipKey;
+    state.hover.lastTooltipUpdateAt = now;
+    state.hover.lastTooltipUnitId = unit.id;
   }
   const pose = getUnitRenderPose(unit, viewport);
   const tooltipWidth = Math.min(320, Math.max(220, els.battleUnitTooltip.offsetWidth || 220));
@@ -14068,6 +14125,28 @@ function getTintedGroundPropImage(image, url, color, alpha = GROUND_PROP_TINT_AL
   return state.tintedGroundProps.get(cacheKey);
 }
 
+function getTintedBannerImage(image, url, color, alpha = 0.78) {
+  if (!image || !image.complete || !url || !color || alpha <= 0) return image;
+  const cacheKey = `${url}|${color}|${alpha.toFixed(3)}`;
+  if (!state.tintedBanners.has(cacheKey)) {
+    const canvas = document.createElement("canvas");
+    canvas.width = image.naturalWidth || image.width;
+    canvas.height = image.naturalHeight || image.height;
+    const tintCtx = canvas.getContext("2d");
+    tintCtx.drawImage(image, 0, 0);
+    tintCtx.save();
+    traceBannerFlagPath(tintCtx, 0, 0, canvas.width, canvas.height);
+    tintCtx.clip();
+    tintCtx.globalCompositeOperation = "source-atop";
+    tintCtx.fillStyle = hexToRgba(color, alpha);
+    tintCtx.fillRect(0, 0, canvas.width, canvas.height);
+    tintCtx.restore();
+    tintCtx.globalCompositeOperation = "source-over";
+    state.tintedBanners.set(cacheKey, canvas);
+  }
+  return state.tintedBanners.get(cacheKey);
+}
+
 function getAvailableGroundPropAssets() {
   return Array.isArray(state.groundPropCatalog.items) ? state.groundPropCatalog.items : [];
 }
@@ -14476,69 +14555,153 @@ function drawPropSignpost(scale, tint) {
 function drawSingleBanner(viewport, faction) {
   const point = worldToScreen(faction.bannerPos.x, faction.bannerPos.y, viewport);
   const scale = point.scale;
-  const poleHeight = 96 * scale / 2.1;
-  const clothWidth = 44 * scale / 2.1;
-  const clothHeight = 92 * scale / 2.1;
-  const clothLeft = point.x + 6 * scale / 2.1;
-  const clothTop = point.y - 2 * scale / 2.1;
-  const clothBottom = clothTop + clothHeight;
+  const bannerHeight = 176 * scale / 2.1;
+  const bannerWidth = bannerHeight * (1024 / 1536);
+  const bannerLeft = point.x - bannerWidth * 0.237;
+  const bannerTop = point.y - bannerHeight * 0.043;
+  const flagLeft = bannerLeft + bannerWidth * 0.33;
+  const flagTop = bannerTop + bannerHeight * 0.175;
+  const flagWidth = bannerWidth * 0.395;
+  const coverWidth = flagWidth * 0.88;
+  const coverTop = flagTop;
+  const coverImageWidth = faction.image?.naturalWidth || faction.image?.width || 1;
+  const coverImageHeight = faction.image?.naturalHeight || faction.image?.height || 1;
+  const coverAspect = coverImageWidth / Math.max(1, coverImageHeight);
+  const normalizedCoverAspect = coverAspect < 0.42
+    ? lerp(coverAspect, 0.5, 0.35)
+    : coverAspect > 0.9
+      ? lerp(coverAspect, 0.78, 0.35)
+      : coverAspect;
+  const coverHeight = coverWidth / Math.max(0.01, normalizedCoverAspect);
+  const coverLeft = flagLeft + (flagWidth - coverWidth) / 2;
+  const coverBottom = coverTop + coverHeight;
+  const ribbonBaseTop = coverBottom + bannerHeight * 0.02;
+  const ribbonCenterX = flagLeft + flagWidth / 2;
+  const bannerAsset = getFactionImage(BANNER_BASE_ASSET);
+  const tintedBanner = bannerAsset?.complete ? getTintedBannerImage(bannerAsset, BANNER_BASE_ASSET, faction.color) : null;
 
-  ctx.strokeStyle = "rgba(50, 28, 16, 0.84)";
-  ctx.lineWidth = Math.max(2, 4 * scale / 2.1);
-  ctx.beginPath();
-  ctx.moveTo(point.x, point.y - 8 * scale / 2.1);
-  ctx.lineTo(point.x, point.y + poleHeight);
-  ctx.stroke();
-  ctx.fillStyle = "#d8c6a2";
-  ctx.beginPath();
-  ctx.arc(point.x, point.y - 10 * scale / 2.1, 4.2 * scale / 2.1, 0, Math.PI * 2);
-  ctx.fill();
-
-  ctx.save();
-  traceBannerCloth(clothLeft, clothTop, clothWidth, clothBottom, scale);
-  ctx.fillStyle = faction.color;
-  ctx.fill();
-  ctx.clip();
-
-  if (faction.image && faction.image.complete) {
-    const imageTop = clothTop + 6 * scale / 2.1;
-    const imageHeight = 52 * scale / 2.1;
-    ctx.drawImage(faction.image, clothLeft + 3 * scale / 2.1, imageTop, clothWidth - 6 * scale / 2.1, imageHeight);
+  if (tintedBanner) {
+    ctx.drawImage(tintedBanner, bannerLeft, bannerTop, bannerWidth, bannerHeight);
   } else {
-    const bannerGradient = ctx.createLinearGradient(clothLeft, clothTop, clothLeft, clothBottom);
+    const bannerGradient = ctx.createLinearGradient(flagLeft, flagTop, flagLeft, bannerTop + bannerHeight * 0.84);
     bannerGradient.addColorStop(0, shadeColor(faction.color, 0.2));
     bannerGradient.addColorStop(1, shadeColor(faction.color, -0.18));
     ctx.fillStyle = bannerGradient;
-    ctx.fillRect(clothLeft, clothTop, clothWidth, clothHeight);
+    traceBannerFlagPath(ctx, bannerLeft, bannerTop, bannerWidth, bannerHeight);
+    ctx.fill();
   }
 
-  ctx.fillStyle = "rgba(255, 246, 223, 0.88)";
-  ctx.fillRect(clothLeft + 4 * scale / 2.1, clothTop + 60 * scale / 2.1, clothWidth - 8 * scale / 2.1, 20 * scale / 2.1);
+  ctx.save();
+  traceBannerFlagPath(ctx, bannerLeft, bannerTop, bannerWidth, bannerHeight);
+  ctx.clip();
+  if (faction.image && faction.image.complete) {
+    ctx.drawImage(faction.image, coverLeft, coverTop, coverWidth, coverHeight);
+  } else {
+    const coverGradient = ctx.createLinearGradient(coverLeft, coverTop, coverLeft, coverTop + coverHeight);
+    coverGradient.addColorStop(0, "rgba(255, 245, 225, 0.95)");
+    coverGradient.addColorStop(1, "rgba(208, 190, 160, 0.9)");
+    ctx.fillStyle = coverGradient;
+    roundRect(ctx, coverLeft, coverTop, coverWidth, coverHeight, 4 * scale / 2.1);
+    ctx.fill();
+    ctx.fillStyle = "rgba(72, 52, 33, 0.86)";
+    ctx.font = `${Math.max(8, 10 * scale / 2.1)}px "Cinzel", serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(getFallbackCoverMark(faction.title), coverLeft + coverWidth / 2, coverTop + coverHeight / 2);
+  }
   ctx.restore();
 
-  ctx.strokeStyle = "rgba(54, 35, 22, 0.72)";
-  ctx.lineWidth = Math.max(1.8, 2.8 * scale / 2.1);
-  traceBannerCloth(clothLeft, clothTop, clothWidth, clothBottom, scale);
-  ctx.stroke();
-
-  ctx.fillStyle = "#3b2718";
-  ctx.font = `${Math.max(8, 10 * scale / 2.1)}px "Cinzel", serif`;
+  ctx.fillStyle = "#fbf1db";
+  ctx.strokeStyle = "rgba(69, 33, 19, 0.7)";
+  ctx.lineWidth = Math.max(1.4, 2.1 * scale / 2.1);
+  ctx.font = `${Math.max(6.4, 8.4 * scale / 2.1)}px "Cinzel", serif`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   const bannerLines = formatBannerTitle(faction.title);
+  const lineRibbonHeight = Math.max(13 * scale / 2.1, bannerHeight * 0.092);
+  const lineStep = lineRibbonHeight * 0.88;
+  const ribbonPadding = 5 * scale / 2.1;
+  const minRibbonWidth = 0;
+  const maxRibbonWidth = flagWidth * 1.08;
+  const totalRibbonHeight = lineRibbonHeight + Math.max(0, bannerLines.length - 1) * lineStep;
+  const firstRibbonCenterY = ribbonBaseTop + totalRibbonHeight / 2 > bannerTop + bannerHeight * 0.78
+    ? bannerTop + bannerHeight * 0.78 - totalRibbonHeight / 2 + lineRibbonHeight / 2
+    : ribbonBaseTop + lineRibbonHeight / 2;
   bannerLines.forEach((line, index) => {
-    ctx.fillText(line, clothLeft + clothWidth / 2, clothTop + (67 + index * 9) * scale / 2.1, clothWidth - 10 * scale / 2.1);
+    const ribbonWidth = clamp(ctx.measureText(line).width + ribbonPadding * 2, minRibbonWidth, maxRibbonWidth);
+    const ribbonLeft = ribbonCenterX - ribbonWidth / 2;
+    const ribbonTop = firstRibbonCenterY + index * lineStep - lineRibbonHeight / 2;
+    const textY = ribbonTop + lineRibbonHeight / 2;
+    drawBannerRibbon(ribbonLeft, ribbonTop, ribbonWidth, lineRibbonHeight, scale, faction.color);
+    ctx.strokeText(line, ribbonCenterX, textY, ribbonWidth - 12 * scale / 2.1);
+    ctx.fillText(line, ribbonCenterX, textY, ribbonWidth - 12 * scale / 2.1);
   });
+}
+
+function traceBannerFlagPath(context, left, top, width, height) {
+  context.beginPath();
+  context.moveTo(left + width * 0.33, top + height * 0.175);
+  context.lineTo(left + width * 0.725, top + height * 0.175);
+  context.lineTo(left + width * 0.725, top + height * 0.675);
+  context.lineTo(left + width * 0.523, top + height * 0.84);
+  context.lineTo(left + width * 0.33, top + height * 0.675);
+  context.closePath();
 }
 
 function formatBannerTitle(title) {
   const words = `${title || ""}`.trim().split(/\s+/).filter(Boolean);
   if (!words.length) return ["Untitled"];
-  if (words.length === 1) return [truncateBannerTitle(words[0], 10)];
-  return [
-    truncateBannerTitle(words.slice(0, Math.ceil(words.length / 2)).join(" "), 12),
-    truncateBannerTitle(words.slice(Math.ceil(words.length / 2)).join(" "), 12),
-  ];
+  if (words.length === 1) return [truncateBannerTitle(words[0], 12)];
+  if (words.length === 2) return words.map((word) => truncateBannerTitle(word, 12));
+  const lines = [];
+  const targetPerLine = Math.ceil(words.length / 3);
+  for (let index = 0; index < words.length; index += targetPerLine) {
+    lines.push(truncateBannerTitle(words.slice(index, index + targetPerLine).join(" "), 14));
+  }
+  return lines.slice(0, 3);
+}
+
+function drawBannerRibbon(left, top, width, height, scale, color) {
+  const tailWidth = Math.min(width * 0.18, 11 * scale / 2.1);
+  const notch = 4.5 * scale / 2.1;
+  const midY = top + height / 2;
+  const right = left + width;
+  const endRight = right + tailWidth;
+  const endLeft = left - tailWidth;
+
+  ctx.save();
+  ctx.fillStyle = shadeColor(color, -0.34);
+  ctx.beginPath();
+  ctx.moveTo(left, top + 1.5 * scale / 2.1);
+  ctx.lineTo(endLeft, top + 5 * scale / 2.1);
+  ctx.lineTo(left - notch, midY);
+  ctx.lineTo(endLeft, top + height - 5 * scale / 2.1);
+  ctx.lineTo(left, top + height - 1.5 * scale / 2.1);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.moveTo(right, top + 1.5 * scale / 2.1);
+  ctx.lineTo(endRight, top + 5 * scale / 2.1);
+  ctx.lineTo(right + notch, midY);
+  ctx.lineTo(endRight, top + height - 5 * scale / 2.1);
+  ctx.lineTo(right, top + height - 1.5 * scale / 2.1);
+  ctx.closePath();
+  ctx.fill();
+
+  const ribbonGradient = ctx.createLinearGradient(left, top, left, top + height);
+  ribbonGradient.addColorStop(0, shadeColor(color, 0.06));
+  ribbonGradient.addColorStop(0.55, shadeColor(color, -0.18));
+  ribbonGradient.addColorStop(1, shadeColor(color, -0.3));
+  ctx.fillStyle = ribbonGradient;
+  roundRect(ctx, left, top, width, height, 5 * scale / 2.1);
+  ctx.fill();
+
+  ctx.strokeStyle = "rgba(245, 223, 183, 0.48)";
+  ctx.lineWidth = Math.max(1, 1.5 * scale / 2.1);
+  roundRect(ctx, left + 1 * scale / 2.1, top + 1 * scale / 2.1, width - 2 * scale / 2.1, height - 2 * scale / 2.1, 4 * scale / 2.1);
+  ctx.stroke();
+  ctx.restore();
 }
 
 function traceBannerCloth(clothLeft, clothTop, clothWidth, clothBottom, scale) {
@@ -15064,10 +15227,9 @@ function getGraveSortDepth(viewport, grave) {
 
 function getBannerSortDepth(viewport, faction) {
   const point = worldToScreen(faction.bannerPos.x, faction.bannerPos.y, viewport);
-  const scale = point.scale;
-  const clothHeight = 92 * scale / 2.1;
-  const clothTop = point.y - 2 * scale / 2.1;
-  return clothTop + clothHeight;
+  const bannerHeight = 176 * point.scale / 2.1;
+  const bannerTop = point.y - bannerHeight * 0.043;
+  return bannerTop + bannerHeight * (1415 / 1536);
 }
 
 function getUnitSortDepth(viewport, unit, pose = null, renderScale = null, layout = null) {
@@ -15371,6 +15533,7 @@ function drawBodyguardAuras(viewport, factions) {
 function getBardSongVisuals(songKind) {
   if (songKind === "bardicvalor") return { color: "#ffb46a", fill: "rgba(255, 191, 120, 0.1)" };
   if (songKind === "bardicguard") return { color: "#d79bff", fill: "rgba(214, 155, 255, 0.1)" };
+  if (songKind === "bardichealing") return { color: "#83e5a0", fill: "rgba(131, 229, 160, 0.1)" };
   return { color: "#86dcff", fill: "rgba(134, 220, 255, 0.1)" };
 }
 
@@ -15604,6 +15767,16 @@ function drawUnitStatusOverlay(unit, scale) {
     ctx.arc(0, -3 * scale / 2.1, 13 * scale / 2.1, 0, Math.PI * 2);
     ctx.stroke();
   }
+  if (getStatusStacks(unit, "bardichealing") > 0) {
+    ctx.strokeStyle = "rgba(136, 235, 166, 0.36)";
+    ctx.lineWidth = 1.2 * scale / 2.1;
+    ctx.beginPath();
+    ctx.arc(0, -3 * scale / 2.1, 14 * scale / 2.1, Math.PI * 0.2, Math.PI * 0.8);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(0, -3 * scale / 2.1, 14 * scale / 2.1, Math.PI * 1.2, Math.PI * 1.8);
+    ctx.stroke();
+  }
   if (getStatusStacks(unit, "blizzard") > 0) {
     const blizzardPulse = 0.1 + Math.max(0, Math.sin(battleTime * 9 + unit.statusVisualSeed * 1.4)) * 0.18;
     ctx.fillStyle = `rgba(179, 225, 255, ${blizzardPulse})`;
@@ -15696,6 +15869,7 @@ function drawStatusBadge(badge, x, y, scale) {
     if (badge.kind === "bardichaste") drawBardHasteBadgeIcon(scale, badge.accentColor);
     if (badge.kind === "bardicvalor") drawBardValorBadgeIcon(scale, badge.accentColor);
     if (badge.kind === "bardicguard") drawBardGuardBadgeIcon(scale, badge.accentColor);
+    if (badge.kind === "bardichealing") drawBardHealingBadgeIcon(scale, badge.accentColor);
     if (badge.kind === "bloodfrenzy") drawBloodFrenzyBadgeIcon(scale, badge.accentColor);
     if (badge.kind === "immobilized") drawImmobilizedBadgeIcon(scale, badge.accentColor);
     if (badge.kind === "bleed") drawBleedBadgeIcon(scale, badge.accentColor);
@@ -16077,6 +16251,26 @@ function drawBardGuardBadgeIcon(scale, color) {
   ctx.lineTo(0, 3.8 * scale / 2.1);
   ctx.moveTo(-2.1 * scale / 2.1, 0.2 * scale / 2.1);
   ctx.lineTo(2.1 * scale / 2.1, 0.2 * scale / 2.1);
+  ctx.stroke();
+}
+
+function drawBardHealingBadgeIcon(scale, color) {
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.05 * scale / 2.1;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.beginPath();
+  ctx.moveTo(-3.1 * scale / 2.1, -0.4 * scale / 2.1);
+  ctx.bezierCurveTo(-5.4 * scale / 2.1, -3.4 * scale / 2.1, -2.1 * scale / 2.1, -5.4 * scale / 2.1, 0, -2.3 * scale / 2.1);
+  ctx.bezierCurveTo(2.1 * scale / 2.1, -5.4 * scale / 2.1, 5.4 * scale / 2.1, -3.4 * scale / 2.1, 3.1 * scale / 2.1, -0.4 * scale / 2.1);
+  ctx.lineTo(0, 4.8 * scale / 2.1);
+  ctx.closePath();
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(0, -1.1 * scale / 2.1);
+  ctx.lineTo(0, 2.1 * scale / 2.1);
+  ctx.moveTo(-1.6 * scale / 2.1, 0.5 * scale / 2.1);
+  ctx.lineTo(1.6 * scale / 2.1, 0.5 * scale / 2.1);
   ctx.stroke();
 }
 
