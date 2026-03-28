@@ -684,7 +684,7 @@ const UNIT_DEFINITIONS = {
     iconPaths: getMedicIconSvgPaths,
     canActWithoutEnemies: true,
     selectTarget: selectMedicTarget,
-    getDesiredDestination: getHoldPositionDestination(12),
+    getDesiredDestination: getMedicDestination,
     performAttack: performMedicHeal,
     render: drawMedic,
     veteran: { metric: "healing", threshold: 200, label: "Heal 200 health" },
@@ -824,10 +824,11 @@ const UNIT_DEFINITIONS = {
     name: "Graverobber",
     keywords: ["grave", "corpse", "raider", "shovel", "melee"],
     description: "Graverobbers thrive where others have already died. They prowl near corpses and graves, turning battlefield remains into a resource that improves their effectiveness, which makes them especially dangerous in messy, prolonged fights.",
-    stats: { maxHealth: 78, speed: 42, range: 18, graveRange: 24, damage: 15, cooldown: 1 },
+    stats: { maxHealth: 78, speed: 42, range: 18, graveRange: 24, graveSnapRange: 58, damage: 15, cooldown: 1 },
     healthBarWidth: 22,
     iconPaths: getGraverobberIconSvgPaths,
     canActWithoutEnemies: true,
+    beforeStep: updateGraverobberState,
     selectTarget: selectGraverobberTarget,
     getAttackRange: getGraverobberAttackRange,
     getDesiredDestination: getGraverobberDestination,
@@ -840,10 +841,12 @@ const UNIT_DEFINITIONS = {
     id: "arachnomist",
     name: "Arachnomist",
     keywords: ["spider", "grave", "swarm", "web", "poison", "caster"],
-    description: "Arachnomists weave grave-magic into living infestations. They prefer distant graves that sit in the outer ring of their casting band, then crack them open into fast spider swarms that menace every nearby army, including their own.",
-    stats: { maxHealth: 72, speed: 38, range: 0, graveRange: 224, graveDeadZone: 86, cooldown: 4.4, swarmCount: 5, swarmSpread: 20 },
+    description: "Arachnomists weave grave-magic into living infestations. They seek graves that sit near enemy pressure but away from friendly lines, crack them open into allied spider swarms, and resort to a venomous bite if enemies rush them.",
+    stats: { maxHealth: 72, speed: 38, range: 0, graveRange: 224, graveDeadZone: 86, cooldown: 4.4, swarmCount: 5, swarmSpread: 20, biteRange: 18, biteThreatRange: 34, biteDamage: 7.5, biteCooldown: 1.2, poisonStacks: 1, poisonDuration: 7, poisonDamage: 3.6 },
     healthBarWidth: 22,
     iconPaths: getArachnomistIconSvgPaths,
+    beforeStep: updateArachnomistState,
+    managesOwnCooldown: true,
     selectTarget: selectArachnomistTarget,
     getAttackRange: getArachnomistAttackRange,
     getDesiredDestination: getArachnomistDestination,
@@ -982,8 +985,8 @@ const UNIT_DEFINITIONS = {
     id: "spiderswarm",
     name: "Spider Swarm",
     draftable: false,
-    keywords: ["spider", "swarm", "poison", "bite", "neutral"],
-    description: "Spider swarms are spawned hazards rather than recruitable troops. They skitter quickly, bite lightly, and spread poison with every strike while turning on whatever living target is closest.",
+    keywords: ["spider", "swarm", "poison", "bite"],
+    description: "Spider swarms are short-lived summoned hazards. They skitter quickly, bite lightly, and spread poison over anything living that strays too close.",
     stats: { maxHealth: 14, speed: 78, range: 13, biteDamage: 3.2, cooldown: 1.08, poisonStacks: 1, poisonDuration: 5.5, poisonDamage: 2.1, lifetime: 20 },
     healthBarWidth: 12,
     iconPaths: getSpiderSwarmIconSvgPaths,
@@ -10709,6 +10712,61 @@ function getHoldPositionDestination(threshold) {
   };
 }
 
+function getMedicNeedScore(ally) {
+  if (!ally || ally.dead || ally.fled || ally.liftedBySpellId) return -Infinity;
+  const missingHealthRatio = 1 - (ally.health / Math.max(1, ally.maxHealth));
+  const negativeStatusBonus = hasNegativeStatuses(ally) ? 1.35 : 0;
+  return missingHealthRatio * 2.4 + negativeStatusBonus;
+}
+
+function getMedicSupportAnchor(unit, allies = [], battle = null) {
+  const faction = battle ? findFaction(battle, unit.factionId) : null;
+  const fallback = faction?.bannerPos || faction?.homeBase || { x: unit.x, y: unit.y };
+  const anchorPool = allies.filter((ally) => (
+    ally.id !== unit.id
+    && !ally.dead
+    && !ally.fled
+    && !ally.liftedBySpellId
+    && ally.type !== "medic"
+  ));
+  if (!anchorPool.length) return fallback;
+  const weighted = anchorPool.reduce((acc, ally) => {
+    const weight = 1 + Math.max(0, getMedicNeedScore(ally));
+    acc.x += ally.x * weight;
+    acc.y += ally.y * weight;
+    acc.weight += weight;
+    return acc;
+  }, { x: 0, y: 0, weight: 0 });
+  if (weighted.weight <= 0.001) return fallback;
+  return {
+    x: lerp(weighted.x / weighted.weight, fallback.x, 0.18),
+    y: lerp(weighted.y / weighted.weight, fallback.y, 0.12),
+  };
+}
+
+function getMedicRepulsionVector(unit, allies = [], target = null) {
+  const medicPeers = allies.filter((ally) => (
+    ally.id !== unit.id
+    && ally.type === "medic"
+    && !ally.dead
+    && !ally.fled
+    && ally.id !== target?.id
+  ));
+  if (!medicPeers.length) return { x: 0, y: 0, pressure: 0 };
+  return medicPeers.reduce((acc, ally) => {
+    const dx = unit.x - ally.x;
+    const dy = unit.y - ally.y;
+    const distance = Math.max(0.001, Math.hypot(dx, dy));
+    const radius = 78;
+    if (distance >= radius) return acc;
+    const falloff = (1 - (distance / radius)) ** 2;
+    acc.x += (dx / distance) * falloff;
+    acc.y += (dy / distance) * falloff * 0.8;
+    acc.pressure += falloff;
+    return acc;
+  }, { x: 0, y: 0, pressure: 0 });
+}
+
 function selectMedicTarget({ unit, allies }) {
   const selfNeedsHealing = unit.health < unit.maxHealth || hasNegativeStatuses(unit);
   const selfHealthRatio = unit.health / Math.max(1, unit.maxHealth);
@@ -10718,25 +10776,68 @@ function selectMedicTarget({ unit, allies }) {
     updateUnitActivity(unit, "Stabilizing own wounds.");
     return unit;
   }
-  const locked = allies.find((ally) => ally.id === unit.focusTargetId && (ally.health < ally.maxHealth || hasNegativeStatuses(ally)) && !ally.liftedBySpellId);
-  if (locked) {
-    updateUnitActivity(unit, `Moving to heal ${getUnitActivityTargetLabel(locked, state.battle)}.`);
-    return locked;
-  }
   const wounded = allies.filter((ally) => ally.id !== unit.id && (ally.health < ally.maxHealth || hasNegativeStatuses(ally)) && !ally.liftedBySpellId);
   if (wounded.length) {
-    const target = wounded.sort((a, b) => {
-      const aUrgency = (hasNegativeStatuses(a) ? 1 : 0) * 2 + (1 - a.health / a.maxHealth);
-      const bUrgency = (hasNegativeStatuses(b) ? 1 : 0) * 2 + (1 - b.health / b.maxHealth);
-      return bUrgency - aUrgency;
-    })[0];
+    let target = null;
+    let bestScore = -Infinity;
+    wounded.forEach((ally) => {
+      const distance = Math.hypot(ally.x - unit.x, ally.y - unit.y);
+      const needScore = getMedicNeedScore(ally);
+      const closenessScore = Math.max(0, 1.65 - (distance / 55));
+      const focusPenalty = countAlliedFocusers(allies, unit, ally.id, (candidate) => candidate.type === "medic") * 1.5;
+      const pairBias = (getTargetSelectionPreference(unit, ally, "medic-heal") - 0.5) * 1.8;
+      const stickyBias = unit.focusTargetId === ally.id ? 0.5 : 0;
+      const medicPenalty = ally.type === "medic" ? 0.2 : 0;
+      const score = needScore + closenessScore + pairBias + stickyBias - focusPenalty - medicPenalty - (distance * 0.012);
+      if (score > bestScore) {
+        bestScore = score;
+        target = ally;
+      }
+    });
     unit.focusTargetId = target?.id || null;
     updateUnitActivity(unit, `Moving to heal ${getUnitActivityTargetLabel(target, state.battle)}.`);
     return target;
   }
   unit.focusTargetId = null;
   updateUnitActivity(unit, "Seeking a wounded ally to heal.");
-  return allies.find((ally) => ally.id !== unit.id && !ally.liftedBySpellId) || null;
+  return null;
+}
+
+function getMedicDestination({ unit, target, battle, allies, destination, unitDef }) {
+  const field = battle?.field || FIELD;
+  const stats = getUnitStats(unit, unitDef);
+  const activeTarget = target && !target.dead && !target.fled && (target.health < target.maxHealth || hasNegativeStatuses(target))
+    ? target
+    : null;
+  const repulsion = getMedicRepulsionVector(unit, allies, activeTarget);
+
+  if (activeTarget) {
+    const dx = destination.x - unit.x;
+    const dy = destination.y - unit.y;
+    const length = Math.max(0.001, Math.hypot(dx, dy));
+    const dirX = dx / length;
+    const dirY = dy / length;
+    const normalX = -dirY;
+    const normalY = dirX;
+    const slotBias = (getTargetSelectionPreference(unit, activeTarget, "medic-heal-slot") - 0.5) * 2;
+    const lateralOffset = activeTarget.type === "medic" ? slotBias * 8 : slotBias * 18;
+    const repulsionScale = activeTarget.type === "medic" ? 10 : 22;
+    const desiredStop = Math.max(6, stats.range - 4);
+    return {
+      x: clamp(activeTarget.x - dirX * desiredStop + normalX * lateralOffset + repulsion.x * repulsionScale, 20, field.width - 20),
+      y: clamp(activeTarget.y - dirY * desiredStop + normalY * lateralOffset * 0.72 + repulsion.y * repulsionScale, 24, field.height - 24),
+    };
+  }
+
+  const anchor = getMedicSupportAnchor(unit, allies, battle);
+  const idleAngle = unit.statusVisualSeed * Math.PI * 2;
+  const idleDriftX = Math.cos(idleAngle) * 16;
+  const idleDriftY = Math.sin(idleAngle) * 10;
+  const repulsionScale = repulsion.pressure > 0 ? 56 : 26;
+  return {
+    x: clamp(anchor.x + idleDriftX + repulsion.x * repulsionScale, 20, field.width - 20),
+    y: clamp(anchor.y + idleDriftY + repulsion.y * repulsionScale, 24, field.height - 24),
+  };
 }
 
 function updateBardState({ unit, faction, allies, enemies, battle, unitDef, dt }) {
@@ -11222,8 +11323,8 @@ function modifyGraverobberStats(unit, stats) {
   const robbed = unit.gravesRobbed || 0;
   return {
     ...stats,
-    damage: stats.damage * (1 + robbed * 0.5),
-    speed: stats.speed * (1 + robbed * 0.3),
+    damage: stats.damage * (1 + robbed * 0.3),
+    speed: stats.speed * (1 + robbed * 0.1),
     range: stats.range + robbed * 3.5,
     graveRange: stats.graveRange + robbed * 2,
     maxHealth: stats.maxHealth * (1 + robbed * 0.1),
@@ -11812,8 +11913,23 @@ function handleNecromancerDeath({ unit, battle }) {
   });
 }
 
+function updateGraverobberState({ unit, dt }) {
+  unit.graverobberNearbyGraveCheckCooldown = Math.max(0, (unit.graverobberNearbyGraveCheckCooldown || 0) - dt);
+}
+
 function selectGraverobberTarget({ unit, enemies, graves, battle, unitDef }) {
   const stats = getUnitStats(unit, unitDef);
+  const nearbyGrave = (unit.graverobberNearbyGraveCheckCooldown || 0) <= 0
+    ? findNearestGrave(unit, graves, (grave) => Math.hypot(grave.x - unit.x, grave.y - unit.y) <= stats.graveSnapRange)
+    : null;
+  if (nearbyGrave) {
+    unit.currentTargetKind = "grave";
+    unit.currentGraveId = nearbyGrave.id;
+    unit.focusTargetId = null;
+    updateUnitActivity(unit, "Snatching a nearby gravestone before moving on.");
+    return nearbyGrave;
+  }
+
   const lockedEnemy = unit.graverobberAttackTargetId
     ? enemies.find((enemy) => enemy.id === unit.graverobberAttackTargetId && !enemy.dead && !enemy.fled)
     : null;
@@ -11883,6 +11999,11 @@ function performGraverobberAttack({ unit, target, battle, unitDef }) {
     removeGrave(battle, grave.id);
     updateUnitActivity(unit, "Plundering a gravestone for strength.");
     unit.gravesRobbed = (unit.gravesRobbed || 0) + 1;
+    unit.graverobberNearbyGravesLooted = (unit.graverobberNearbyGravesLooted || 0) + 1;
+    if ((unit.graverobberNearbyGravesLooted || 0) >= 3) {
+      unit.graverobberNearbyGravesLooted = 0;
+      unit.graverobberNearbyGraveCheckCooldown = 5;
+    }
     syncUnitMaxHealth(unit, true);
     spawnBurst(battle, grave.x, grave.y - 3, "#b59363", 16);
     setHighlight(`${findFaction(battle, unit.factionId).title}'s graverobber plunders a grave and grows bolder`);
@@ -11897,40 +12018,144 @@ function performGraverobberAttack({ unit, target, battle, unitDef }) {
   spawnBurst(battle, target.x, target.y - 1, "#e0c089", 8);
 }
 
-function selectArachnomistTarget({ unit, graves, unitDef }) {
+function updateArachnomistState({ unit, dt }) {
+  const cooldownTick = getUnitCooldownTickRate(unit);
+  unit.cooldown = Math.max(0, (unit.cooldown || 0) - dt * cooldownTick);
+  unit.arachnomistBiteCooldown = Math.max(0, (unit.arachnomistBiteCooldown || 0) - dt * cooldownTick);
+}
+
+function pickArachnomistPressureGrave(unit, graves, enemies, allies, unitDef) {
   const stats = getUnitStats(unit, unitDef);
-  const validGrave = findFarthestGrave(unit, graves, (grave) => {
-    const distance = Math.hypot(grave.x - unit.x, grave.y - unit.y);
-    return grave.factionId !== unit.factionId && distance >= stats.graveDeadZone && distance <= stats.graveRange;
+  if (!graves?.length) return null;
+  const shortlist = [];
+  const pushCandidate = (grave, score) => {
+    const entry = { grave, score };
+    let inserted = false;
+    for (let i = 0; i < shortlist.length; i += 1) {
+      if (score > shortlist[i].score) {
+        shortlist.splice(i, 0, entry);
+        inserted = true;
+        break;
+      }
+    }
+    if (!inserted) shortlist.push(entry);
+    if (shortlist.length > 5) shortlist.length = 5;
+  };
+
+  graves.forEach((grave) => {
+    const castDistance = Math.hypot(grave.x - unit.x, grave.y - unit.y);
+    let nearestEnemy = Infinity;
+    let enemyPressure = 0;
+    for (let i = 0; i < enemies.length; i += 1) {
+      const enemy = enemies[i];
+      const distance = Math.hypot(enemy.x - grave.x, enemy.y - grave.y);
+      if (distance < nearestEnemy) nearestEnemy = distance;
+      if (distance <= 124) enemyPressure += 1 - (distance / 124);
+      if (nearestEnemy <= 14 && enemyPressure >= 1.4) break;
+    }
+    if (enemyPressure <= 0.01 || !Number.isFinite(nearestEnemy)) return;
+
+    let nearestAlly = Infinity;
+    let allyPressure = 0;
+    for (let i = 0; i < allies.length; i += 1) {
+      const ally = allies[i];
+      if (ally.id === unit.id || ally.dead || ally.fled) continue;
+      const distance = Math.hypot(ally.x - grave.x, ally.y - grave.y);
+      if (distance < nearestAlly) nearestAlly = distance;
+      if (distance <= 116) allyPressure += 1 - (distance / 116);
+      if (nearestAlly <= 12 && allyPressure >= 1.25) break;
+    }
+
+    const inRangeBias = castDistance <= stats.graveRange
+      ? 1.2 - Math.max(0, castDistance - stats.graveDeadZone) * 0.0025
+      : Math.max(-1.8, -((castDistance - stats.graveRange) / 70));
+    const deadZonePenalty = castDistance < stats.graveDeadZone
+      ? ((stats.graveDeadZone - castDistance) / Math.max(1, stats.graveDeadZone)) * 2.6
+      : 0;
+    const enemyCloseness = Math.max(0, 1.6 - (nearestEnemy / 72));
+    const allyDistanceBonus = Number.isFinite(nearestAlly)
+      ? Math.min(2.4, Math.max(0, (nearestAlly - 34) / 46))
+      : 2.1;
+    const friendlyPressurePenalty = allyPressure * 1.8;
+    const graveOwnershipBias = grave.factionId === unit.factionId ? -0.35 : 0.15;
+    const score = enemyPressure * 3.4
+      + enemyCloseness * 2.2
+      + allyDistanceBonus
+      + inRangeBias
+      + graveOwnershipBias
+      - friendlyPressurePenalty
+      - deadZonePenalty;
+    pushCandidate(grave, score);
   });
-  const fallbackFar = findNearestGrave(unit, graves, (grave) => grave.factionId !== unit.factionId && Math.hypot(grave.x - unit.x, grave.y - unit.y) > stats.graveRange);
-  const fallbackNear = findFarthestGrave(unit, graves, (grave) => grave.factionId !== unit.factionId && Math.hypot(grave.x - unit.x, grave.y - unit.y) < stats.graveDeadZone);
-  const target = validGrave || fallbackFar || fallbackNear || null;
+
+  if (!shortlist.length) return findNearestGrave(unit, graves);
+  const weighted = shortlist.map(({ grave, score }) => ({
+    grave,
+    weight: Math.max(0.05, score + 2 + getTargetSelectionPreference(unit, grave, "arachnomist-grave") * 1.4),
+  }));
+  const totalWeight = weighted.reduce((sum, entry) => sum + entry.weight, 0);
+  let roll = Math.random() * totalWeight;
+  for (let i = 0; i < weighted.length; i += 1) {
+    roll -= weighted[i].weight;
+    if (roll <= 0) return weighted[i].grave;
+  }
+  return weighted[0].grave;
+}
+
+function selectArachnomistTarget({ unit, graves, unitDef, enemies, allies, battle }) {
+  const stats = getUnitStats(unit, unitDef);
+  const closeThreat = enemies
+    .filter((enemy) => Math.hypot(enemy.x - unit.x, enemy.y - unit.y) <= stats.biteThreatRange)
+    .sort((a, b) => Math.hypot(a.x - unit.x, a.y - unit.y) - Math.hypot(b.x - unit.x, b.y - unit.y))[0] || null;
+  if (closeThreat) {
+    unit.currentTargetKind = "enemy";
+    unit.currentGraveId = null;
+    unit.focusTargetId = closeThreat.id;
+    updateUnitActivity(unit, `Keeping ${getUnitActivityTargetLabel(closeThreat, battle)} back with fangs.`);
+    return closeThreat;
+  }
+
+  const target = pickArachnomistPressureGrave(unit, graves, enemies, allies, unitDef);
   unit.currentTargetKind = target ? "grave" : null;
   unit.currentGraveId = target?.id || null;
+  unit.focusTargetId = null;
   updateUnitActivity(unit, target ? "Seeking a gravestone to hatch a spider swarm." : "Seeking graves to infest.");
   return target;
 }
 
 function getArachnomistAttackRange(unitDef, unit) {
   const stats = getUnitStats(unit, unitDef);
-  return stats.graveRange;
+  return Math.max(stats.graveRange, stats.biteRange);
 }
 
-function getArachnomistDestination({ unit, target, destination, unitDef, battle }) {
-  if (!target || unit.currentTargetKind !== "grave") return destination;
+function getArachnomistDestination({ unit, target, destination, unitDef, battle, distance }) {
   const stats = getUnitStats(unit, unitDef);
+  if (target && unit.currentTargetKind === "enemy") {
+    if (distance <= stats.biteRange + 2) return { x: unit.x, y: unit.y };
+    const faction = battle ? findFaction(battle, unit.factionId) : null;
+    const anchor = faction?.bannerPos || faction?.homeBase || unit;
+    const awayX = unit.x - target.x;
+    const awayY = unit.y - target.y;
+    const awayLength = Math.max(0.001, Math.hypot(awayX, awayY));
+    const retreatX = unit.x + (awayX / awayLength) * 52;
+    const retreatY = unit.y + (awayY / awayLength) * 44;
+    return {
+      x: clamp(lerp(retreatX, anchor.x, 0.18), 24, battle.field.width - 24),
+      y: clamp(lerp(retreatY, anchor.y, 0.18), 24, battle.field.height - 24),
+    };
+  }
+  if (!target || unit.currentTargetKind !== "grave") return destination;
   const faction = battle ? findFaction(battle, unit.factionId) : null;
   const anchor = faction?.bannerPos || unit;
   const dx = target.x - unit.x;
   const dy = target.y - unit.y;
-  const distance = Math.max(0.001, Math.hypot(dx, dy));
-  if (distance > stats.graveRange) return destination;
-  if (distance < stats.graveDeadZone) {
-    const retreat = stats.graveDeadZone - distance + 28;
+  const graveDistance = Math.max(0.001, Math.hypot(dx, dy));
+  if (graveDistance > stats.graveRange) return destination;
+  if (graveDistance < stats.graveDeadZone) {
+    const retreat = stats.graveDeadZone - graveDistance + 28;
     return {
-      x: unit.x - (dx / distance) * retreat,
-      y: unit.y - (dy / distance) * retreat,
+      x: unit.x - (dx / graveDistance) * retreat,
+      y: unit.y - (dy / graveDistance) * retreat,
     };
   }
   const anchorDx = anchor.x - target.x;
@@ -11969,19 +12194,33 @@ function createSpiderSwarm(arachnomist, grave, battle) {
 }
 
 function performArachnomistAttack({ unit, target, battle, unitDef }) {
-  if (!target || unit.currentTargetKind !== "grave") return;
   const stats = getUnitStats(unit, unitDef);
+  if (!target) return false;
+  if (unit.currentTargetKind === "enemy") {
+    if ((unit.arachnomistBiteCooldown || 0) > 0) return false;
+    if (Math.hypot(target.x - unit.x, target.y - unit.y) > stats.biteRange + 4) return false;
+    updateUnitActivity(unit, `Biting ${getUnitActivityTargetLabel(target, battle)} away from the swarm line.`);
+    applyDamage(target, stats.biteDamage * (0.92 + Math.random() * 0.28), battle, unit);
+    applyStatus(target, "poison", stats.poisonStacks, stats.poisonDuration, unit, battle);
+    unit.arachnomistBiteCooldown = stats.biteCooldown * (0.88 + Math.random() * 0.24);
+    battle.swipes.push({ x: target.x, y: target.y - 8, angle: unit.facing, life: 0.18, maxLife: 0.18, color: "rgba(132, 201, 93, 0.92)" });
+    spawnBurst(battle, target.x, target.y - 2, "#7ccc59", 6);
+    return true;
+  }
+  if (unit.currentTargetKind !== "grave" || (unit.cooldown || 0) > 0) return false;
   const grave = findGraveById(battle, target.id || unit.currentGraveId);
-  if (!grave || grave.factionId === unit.factionId) return;
+  if (!grave) return false;
   const distance = Math.hypot(grave.x - unit.x, grave.y - unit.y);
-  if (distance > stats.graveRange + 4 || distance < Math.max(0, stats.graveDeadZone - 4)) return;
+  if (distance > stats.graveRange + 4 || distance < Math.max(0, stats.graveDeadZone - 4)) return false;
   removeGrave(battle, grave.id);
   const spiders = createSpiderSwarm(unit, grave, battle);
-  if (!spiders.length) return;
+  if (!spiders.length) return false;
+  unit.cooldown = stats.cooldown * (0.84 + Math.random() * 0.28);
   updateUnitActivity(unit, "Turning a gravestone into a spider swarm.");
   spawnBurst(battle, grave.x, grave.y - 4, "#96d55f", 18);
   battle.particles.push({ kind: "ring", x: grave.x, y: grave.y, vx: 0, vy: 0, life: 0.48, age: 0, color: "#7ab34b", size: 22, lineWidth: 4 });
   setHighlight(`${findFaction(battle, unit.factionId)?.title || "A faction"}'s arachnomist turns a grave into a spider swarm`);
+  return true;
 }
 
 function updateSpiderSwarmState({ unit, battle, dt, unitDef }) {
