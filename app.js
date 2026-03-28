@@ -777,7 +777,7 @@ const UNIT_DEFINITIONS = {
     name: "Poisoner",
     keywords: ["venom", "poison", "potion", "toxin", "alchemist"],
     description: "Poisoners specialize in attrition. Their bottles do modest immediate damage, but the real threat is stacking poison over an area, causing enemies to keep losing health after the initial impact and making sustained engagements increasingly costly.",
-    stats: { maxHealth: 50, speed: 42, range: 225, damage: 8, splash: 40, poisonStacks: 1, poisonDuration: 8, poisonDamage: 2.8, cooldown: 2.6 },
+    stats: { maxHealth: 50, speed: 42, range: 225, damage: 2, splash: 40, poisonStacks: 1, poisonDuration: 6, poisonDamage: 3, cooldown: 2.6 },
     healthBarWidth: 20,
     iconPaths: getPoisonerIconSvgPaths,
     getDesiredDestination: getRetreatingDestination(132, 1.05),
@@ -12280,6 +12280,11 @@ function getSpiderSwarmDestination({ unit, target, destination }) {
 function performSpiderSwarmAttack({ unit, target, battle, unitDef }) {
   const stats = getUnitStats(unit, unitDef);
   if (!target || Math.hypot(target.x - unit.x, target.y - unit.y) > stats.range + 4) return;
+  if (areUnitsAllied(unit, target, battle) && Math.random() < 0.5) {
+    unit.focusTargetId = null;
+    updateUnitActivity(unit, "Skittering past a familiar scent.");
+    return false;
+  }
   updateUnitActivity(unit, `Biting ${getUnitActivityTargetLabel(target, battle)}.`);
   applyDamage(target, stats.biteDamage * (0.88 + Math.random() * 0.28), battle, unit);
   applyStatus(target, "poison", stats.poisonStacks, stats.poisonDuration, unit, battle);
