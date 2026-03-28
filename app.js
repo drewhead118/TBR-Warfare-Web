@@ -650,7 +650,7 @@ const UNIT_DEFINITIONS = {
     name: "Paladin",
     keywords: ["holy", "melee", "undead", "thrall", "cleanse", "heal", "templar"],
     description: "Paladins are steadfast holy warriors who excel at purging corrupted foes. Their melee strikes punish undead and thralls especially hard, and every kill releases a sanctifying burst that cleanses poison and restores a little health to nearby allies.",
-    stats: { maxHealth: 172, speed: 30, range: 24, damage: 31, cooldown: 1.12, undeadBonus: 1.75, consecrationRadius: 30, consecrationHeal: 10 },
+    stats: { maxHealth: 172, speed: 30, range: 24, damage: 31, cooldown: 1.12, undeadBonus: 2.25, consecrationRadius: 30, consecrationHeal: 30 },
     healthBarWidth: 28,
     iconPaths: getPaladinIconSvgPaths,
     getMoveSpeed: (unit, unitDef) => getUnitStats(unit, unitDef).speed,
@@ -11324,7 +11324,7 @@ function modifyGraverobberStats(unit, stats) {
   return {
     ...stats,
     damage: stats.damage * (1 + robbed * 0.3),
-    speed: stats.speed * (1 + robbed * 0.1),
+    speed: stats.speed * (1 + robbed * 0.15),
     range: stats.range + robbed * 3.5,
     graveRange: stats.graveRange + robbed * 2,
     maxHealth: stats.maxHealth * (1 + robbed * 0.1),
@@ -12280,7 +12280,7 @@ function getSpiderSwarmDestination({ unit, target, destination }) {
 function performSpiderSwarmAttack({ unit, target, battle, unitDef }) {
   const stats = getUnitStats(unit, unitDef);
   if (!target || Math.hypot(target.x - unit.x, target.y - unit.y) > stats.range + 4) return;
-  if (areUnitsAllied(unit, target, battle) && Math.random() < 0.5) {
+  if (areUnitsAllied(unit, target, battle) && Math.random() < 0.75) {
     unit.focusTargetId = null;
     updateUnitActivity(unit, "Skittering past a familiar scent.");
     return false;
