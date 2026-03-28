@@ -107,6 +107,404 @@ button, input, select, textarea { font: inherit; }
   gap: 10px;
 }
 
+.balance-lab {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 231, 194, 0.12);
+  background:
+    linear-gradient(180deg, rgba(255, 241, 217, 0.06), rgba(255, 241, 217, 0.03)),
+    rgba(18, 13, 10, 0.26);
+}
+
+.balance-lab-header,
+.balance-lab-panel-header {
+  display: grid;
+  grid-template-columns: minmax(0, 52ch) auto;
+  align-items: flex-start;
+  gap: 14px;
+  width: fit-content;
+  max-width: 100%;
+}
+
+.balance-lab-panel-header > div {
+  min-width: 0;
+  max-width: 52ch;
+}
+
+.balance-lab-header h3,
+.balance-lab-panel-header h4 {
+  margin: 0;
+  font-family: "Cinzel", serif;
+  letter-spacing: 0.03em;
+}
+
+.balance-lab-panel-header h4 {
+  font-size: 1rem;
+}
+
+.balance-lab-controls {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+}
+
+.balance-lab-controls label {
+  display: grid;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 0.83rem;
+}
+
+.balance-lab-controls input[type="number"] {
+  width: 100%;
+}
+
+.balance-lab-search {
+  display: grid;
+  gap: 6px;
+  width: min(100%, 52ch);
+  max-width: 52ch;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+.balance-lab-search input[type="search"] {
+  width: 100%;
+}
+
+.balance-lab-toggle {
+  align-self: end;
+  min-height: 42px;
+  padding-bottom: 8px;
+}
+
+.balance-lab-progress {
+  overflow: hidden;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(255, 241, 217, 0.08);
+}
+
+.balance-lab-progress-fill {
+  width: 0%;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #c5f0af, #ffd991);
+  box-shadow: 0 0 18px rgba(255, 217, 145, 0.3);
+  transition: width 180ms ease;
+}
+
+.balance-lab-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+}
+
+.balance-lab-stat {
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 231, 194, 0.1);
+  background: rgba(255, 241, 217, 0.04);
+}
+
+.balance-lab-stat span {
+  display: block;
+  color: var(--text-muted);
+  font-size: 0.74rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.balance-lab-stat strong {
+  display: block;
+  margin-top: 6px;
+  color: var(--accent-soft);
+  font-size: 1.05rem;
+}
+
+.balance-lab-dashboard {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 12px;
+  align-items: start;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 8px;
+  scrollbar-gutter: stable;
+}
+
+.balance-lab-panel {
+  display: grid;
+  align-content: start;
+  align-items: start;
+  gap: 12px;
+  flex: 0 0 auto;
+  width: max-content;
+  min-width: 360px;
+  max-width: none;
+  padding: 14px;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 231, 194, 0.08);
+  background: rgba(10, 8, 6, 0.24);
+}
+
+.balance-lab-table {
+  width: max-content;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 231, 194, 0.08);
+}
+
+.balance-lab-table table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
+
+.balance-lab-table th,
+.balance-lab-table td {
+  white-space: nowrap;
+}
+
+.balance-lab-panel .hint,
+.balance-lab-search span {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.balance-lab-table th,
+.balance-lab-table td {
+  padding: 9px 10px;
+  text-align: left;
+  border-bottom: 1px solid rgba(255, 231, 194, 0.06);
+}
+
+.balance-lab-table th {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  background: rgba(255, 241, 217, 0.05);
+}
+
+.balance-lab-table tbody tr:nth-child(odd) {
+  background: rgba(255, 241, 217, 0.03);
+}
+
+.balance-lab-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.balance-lab-positive {
+  color: #b7f4ab;
+}
+
+.balance-lab-negative {
+  color: #ffb39f;
+}
+
+.balance-lab-counter {
+  color: #a8d8ff;
+}
+
+.balance-lab-neutral {
+  color: var(--text-main);
+}
+
+.balance-lab-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.balance-lab-chip {
+  padding: 7px 11px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 231, 194, 0.1);
+  background: rgba(255, 241, 217, 0.05);
+  color: var(--text-main);
+  font-size: 0.8rem;
+}
+
+.balance-lab-heat-list {
+  display: grid;
+  gap: 10px;
+}
+
+.balance-lab-heat-card {
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 231, 194, 0.08);
+  background: rgba(255, 241, 217, 0.04);
+}
+
+.balance-lab-heat-card h5,
+.balance-lab-heat-card p {
+  margin: 0;
+}
+
+.balance-lab-heat-card h5 {
+  font-family: "Cinzel", serif;
+  font-size: 0.94rem;
+  letter-spacing: 0.03em;
+}
+
+.balance-lab-heat-card p {
+  margin-top: 8px;
+  color: var(--text-muted);
+  line-height: 1.45;
+  font-size: 0.84rem;
+}
+
+.balance-lab-empty {
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(255, 241, 217, 0.04);
+  color: var(--text-muted);
+}
+
+.balance-lab-page-shell {
+  min-height: 100vh;
+  padding: 18px;
+  display: grid;
+  gap: 14px;
+  background:
+    radial-gradient(circle at top, rgba(255, 224, 170, 0.14), transparent 28%),
+    linear-gradient(180deg, #2c2117, #1d140e 58%, #140e0a);
+}
+
+.balance-lab-page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.balance-lab-page-header h1 {
+  margin: 0;
+  font-family: "Cinzel", serif;
+  letter-spacing: 0.03em;
+}
+
+.balance-lab-page-main {
+  display: grid;
+  gap: 14px;
+}
+
+#balanceLabPage .panel-section,
+#balanceLabPage .balance-lab-panel {
+  border-color: rgba(255, 229, 188, 0.14);
+  box-shadow: 0 18px 36px rgba(8, 5, 3, 0.34);
+}
+
+#balanceLabPage .balance-lab {
+  background:
+    linear-gradient(180deg, rgba(255, 244, 222, 0.05), rgba(255, 244, 222, 0.015)),
+    rgba(44, 31, 21, 0.92);
+}
+
+#balanceLabPage .balance-lab-panel {
+  background:
+    linear-gradient(180deg, rgba(255, 244, 222, 0.04), rgba(255, 244, 222, 0.015)),
+    rgba(58, 43, 30, 0.94);
+}
+
+#balanceLabPage .balance-lab-table {
+  border-color: rgba(255, 229, 188, 0.16);
+  background: rgba(33, 24, 17, 0.88);
+}
+
+#balanceLabPage .balance-lab-table table {
+  background: rgba(33, 24, 17, 0.88);
+}
+
+#balanceLabPage .balance-lab-table th,
+#balanceLabPage .balance-lab-table td {
+  border-bottom-color: rgba(255, 229, 188, 0.1);
+}
+
+#balanceLabPage .balance-lab-table th {
+  color: #e6d4b1;
+  background: rgba(73, 54, 38, 0.96);
+}
+
+#balanceLabPage .balance-lab-table td {
+  color: #f7ead1;
+  background: rgba(40, 29, 20, 0.9);
+}
+
+#balanceLabPage .balance-lab-table td.balance-lab-positive {
+  color: #bdf3a8;
+}
+
+#balanceLabPage .balance-lab-table td.balance-lab-negative {
+  color: #ffb2a2;
+}
+
+#balanceLabPage .balance-lab-table td.balance-lab-counter {
+  color: #a9ddff;
+}
+
+#balanceLabPage .balance-lab-table tbody tr:nth-child(odd) td {
+  background: rgba(49, 36, 25, 0.96);
+}
+
+#balanceLabPage .balance-lab-empty,
+#balanceLabPage .balance-lab-heat-card,
+#balanceLabPage .balance-lab-stat {
+  background: rgba(52, 39, 27, 0.92);
+  border-color: rgba(255, 229, 188, 0.12);
+}
+
+#balanceLabPage .balance-lab-chip {
+  background: rgba(73, 55, 39, 0.92);
+  border-color: rgba(255, 229, 188, 0.12);
+}
+
+#balanceLabPage .balance-lab-positive {
+  color: #bdf3a8;
+}
+
+#balanceLabPage .balance-lab-negative {
+  color: #ffb2a2;
+}
+
+#balanceLabPage .balance-lab-counter {
+  color: #a9ddff;
+}
+
+#balanceLabPage .balance-lab-controls label,
+#balanceLabPage .hint,
+#balanceLabPage .balance-lab-empty,
+#balanceLabPage .balance-lab-heat-card p,
+#balanceLabPage .balance-lab-stat span {
+  color: #dbc7a0;
+}
+
+#balanceLabPage .balance-lab-stat strong,
+#balanceLabPage .balance-lab-heat-card h5,
+#balanceLabPage .balance-lab-chip,
+#balanceLabPage .balance-lab-table td,
+#balanceLabPage .balance-lab-panel-header h4,
+#balanceLabPage .balance-lab-page-header h1 {
+  color: #f8ebd0;
+}
+
+#balanceLabPage .balance-lab-controls input[type="number"] {
+  background: rgba(71, 53, 38, 0.88);
+  border-color: rgba(255, 229, 188, 0.12);
+  color: #f8ebd0;
+}
+
+#balanceLabPage .balance-lab-progress {
+  background: rgba(255, 229, 188, 0.08);
+}
+
 .hero-panel h1, .battle-header h2 {
   margin: 0;
   font-family: "Cinzel", serif;

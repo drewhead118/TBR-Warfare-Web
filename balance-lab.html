@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TBR Warfare Balance Lab</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;800&family=Manrope:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="balanceLabPage" class="balance-lab-page-shell">
+    <header class="balance-lab-page-header panel-section">
+      <div>
+        <p class="eyebrow">Developer Tools</p>
+        <h1>Balance Lab</h1>
+        <p id="balanceLabStatus" class="hint">Ready to stage hidden balance trials.</p>
+      </div>
+      <div class="button-row">
+        <button id="runBalanceLabBtn" class="accent" type="button">Run Balance Lab</button>
+        <button id="pauseBalanceLabBtn" class="secondary" type="button">Pause</button>
+        <button id="cancelBalanceLabBtn" class="secondary" type="button">Cancel</button>
+        <button id="returnToBattleBtn" class="ghost small" type="button">Return To Battle</button>
+      </div>
+    </header>
+
+    <main class="balance-lab-page-main">
+      <section class="panel-section balance-lab">
+        <div class="balance-lab-controls">
+          <label>
+            <span>Army Size</span>
+            <input id="balanceLabArmySizeInput" type="number" min="6" max="120" step="1" value="18">
+          </label>
+          <label>
+            <span>Battle Timeout (s)</span>
+            <input id="balanceLabMaxBattleSecondsInput" type="number" min="10" max="180" step="1" value="45">
+          </label>
+          <label class="checkbox-row balance-lab-toggle">
+            <input id="balanceLabVaryArenaToggle" type="checkbox">
+            <span>Vary arena and weather across heats</span>
+          </label>
+        </div>
+        <div class="balance-lab-progress" aria-hidden="true">
+          <div id="balanceLabProgressFill" class="balance-lab-progress-fill"></div>
+        </div>
+        <div id="balanceLabSummary" class="balance-lab-summary"></div>
+      </section>
+
+      <section class="balance-lab-dashboard">
+        <section class="balance-lab-panel">
+          <div class="balance-lab-panel-header">
+            <div>
+              <h4>Unit Pressure</h4>
+              <p class="hint">Bias compares a unit's win rate to the sampled field average. Qty Corr shows whether a unit tends to improve when you bring more of it (`+`) or keep it sparse (`-`).</p>
+            </div>
+            <button id="downloadBalanceLabUnitsBtn" class="ghost small" type="button">Download Sheet</button>
+          </div>
+          <div id="balanceLabUnitTable"></div>
+        </section>
+        <section class="balance-lab-panel">
+          <div class="balance-lab-panel-header">
+            <div>
+              <h4>Army Compositions</h4>
+              <p class="hint">This ranks the most reliable full compositions seen so far, using their running battle results across all samples.</p>
+            </div>
+            <button id="downloadBalanceLabCombosBtn" class="ghost small" type="button">Download Sheet</button>
+          </div>
+          <div id="balanceLabComboTable"></div>
+        </section>
+        <section class="balance-lab-panel">
+          <div class="balance-lab-panel-header">
+            <div>
+              <h4>Pair Synergies</h4>
+              <p class="hint">Two-unit pairings are compared against their members' average solo win tendency. Green pairs overperform together; red pairs drag each other down.</p>
+            </div>
+            <button id="downloadBalanceLabPairsBtn" class="ghost small" type="button">Download Sheet</button>
+          </div>
+          <label class="balance-lab-search">
+            <span>Search Unit</span>
+            <input id="balanceLabPairSearchInput" type="search" placeholder="Type a unit name, e.g. Krieger">
+          </label>
+          <div id="balanceLabPairTable"></div>
+        </section>
+        <section class="balance-lab-panel">
+          <div class="balance-lab-panel-header">
+            <div>
+              <h4>Counter Matrix</h4>
+              <p class="hint">Shows when armies containing one unit consistently beat armies featuring another unit in the same sampled heats.</p>
+            </div>
+            <button id="downloadBalanceLabCountersBtn" class="ghost small" type="button">Download Sheet</button>
+          </div>
+          <label class="balance-lab-search">
+            <span>Search Unit</span>
+            <input id="balanceLabCounterSearchInput" type="search" placeholder="Type a unit name, e.g. Krieger">
+          </label>
+          <div id="balanceLabCounterTable"></div>
+        </section>
+      </section>
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

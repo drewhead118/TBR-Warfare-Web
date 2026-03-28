@@ -73,6 +73,18 @@ const DEFAULT_TOURNAMENT_CONFIG = Object.freeze({
   inklordInvasionDelaySeconds: INKLORD_DEBUG_DELAY,
   paperbackOnly: false,
 });
+const DEFAULT_BALANCE_LAB_CONFIG = Object.freeze({
+  armySize: 18,
+  maxBattleSeconds: 45,
+  varyArena: false,
+  continuous: true,
+});
+const BALANCE_LAB_HEAT_SIZE = 3;
+const BALANCE_LAB_RANDOM_COMPOSITION_DRAWS = 8;
+const BALANCE_LAB_MAX_UNIT_TYPES_PER_ARMY = 4;
+const BALANCE_LAB_HEADLESS_STEP_DT = 0.05;
+const BALANCE_LAB_FRAME_BUDGET_MS = 12;
+const BALANCE_LAB_JOB_BATCH_SIZE = 24;
 const DEFAULT_COMPOSITION = { archer: 1, mage: 1, knight: 1, paladin: 0, bodyguard: 0, medic: 0, bard: 0, bomber: 0, assassin: 0, mountainman: 0, catapult: 0, poisoner: 0, firebreather: 0, necromancer: 0, graverobber: 0, arachnomist: 0, krieger: 0, huntsman: 0, winterwitch: 0, phantom: 0 };
 const MAX_COMPOSITION_UNIT_TYPES = 5;
 const UNIT_SPRITE_CANDIDATE_PATHS = [
@@ -594,7 +606,7 @@ const UNIT_DEFINITIONS = {
     name: "Archer",
     keywords: ["bow", "ranged", "arrow"],
     description: "Archers are the army's patient skirmishers, trading durability for reach and steady damage. They stay behind the line, loose arrows from a safe distance, and excel when tougher allies buy them time to keep firing.",
-    stats: { maxHealth: 58, speed: 48, range: 210, damage: 14, cooldown: 1.65 },
+    stats: { maxHealth: 58, speed: 48, range: 210, damage: 14, cooldown: 1.05 },
     healthBarWidth: 20,
     iconPaths: getArcherIconSvgPaths,
     getDesiredDestination: getRetreatingDestination(120, 1),
@@ -667,7 +679,7 @@ const UNIT_DEFINITIONS = {
     keywords: ["heal", "support", "frail"],
     description: "Medics contribute no direct offense, but they can swing long fights by repeatedly restoring allies on the front line. They are fragile and need protection, yet a well-screened medic can make an entire formation much harder to grind down.",
     supportOnly: true,
-    stats: { maxHealth: 36, speed: 56, range: 16, heal: 25, cooldown: 1.9 },
+    stats: { maxHealth: 50, speed: 56, range: 22, heal: 0.4, cooldown: 1 },
     healthBarWidth: 20,
     iconPaths: getMedicIconSvgPaths,
     canActWithoutEnemies: true,
@@ -675,7 +687,7 @@ const UNIT_DEFINITIONS = {
     getDesiredDestination: getHoldPositionDestination(12),
     performAttack: performMedicHeal,
     render: drawMedic,
-    veteran: { metric: "healing", threshold: 180, label: "Heal 180 health" },
+    veteran: { metric: "healing", threshold: 200, label: "Heal 200 health" },
   },
   bard: {
     id: "bard",
@@ -683,7 +695,7 @@ const UNIT_DEFINITIONS = {
     keywords: ["music", "song", "support", "aura", "minstrel", "buff", "heal"],
     description: "Bards are battlefield conductors. They drift behind the line and keep nearby allies under one of several songs, swapping between pace, valor, guarding refrains, and the occasional healing chorus depending on how the fight is unfolding.",
     supportOnly: true,
-    stats: { maxHealth: 58, speed: 34, range: 0, auraRadius: 108, marchSpeedBonus: 1.24, marchCooldownBonus: 0.82, valorPowerBonus: 1.18, valorRangeBonus: 1.05, guardReduction: 0.18, songDuration: 4.8 },
+    stats: { maxHealth: 58, speed: 34, range: 0, auraRadius: 108, marchSpeedBonus: 1.35, marchCooldownBonus: 0.75, valorPowerBonus: 1.3, valorRangeBonus: 1.2, guardReduction: 0.25, songDuration: 4.8 },
     healthBarWidth: 20,
     iconPaths: getBardIconSvgPaths,
     canActWithoutEnemies: true,
@@ -698,7 +710,7 @@ const UNIT_DEFINITIONS = {
     name: "Bomber",
     keywords: ["explosive", "grenade", "suicide"],
     description: "Bombers are volatile area-denial specialists built around explosive splash damage. They threaten clustered enemies from range, and even their deaths are dangerous thanks to a larger final blast that punishes anyone crowding them.",
-    stats: { maxHealth: 62, speed: 40, range: 255, damage: 50, splash: 62, deathSplash: 86, cooldown: 2.3, fuse: 1.6 },
+    stats: { maxHealth: 62, speed: 40, range: 255, damage: 40, splash: 62, deathSplash: 86, cooldown: 2.9, fuse: 1.4 },
     healthBarWidth: 20,
     iconPaths: getBomberIconSvgPaths,
     selectTarget: selectBomberTarget,
@@ -765,7 +777,7 @@ const UNIT_DEFINITIONS = {
     name: "Poisoner",
     keywords: ["venom", "poison", "potion", "toxin", "alchemist"],
     description: "Poisoners specialize in attrition. Their bottles do modest immediate damage, but the real threat is stacking poison over an area, causing enemies to keep losing health after the initial impact and making sustained engagements increasingly costly.",
-    stats: { maxHealth: 50, speed: 42, range: 225, damage: 8, splash: 46, poisonStacks: 1, poisonDuration: 9, poisonDamage: 3.2, cooldown: 2.4 },
+    stats: { maxHealth: 50, speed: 42, range: 225, damage: 8, splash: 40, poisonStacks: 1, poisonDuration: 8, poisonDamage: 2.8, cooldown: 2.6 },
     healthBarWidth: 20,
     iconPaths: getPoisonerIconSvgPaths,
     getDesiredDestination: getRetreatingDestination(132, 1.05),
@@ -812,7 +824,7 @@ const UNIT_DEFINITIONS = {
     name: "Graverobber",
     keywords: ["grave", "corpse", "raider", "shovel", "melee"],
     description: "Graverobbers thrive where others have already died. They prowl near corpses and graves, turning battlefield remains into a resource that improves their effectiveness, which makes them especially dangerous in messy, prolonged fights.",
-    stats: { maxHealth: 78, speed: 34, range: 18, graveRange: 24, damage: 10, cooldown: 1.25 },
+    stats: { maxHealth: 78, speed: 42, range: 18, graveRange: 24, damage: 15, cooldown: 1 },
     healthBarWidth: 22,
     iconPaths: getGraverobberIconSvgPaths,
     canActWithoutEnemies: true,
@@ -863,7 +875,7 @@ const UNIT_DEFINITIONS = {
     name: "Huntsman",
     keywords: ["net", "crossbow", "knife", "bleed", "hunter", "snare"],
     description: "Huntsmen are patient controllers. They pin targets down with a thrown net, then try to finish the setup with a thrown hunting knife that is hard to land on moving prey but reliable against enemies already trapped in place. Each knife hit is light, yet it leaves a lasting bleed until a support unit cleanses it.",
-    stats: { maxHealth: 68, speed: 36, range: 150, netRange: 150, netDuration: 6, damage: 1, cooldown: 3.2 },
+    stats: { maxHealth: 68, speed: 36, range: 150, netRange: 150, netDuration: 4, damage: 1, cooldown: 3.2 },
     healthBarWidth: 22,
     iconPaths: getHuntsmanIconSvgPaths,
     beforeStep: updateHuntsmanState,
@@ -1536,6 +1548,8 @@ const state = {
     fps: 0,
   },
   performanceCalibration: createPerformanceCalibrationState(),
+  balanceLab: createBalanceLabState(),
+  simulationContext: null,
   lastBattleHighlightAt: -Infinity,
   lastTournamentViewSyncAt: -Infinity,
   spriteRigEditor: createSpriteRigEditorState(),
@@ -1577,6 +1591,27 @@ const els = {
   terrainBuildFill: document.getElementById("terrainBuildFill"),
   terrainBuildPercent: document.getElementById("terrainBuildPercent"),
   devPanel: document.getElementById("devPanel"),
+  balanceLabStatus: document.getElementById("balanceLabStatus"),
+  balanceLabArmySizeInput: document.getElementById("balanceLabArmySizeInput"),
+  balanceLabMaxBattleSecondsInput: document.getElementById("balanceLabMaxBattleSecondsInput"),
+  balanceLabVaryArenaToggle: document.getElementById("balanceLabVaryArenaToggle"),
+  runBalanceLabBtn: document.getElementById("runBalanceLabBtn"),
+  pauseBalanceLabBtn: document.getElementById("pauseBalanceLabBtn"),
+  cancelBalanceLabBtn: document.getElementById("cancelBalanceLabBtn"),
+  openBalanceLabBtn: document.getElementById("openBalanceLabBtn"),
+  returnToBattleBtn: document.getElementById("returnToBattleBtn"),
+  downloadBalanceLabUnitsBtn: document.getElementById("downloadBalanceLabUnitsBtn"),
+  downloadBalanceLabCombosBtn: document.getElementById("downloadBalanceLabCombosBtn"),
+  downloadBalanceLabPairsBtn: document.getElementById("downloadBalanceLabPairsBtn"),
+  downloadBalanceLabCountersBtn: document.getElementById("downloadBalanceLabCountersBtn"),
+  balanceLabPairSearchInput: document.getElementById("balanceLabPairSearchInput"),
+  balanceLabCounterSearchInput: document.getElementById("balanceLabCounterSearchInput"),
+  balanceLabProgressFill: document.getElementById("balanceLabProgressFill"),
+  balanceLabSummary: document.getElementById("balanceLabSummary"),
+  balanceLabUnitTable: document.getElementById("balanceLabUnitTable"),
+  balanceLabComboTable: document.getElementById("balanceLabComboTable"),
+  balanceLabPairTable: document.getElementById("balanceLabPairTable"),
+  balanceLabCounterTable: document.getElementById("balanceLabCounterTable"),
   useRiggedSpritesToggle: document.getElementById("useRiggedSpritesToggle"),
   useTerrainTexturingToggle: document.getElementById("useTerrainTexturingToggle"),
   useUnitOverlapShadowsToggle: document.getElementById("useUnitOverlapShadowsToggle"),
@@ -1699,6 +1734,12 @@ const HAS_SPRITE_RIG_PAGE = Boolean(
   && els.spriteRigPreviewCanvas
   && els.spriteRigFileInput
 );
+const HAS_BALANCE_LAB_PAGE = Boolean(
+  document.getElementById("balanceLabPage")
+  && els.balanceLabStatus
+  && els.runBalanceLabBtn
+  && els.balanceLabUnitTable
+);
 const ctx = els.canvas ? els.canvas.getContext("2d") : null;
 const chartCtx = els.battleHealthChartCanvas ? els.battleHealthChartCanvas.getContext("2d") : null;
 let lastFrame = performance.now();
@@ -1706,8 +1747,10 @@ let lastFrame = performance.now();
 bootstrap();
 
 async function bootstrap() {
-  if (HAS_BATTLE_PAGE) {
+  if (HAS_BATTLE_PAGE || HAS_BALANCE_LAB_PAGE) {
     loadState();
+  }
+  if (HAS_BATTLE_PAGE) {
     getFactionImage(WEATHER_RAIN_LIGHT_ASSET);
     getFactionImage(WEATHER_RAIN_HEAVY_ASSET);
     await loadGroundPropScaleOverrides();
@@ -1731,13 +1774,18 @@ async function bootstrap() {
     syncCsvInput();
     renderArmyEditors();
     renderTournamentConfigPanel();
+    renderBalanceLabPanel();
     resetBattle();
+  }
+  if (HAS_BALANCE_LAB_PAGE) {
+    bindBalanceLabPageUi();
+    renderBalanceLabPanel();
   }
   if (HAS_SPRITE_RIG_PAGE) {
     initializeSpriteRigEditor();
     bindSpriteRigEditorUi();
   }
-  if (HAS_BATTLE_PAGE || HAS_SPRITE_RIG_PAGE) requestAnimationFrame(loop);
+  if (HAS_BATTLE_PAGE || HAS_SPRITE_RIG_PAGE || HAS_BALANCE_LAB_PAGE) requestAnimationFrame(loop);
 }
 
 function bindUi() {
@@ -1751,6 +1799,12 @@ function bindUi() {
     .filter(Boolean)
     .forEach((input) => input.addEventListener("change", commitTournamentConfigFromInputs));
   els.autoCalibratePerformanceBtn?.addEventListener("click", startPerformanceCalibration);
+  [els.balanceLabArmySizeInput, els.balanceLabMaxBattleSecondsInput, els.balanceLabVaryArenaToggle]
+    .filter(Boolean)
+    .forEach((input) => input.addEventListener("change", commitBalanceLabConfigFromInputs));
+  els.runBalanceLabBtn?.addEventListener("click", startBalanceLabSimulation);
+  els.cancelBalanceLabBtn?.addEventListener("click", cancelBalanceLabSimulation);
+  els.openBalanceLabBtn?.addEventListener("click", openBalanceLabPage);
   els.seedSampleBtn.addEventListener("click", () => {
     state.factions = cloneData(SAMPLE_BOOKS).map(withFactionDefaults);
     state.roundsApplied = 0;
@@ -3979,12 +4033,13 @@ function createEmptyComposition() {
   return Object.fromEntries(UNIT_LIBRARY.map((unit) => [unit.id, 0]));
 }
 
-function createRandomComposition(draws = 8) {
+function createRandomComposition(draws = 8, options = {}) {
   const composition = createEmptyComposition();
+  const maxUnitTypes = clampInt(options.maxUnitTypes ?? MAX_COMPOSITION_UNIT_TYPES, 1, MAX_COMPOSITION_UNIT_TYPES);
   if (!UNIT_LIBRARY.length || draws <= 0) return composition;
   for (let index = 0; index < draws; index += 1) {
     const selectedUnits = UNIT_LIBRARY.filter((unit) => composition[unit.id] > 0);
-    const canAddNewUnitType = selectedUnits.length < MAX_COMPOSITION_UNIT_TYPES;
+    const canAddNewUnitType = selectedUnits.length < maxUnitTypes;
     const unselectedUnits = canAddNewUnitType
       ? UNIT_LIBRARY.filter((unit) => composition[unit.id] <= 0)
       : [];
@@ -4324,6 +4379,70 @@ function createPerformanceCalibrationState() {
   };
 }
 
+function bindBalanceLabPageUi() {
+  [els.balanceLabArmySizeInput, els.balanceLabMaxBattleSecondsInput, els.balanceLabVaryArenaToggle]
+    .filter(Boolean)
+    .forEach((input) => input.addEventListener("change", commitBalanceLabConfigFromInputs));
+  els.runBalanceLabBtn?.addEventListener("click", startBalanceLabSimulation);
+  els.pauseBalanceLabBtn?.addEventListener("click", togglePauseBalanceLabSampling);
+  els.cancelBalanceLabBtn?.addEventListener("click", cancelBalanceLabSimulation);
+  els.returnToBattleBtn?.addEventListener("click", returnToBattlePage);
+  els.downloadBalanceLabUnitsBtn?.addEventListener("click", () => downloadBalanceLabSheet("units"));
+  els.downloadBalanceLabCombosBtn?.addEventListener("click", () => downloadBalanceLabSheet("combos"));
+  els.downloadBalanceLabPairsBtn?.addEventListener("click", () => downloadBalanceLabSheet("pairs"));
+  els.downloadBalanceLabCountersBtn?.addEventListener("click", () => downloadBalanceLabSheet("counters"));
+  els.balanceLabPairSearchInput?.addEventListener("input", () => {
+    state.balanceLab.filters.pair = `${els.balanceLabPairSearchInput.value || ""}`.trim();
+    renderBalanceLabPairTable();
+  });
+  els.balanceLabCounterSearchInput?.addEventListener("input", () => {
+    state.balanceLab.filters.counter = `${els.balanceLabCounterSearchInput.value || ""}`.trim();
+    renderBalanceLabCounterTable();
+  });
+}
+
+function normalizeBalanceLabConfig(config = {}) {
+  return {
+    armySize: clampInt(config.armySize ?? DEFAULT_BALANCE_LAB_CONFIG.armySize, 6, 120),
+    maxBattleSeconds: clampInt(config.maxBattleSeconds ?? DEFAULT_BALANCE_LAB_CONFIG.maxBattleSeconds, 10, 180),
+    varyArena: config.varyArena === true,
+    continuous: true,
+  };
+}
+
+function createEmptyBalanceLabReport(config = normalizeBalanceLabConfig()) {
+  return {
+    createdAt: Date.now(),
+    config,
+    totalBattles: 0,
+    completedBattles: 0,
+    totalDurationSeconds: 0,
+    timedOutBattles: 0,
+    comboStats: {},
+    unitStats: {},
+    pairStats: {},
+    counterStats: {},
+  };
+}
+
+function createBalanceLabState() {
+  return {
+    config: normalizeBalanceLabConfig(),
+    active: false,
+    paused: false,
+    queue: [],
+    totalJobs: 0,
+    completedJobs: 0,
+    startedAt: 0,
+    status: "Ready to stage hidden balance trials.",
+    report: createEmptyBalanceLabReport(),
+    filters: {
+      pair: "",
+      counter: "",
+    },
+  };
+}
+
 function normalizeTournamentConfig(config = {}) {
   const maxFactionsPerHeat = clampInt(
     config.maxFactionsPerHeat ?? DEFAULT_TOURNAMENT_CONFIG.maxFactionsPerHeat,
@@ -4366,6 +4485,7 @@ function loadState() {
     state.showRenderDebug = saved.showRenderDebug === true;
     state.propResizeMode = saved.propResizeMode === true;
     state.disableShiftInspectTooltipCooldown = saved.disableShiftInspectTooltipCooldown === true;
+    state.balanceLab.config = normalizeBalanceLabConfig(saved.balanceLabConfig);
     state.propScaleOverrides = typeof saved.propScaleOverrides === "object" && saved.propScaleOverrides
       ? saved.propScaleOverrides
       : {};
@@ -4386,6 +4506,7 @@ function saveState() {
     showRenderDebug: state.showRenderDebug,
     propResizeMode: state.propResizeMode,
     disableShiftInspectTooltipCooldown: state.disableShiftInspectTooltipCooldown,
+    balanceLabConfig: state.balanceLab.config,
     propScaleOverrides: state.propScaleOverrides,
   }));
   syncTournamentViewState(true);
@@ -4461,6 +4582,884 @@ function renderTournamentConfigPanel() {
       : "";
     els.tournamentConfigSummary.textContent = `${heatText}. ${unitText} ${inklordText} ${paperbackText}${calibrationText}`;
   }
+}
+
+function commitBalanceLabConfigFromInputs() {
+  state.balanceLab.config = normalizeBalanceLabConfig({
+    armySize: els.balanceLabArmySizeInput?.value,
+    maxBattleSeconds: els.balanceLabMaxBattleSecondsInput?.value,
+    varyArena: Boolean(els.balanceLabVaryArenaToggle?.checked),
+  });
+  saveState();
+  renderBalanceLabPanel();
+}
+
+function renderBalanceLabPanel() {
+  if (!els.balanceLabStatus) return;
+  const balanceLab = state.balanceLab;
+  const config = normalizeBalanceLabConfig(balanceLab.config);
+  balanceLab.config = config;
+  const progress = balanceLab.totalJobs > 0
+    ? balanceLab.completedJobs / balanceLab.totalJobs
+    : 0;
+
+  if (els.balanceLabArmySizeInput) els.balanceLabArmySizeInput.value = String(config.armySize);
+  if (els.balanceLabMaxBattleSecondsInput) els.balanceLabMaxBattleSecondsInput.value = String(config.maxBattleSeconds);
+  if (els.balanceLabVaryArenaToggle) els.balanceLabVaryArenaToggle.checked = config.varyArena === true;
+  if (els.balanceLabPairSearchInput && els.balanceLabPairSearchInput.value !== balanceLab.filters.pair) {
+    els.balanceLabPairSearchInput.value = balanceLab.filters.pair;
+  }
+  if (els.balanceLabCounterSearchInput && els.balanceLabCounterSearchInput.value !== balanceLab.filters.counter) {
+    els.balanceLabCounterSearchInput.value = balanceLab.filters.counter;
+  }
+
+  [els.balanceLabArmySizeInput, els.balanceLabMaxBattleSecondsInput, els.balanceLabVaryArenaToggle]
+    .filter(Boolean)
+    .forEach((input) => { input.disabled = balanceLab.active; });
+
+  if (els.runBalanceLabBtn) {
+    els.runBalanceLabBtn.disabled = balanceLab.active;
+    els.runBalanceLabBtn.textContent = balanceLab.active ? "Running..." : "Run Balance Lab";
+  }
+  if (els.pauseBalanceLabBtn) {
+    const canPause = balanceLab.active;
+    els.pauseBalanceLabBtn.disabled = !canPause;
+    els.pauseBalanceLabBtn.textContent = balanceLab.paused ? "Resume" : "Pause";
+  }
+  if (els.cancelBalanceLabBtn) {
+    els.cancelBalanceLabBtn.disabled = !balanceLab.active;
+  }
+  if (els.balanceLabStatus) {
+    els.balanceLabStatus.textContent = balanceLab.status || "Ready to stage hidden balance trials.";
+  }
+  if (els.balanceLabProgressFill) {
+    els.balanceLabProgressFill.style.width = `${Math.max(0, Math.min(100, progress * 100))}%`;
+  }
+
+  renderBalanceLabSummary();
+  renderBalanceLabTables();
+}
+
+function renderBalanceLabSummary() {
+  if (!els.balanceLabSummary) return;
+  const report = state.balanceLab.report || createEmptyBalanceLabReport(state.balanceLab.config);
+  const unitRows = getBalanceLabUnitRows(report);
+  const strongest = unitRows[0];
+  const weakest = unitRows.length ? unitRows[unitRows.length - 1] : null;
+  const avgDuration = report.completedBattles > 0
+    ? report.totalDurationSeconds / report.completedBattles
+    : 0;
+  const stats = [
+    { label: "Tracked Comps", value: String(Object.keys(report.comboStats || {}).length) },
+    { label: "Battles Run", value: String(report.completedBattles || 0) },
+    { label: "Avg Battle Time", value: report.completedBattles ? `${avgDuration.toFixed(1)}s` : "None yet" },
+    { label: "Strongest Bias", value: strongest ? `${strongest.name} ${formatBalanceLabSignedPercent(strongest.winBias)}` : "Pending" },
+    { label: "Weakest Bias", value: weakest ? `${weakest.name} ${formatBalanceLabSignedPercent(weakest.winBias)}` : "Pending" },
+    { label: "Sampling Mode", value: "Continuous" },
+    { label: "Timed Out", value: String(report.timedOutBattles || 0) },
+  ];
+  els.balanceLabSummary.innerHTML = stats.map((entry) => `
+    <article class="balance-lab-stat">
+      <span>${escapeHtml(entry.label)}</span>
+      <strong>${escapeHtml(entry.value)}</strong>
+    </article>
+  `).join("");
+}
+
+function renderBalanceLabTables() {
+  renderBalanceLabUnitTable();
+  renderBalanceLabComboTable();
+  renderBalanceLabPairTable();
+  renderBalanceLabCounterTable();
+}
+
+function renderBalanceLabUnitTable() {
+  if (!els.balanceLabUnitTable) return;
+  const rows = getBalanceLabUnitRows(state.balanceLab.report);
+  if (!rows.length) {
+    els.balanceLabUnitTable.innerHTML = '<div class="balance-lab-empty">Run the lab to see which units overperform and whether they prefer massed stacks or light support roles.</div>';
+    return;
+  }
+  els.balanceLabUnitTable.innerHTML = `
+    <div class="balance-lab-table">
+      <table>
+        <thead>
+          <tr>
+            <th>Unit</th>
+            <th>Bias vs Field</th>
+            <th>Win Rate</th>
+            <th>Qty Corr</th>
+            <th>Avg Qty</th>
+            <th>Wins</th>
+            <th>Samples</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map((row) => `
+            <tr>
+              <td>${escapeHtml(row.name)}</td>
+              <td class="${getBalanceLabToneClass(row.winBias)}">${escapeHtml(formatBalanceLabSignedPercent(row.winBias))}</td>
+              <td>${escapeHtml(formatBalanceLabPercent(row.winRate))}</td>
+              <td class="${getBalanceLabToneClass(row.quantityCorrelation)}">${escapeHtml(formatBalanceLabSignedCorrelation(row.quantityCorrelation))}</td>
+              <td>${escapeHtml(formatBalanceLabCount(row.averageCount))}</td>
+              <td>${escapeHtml(String(row.wins))}</td>
+              <td>${escapeHtml(String(row.appearances))}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderBalanceLabComboTable() {
+  if (!els.balanceLabComboTable) return;
+  const rows = getBalanceLabComboRows(state.balanceLab.report);
+  if (!rows.length) {
+    els.balanceLabComboTable.innerHTML = '<div class="balance-lab-empty">No sampled army compositions yet. This column will rank the strongest mixes seen so far.</div>';
+    return;
+  }
+  els.balanceLabComboTable.innerHTML = `
+    <div class="balance-lab-table">
+      <table>
+        <thead>
+          <tr>
+            <th>Army Composition</th>
+            <th>Bias vs Field</th>
+            <th>Win Rate</th>
+            <th>Wins</th>
+            <th>Samples</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.slice(0, 12).map((row) => `
+            <tr>
+              <td>${escapeHtml(row.label)}</td>
+              <td class="${getBalanceLabToneClass(row.winBias)}">${escapeHtml(formatBalanceLabSignedPercent(row.winBias))}</td>
+              <td>${escapeHtml(formatBalanceLabPercent(row.winRate))}</td>
+              <td>${escapeHtml(String(row.wins))}</td>
+              <td>${escapeHtml(String(row.appearances))}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderBalanceLabPairTable() {
+  if (!els.balanceLabPairTable) return;
+  const filter = `${state.balanceLab.filters.pair || ""}`.trim();
+  const rows = getBalanceLabPairRows(state.balanceLab.report, filter);
+  if (!rows.length) {
+    els.balanceLabPairTable.innerHTML = '<div class="balance-lab-empty">Run the lab to discover pair synergies and anti-synergies inside sampled compositions.</div>';
+    return;
+  }
+  const featured = filter
+    ? rows
+    : [...rows.slice(0, 6), ...rows.slice(-6)]
+      .filter((row, index, list) => list.findIndex((entry) => entry.key === row.key) === index);
+  els.balanceLabPairTable.innerHTML = `
+    <div class="balance-lab-table">
+      <table>
+        <thead>
+          <tr>
+            <th>Pair</th>
+            <th>Synergy</th>
+            <th>Pair Win Rate</th>
+            <th>Samples</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${featured.map((row) => `
+            <tr>
+              <td>${escapeHtml(row.label)}</td>
+              <td class="${getBalanceLabToneClass(row.synergyDelta)}">${escapeHtml(formatBalanceLabSignedPercent(row.synergyDelta))}</td>
+              <td>${escapeHtml(formatBalanceLabPercent(row.winRate))}</td>
+              <td>${escapeHtml(String(row.appearances))}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderBalanceLabCounterTable() {
+  if (!els.balanceLabCounterTable) return;
+  const filter = `${state.balanceLab.filters.counter || ""}`.trim();
+  const rows = getBalanceLabCounterRows(state.balanceLab.report, filter);
+  if (!rows.length) {
+    els.balanceLabCounterTable.innerHTML = '<div class="balance-lab-empty">Run the lab to detect matchup patterns like one unit type consistently beating armies that contain another.</div>';
+    return;
+  }
+  const featured = filter ? rows : rows.slice(0, 12);
+  els.balanceLabCounterTable.innerHTML = `
+    <div class="balance-lab-table">
+      <table>
+        <thead>
+          <tr>
+            <th>Counter Signal</th>
+            <th>Edge</th>
+            <th>Win Rate</th>
+            <th>Samples</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${featured.map((row) => `
+            <tr>
+              <td>${escapeHtml(`${row.attackerName} -> ${row.defenderName}`)}</td>
+              <td class="balance-lab-counter">${escapeHtml(formatBalanceLabSignedPercent(row.counterDelta))}</td>
+              <td>${escapeHtml(formatBalanceLabPercent(row.winRate))}</td>
+              <td>${escapeHtml(String(row.appearances))}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function getBalanceLabToneClass(value) {
+  if (value > 0.02) return "balance-lab-positive";
+  if (value < -0.02) return "balance-lab-negative";
+  return "balance-lab-neutral";
+}
+
+function formatBalanceLabPercent(value) {
+  return `${(Math.max(0, Number(value) || 0) * 100).toFixed(1)}%`;
+}
+
+function formatBalanceLabSignedPercent(value) {
+  const numeric = Number(value) || 0;
+  return `${numeric >= 0 ? "+" : ""}${(numeric * 100).toFixed(1)}%`;
+}
+
+function formatBalanceLabSignedCorrelation(value) {
+  const numeric = Number(value) || 0;
+  return `${numeric >= 0 ? "+" : ""}${numeric.toFixed(2)}`;
+}
+
+function formatBalanceLabCount(value) {
+  const numeric = Number(value) || 0;
+  return numeric >= 10 ? numeric.toFixed(1) : numeric.toFixed(2);
+}
+
+function getSortedUnitPair(unitIds) {
+  return unitIds.slice().sort();
+}
+
+function getBalanceLabPairKey(unitIds) {
+  return getSortedUnitPair(unitIds).join("|");
+}
+
+function getBalanceLabPairLabel(unitIds) {
+  return getSortedUnitPair(unitIds).map((unitId) => getUnitDefinition(unitId).name).join(" + ");
+}
+
+function getBalanceLabCounterKey(attackerUnitId, defenderUnitId) {
+  return `${attackerUnitId}->${defenderUnitId}`;
+}
+
+function upsertUniqueValues(target, values) {
+  values.forEach((value) => {
+    if (!target.includes(value)) target.push(value);
+  });
+}
+
+function serializeBalanceLabUnitCounts(unitCounts) {
+  return UNIT_LIBRARY
+    .filter((unit) => (unitCounts?.[unit.id] || 0) > 0)
+    .map((unit) => `${unit.id}:${unitCounts[unit.id]}`)
+    .join("|");
+}
+
+function getBalanceLabUnitIdsFromCounts(unitCounts) {
+  return UNIT_LIBRARY
+    .filter((unit) => (unitCounts?.[unit.id] || 0) > 0)
+    .map((unit) => unit.id);
+}
+
+function getBalanceLabUnitSetKey(unitIds = []) {
+  return unitIds.slice().sort().join("|");
+}
+
+function getBalanceLabUnitSetLabel(unitIds = []) {
+  return unitIds
+    .slice()
+    .sort()
+    .map((unitId) => getUnitDefinition(unitId).name)
+    .join(", ");
+}
+
+function getBalanceLabCompositionLabel(unitCounts) {
+  return UNIT_LIBRARY
+    .filter((unit) => (unitCounts?.[unit.id] || 0) > 0)
+    .map((unit) => `${unit.name} ${unitCounts[unit.id]}`)
+    .join(" + ");
+}
+
+function createBalanceLabCompositionRecord(config) {
+  const composition = createRandomComposition(BALANCE_LAB_RANDOM_COMPOSITION_DRAWS, {
+    maxUnitTypes: BALANCE_LAB_MAX_UNIT_TYPES_PER_ARMY,
+  });
+  const unitCounts = compositionCounts(config.armySize, composition);
+  const unitIds = getBalanceLabUnitIdsFromCounts(unitCounts);
+  return {
+    key: serializeBalanceLabUnitCounts(unitCounts),
+    bucketKey: getBalanceLabUnitSetKey(unitIds),
+    unitIds,
+    unitCounts,
+    label: getBalanceLabCompositionLabel(unitCounts),
+    bucketLabel: getBalanceLabUnitSetLabel(unitIds),
+    composition: unitCounts,
+  };
+}
+
+function createBalanceLabJobBatch(startingBattleIndex = 0) {
+  return Array.from({ length: BALANCE_LAB_JOB_BATCH_SIZE }, (_, index) => ({
+    id: `balance-battle-${startingBattleIndex + index}`,
+    battleIndex: startingBattleIndex + index,
+  }));
+}
+
+function createBalanceLabBattleCompositions(config, count = BALANCE_LAB_HEAT_SIZE) {
+  const unique = new Map();
+  const maxAttempts = Math.max(count * 10, 20);
+  let attempts = 0;
+  while (unique.size < count && attempts < maxAttempts) {
+    const composition = createBalanceLabCompositionRecord(config);
+    unique.set(composition.key, composition);
+    attempts += 1;
+  }
+  const values = Array.from(unique.values());
+  while (values.length < count) {
+    values.push(createBalanceLabCompositionRecord(config));
+  }
+  return values;
+}
+
+function startBalanceLabSimulation() {
+  if (state.balanceLab.active) return;
+  const config = normalizeBalanceLabConfig(state.balanceLab.config);
+  state.balanceLab.active = true;
+  state.balanceLab.paused = false;
+  state.balanceLab.queue = createBalanceLabJobBatch(0);
+  state.balanceLab.totalJobs = state.balanceLab.queue.length;
+  state.balanceLab.completedJobs = 0;
+  state.balanceLab.startedAt = performance.now();
+  state.balanceLab.status = `Continuous sampling started with ${state.balanceLab.queue.length} hidden battles queued.`;
+  state.balanceLab.report = createEmptyBalanceLabReport(config);
+  state.balanceLab.report.totalBattles += state.balanceLab.queue.length;
+  renderBalanceLabPanel();
+}
+
+function cancelBalanceLabSimulation() {
+  if (!state.balanceLab.active) return;
+  state.balanceLab.active = false;
+  state.balanceLab.paused = false;
+  state.balanceLab.queue = [];
+  state.balanceLab.totalJobs = 0;
+  state.balanceLab.completedJobs = 0;
+  state.balanceLab.status = "Balance lab cancelled. The latest finished samples are still shown below.";
+  renderBalanceLabPanel();
+}
+
+function togglePauseBalanceLabSampling() {
+  const balanceLab = state.balanceLab;
+  if (!balanceLab.active) return;
+  balanceLab.paused = !balanceLab.paused;
+  balanceLab.status = balanceLab.paused
+    ? `Continuous sampling paused after ${balanceLab.report.completedBattles} simulated battles.`
+    : `Continuous sampling resumed with ${balanceLab.queue.length} queued trials and ${balanceLab.report.completedBattles} battles sampled so far.`;
+  renderBalanceLabPanel();
+}
+
+function updateBalanceLab() {
+  const balanceLab = state.balanceLab;
+  if (!balanceLab.active) return;
+  if (balanceLab.paused) return;
+  const startedAt = performance.now();
+  let processed = 0;
+  while (balanceLab.queue.length && (performance.now() - startedAt) < BALANCE_LAB_FRAME_BUDGET_MS) {
+    const job = balanceLab.queue.shift();
+    const result = runBalanceLabJob(job, balanceLab.config);
+    recordBalanceLabJobResult(balanceLab.report, result);
+    balanceLab.completedJobs += 1;
+    processed += 1;
+  }
+  if (balanceLab.totalJobs > 0) {
+    balanceLab.status = `Running hidden trial ${Math.min(balanceLab.completedJobs + 1, balanceLab.totalJobs)} of ${balanceLab.totalJobs}.`;
+  }
+  if (!balanceLab.queue.length) {
+    refillBalanceLabContinuousQueue();
+    renderBalanceLabPanel();
+    return;
+  }
+  if (processed > 0) renderBalanceLabPanel();
+}
+
+function refillBalanceLabContinuousQueue() {
+  const balanceLab = state.balanceLab;
+  const queue = createBalanceLabJobBatch(balanceLab.report.totalBattles || 0);
+  if (!queue.length) {
+    balanceLab.status = "Continuous sampling ran out of battles to stage.";
+    balanceLab.active = false;
+    return;
+  }
+  balanceLab.queue = queue;
+  balanceLab.totalJobs += queue.length;
+  balanceLab.report.totalBattles += queue.length;
+  balanceLab.status = `Continuous sampling has logged ${balanceLab.report.completedBattles} battles and queued ${queue.length} more.`;
+}
+
+function finalizeBalanceLabSimulation() {
+  const balanceLab = state.balanceLab;
+  balanceLab.active = false;
+  balanceLab.queue = [];
+  balanceLab.totalJobs = 0;
+  balanceLab.completedJobs = 0;
+  const elapsedSeconds = (performance.now() - balanceLab.startedAt) / 1000;
+  balanceLab.status = `Balance lab finished in ${elapsedSeconds.toFixed(1)}s with ${balanceLab.report.completedBattles} simulated battles.`;
+  renderBalanceLabPanel();
+}
+
+function runBalanceLabJob(job, config) {
+  const factions = createBalanceLabBattleCompositions(config)
+    .map((combo, index) => createBalanceLabFaction(combo, index, config.armySize, job));
+  const arena = config.varyArena
+    ? createRandomArenaVariant(job.battleIndex, 0, factions.length)
+    : createArenaVariant(job.battleIndex, 0, factions.length);
+  const battle = buildHeadlessBalanceBattle(factions, arena);
+  const battleResult = simulateHeadlessBalanceBattle(battle, config.maxBattleSeconds);
+  return {
+    battleIndex: job.battleIndex,
+    battleResult,
+  };
+}
+
+function createBalanceLabFaction(combo, index, armySize, job) {
+  return {
+    id: `balance-faction-${job.battleIndex}-${index}`,
+    title: combo.label,
+    comboKey: combo.key,
+    bucketKey: combo.bucketKey,
+    bucketLabel: combo.bucketLabel,
+    unitIds: combo.unitIds.slice(),
+    unitCounts: { ...combo.unitCounts },
+    coverUrl: "",
+    armySize,
+    submissionType: "digital",
+    composition: normalizeComposition(combo.composition),
+    fledReserve: 0,
+  };
+}
+
+function buildHeadlessBalanceBattle(factionPool, arena) {
+  const field = { ...FIELD, centerX: FIELD.width / 2, centerY: FIELD.height / 2, radius: 320 };
+  const factions = factionPool.map((faction, index) => {
+    const angle = (Math.PI * 2 * index) / Math.max(1, factionPool.length);
+    const baseX = field.centerX + Math.cos(angle) * field.radius;
+    const baseY = field.centerY + Math.sin(angle) * field.radius * 0.62;
+    const units = spawnUnitsForFaction(faction, baseX, baseY);
+    return {
+      ...faction,
+      color: factionColor(index),
+      units,
+      bannerPos: { x: baseX, y: baseY - BANNER_FLOAT_OFFSET },
+      homeBase: { x: baseX, y: baseY },
+      alive: true,
+      image: null,
+      comboKey: faction.comboKey,
+      bucketKey: faction.bucketKey,
+      bucketLabel: faction.bucketLabel,
+      unitIds: faction.unitIds,
+      unitCounts: { ...(faction.unitCounts || {}) },
+      startingUnitCount: units.length,
+      startingHealth: units.reduce((sum, unit) => sum + unit.maxHealth, 0),
+    };
+  });
+  const battle = {
+    field,
+    factions,
+    graves: [],
+    projectiles: [],
+    particles: [],
+    spells: [],
+    bodyguardRescues: [],
+    swipes: [],
+    traces: [],
+    bossBubbles: [],
+    stuckArrows: [],
+    bombs: [],
+    arena,
+    weatherField: [],
+    terrainTexture: null,
+    props: [],
+    pendingWinner: null,
+    completed: false,
+    meta: { headless: true },
+    time: 0,
+    notes: { dwindled: {}, slaughter: {}, killstreaks: {}, extinguished: {}, supportOnlyRouted: {} },
+    knockoutQueue: [],
+    activeKnockout: null,
+    inklordEvent: {
+      scheduledAt: Number.POSITIVE_INFINITY,
+      phase: "waiting",
+      bannerShown: false,
+      unitId: null,
+      impactAt: null,
+      landingX: field.centerX,
+      landingY: field.centerY,
+    },
+  };
+  initializeBattleHealthTimeline(battle);
+  return battle;
+}
+
+function simulateHeadlessBalanceBattle(battle, maxBattleSeconds) {
+  const maxSteps = Math.ceil(maxBattleSeconds / BALANCE_LAB_HEADLESS_STEP_DT);
+  withHeadlessBattleContext(battle, () => {
+    for (let step = 0; step < maxSteps && !battle.completed; step += 1) {
+      stepBattle(battle, BALANCE_LAB_HEADLESS_STEP_DT);
+    }
+  });
+  let timedOut = false;
+  if (!battle.completed) {
+    timedOut = true;
+    resolveHeadlessBattleTimeout(battle);
+  }
+  const factions = getResultFactions(battle).map((faction) => {
+    return {
+      factionId: faction.id,
+      comboKey: faction.comboKey,
+      bucketKey: faction.bucketKey,
+      bucketLabel: faction.bucketLabel,
+      unitIds: faction.unitIds || faction.comboKey?.split("|") || [],
+      unitCounts: { ...(faction.unitCounts || {}) },
+      label: faction.title,
+      won: battle.pendingWinner === faction.id,
+    };
+  }).sort((a, b) => Number(b.won) - Number(a.won));
+  return {
+    timedOut,
+    durationSeconds: battle.time,
+    factions,
+  };
+}
+
+function resolveHeadlessBattleTimeout(battle) {
+  const contenders = getLivingResultFactions(battle);
+  const ranked = contenders
+    .map((faction) => ({
+      faction,
+      livingUnits: faction.units.filter((unit) => !unit.dead && !unit.fled),
+    }))
+    .sort((a, b) => {
+      if (b.livingUnits.length !== a.livingUnits.length) return b.livingUnits.length - a.livingUnits.length;
+      const bHealth = b.livingUnits.reduce((sum, unit) => sum + Math.max(0, unit.health), 0);
+      const aHealth = a.livingUnits.reduce((sum, unit) => sum + Math.max(0, unit.health), 0);
+      return bHealth - aHealth;
+    });
+  battle.pendingWinner = ranked[0]?.faction?.id || null;
+  battle.completed = true;
+  stopInkLordEvent(battle);
+}
+
+function withHeadlessBattleContext(battle, callback) {
+  const previousBattle = state.battle;
+  const previousContext = state.simulationContext;
+  state.battle = battle;
+  state.simulationContext = { active: true, battle };
+  try {
+    return callback();
+  } finally {
+    state.battle = previousBattle;
+    state.simulationContext = previousContext;
+  }
+}
+
+function isHeadlessSimulationActive() {
+  return Boolean(state.simulationContext?.active);
+}
+
+function recordBalanceLabJobResult(report, result) {
+  if (!report) return;
+  report.completedBattles += 1;
+  report.totalDurationSeconds += result.battleResult.durationSeconds;
+  if (result.battleResult.timedOut) report.timedOutBattles += 1;
+  const winnerEntries = result.battleResult.factions.filter((entry) => entry.won);
+  const loserEntries = result.battleResult.factions.filter((entry) => !entry.won);
+
+  result.battleResult.factions.forEach((entry) => {
+    const resolvedComboKey = entry.bucketKey || getBalanceLabUnitSetKey(entry.unitIds || []);
+    const comboStat = report.comboStats[resolvedComboKey] || {
+      key: resolvedComboKey,
+      label: entry.bucketLabel || getBalanceLabUnitSetLabel(entry.unitIds || []),
+      unitIds: entry.unitIds?.length ? entry.unitIds.slice() : resolvedComboKey.split("|"),
+      appearances: 0,
+      wins: 0,
+    };
+    comboStat.appearances += 1;
+    comboStat.wins += entry.won ? 1 : 0;
+    report.comboStats[resolvedComboKey] = comboStat;
+
+    comboStat.unitIds.forEach((unitId) => {
+      const count = Math.max(0, entry.unitCounts?.[unitId] || 0);
+      const outcome = entry.won ? 1 : 0;
+      const unitStat = report.unitStats[unitId] || {
+        unitId,
+        name: getUnitDefinition(unitId).name,
+        appearances: 0,
+        wins: 0,
+        totalCount: 0,
+        quantitySamples: 0,
+        quantitySum: 0,
+        quantityWinSum: 0,
+        quantityProductSum: 0,
+        quantitySquaredSum: 0,
+      };
+      unitStat.appearances += 1;
+      unitStat.wins += outcome;
+      unitStat.totalCount += count;
+      unitStat.quantitySamples += 1;
+      unitStat.quantitySum += count;
+      unitStat.quantityWinSum += outcome;
+      unitStat.quantityProductSum += count * outcome;
+      unitStat.quantitySquaredSum += count * count;
+      report.unitStats[unitId] = unitStat;
+    });
+
+    const unitIds = (comboStat.unitIds || []).slice().sort();
+    for (let first = 0; first < unitIds.length - 1; first += 1) {
+      for (let second = first + 1; second < unitIds.length; second += 1) {
+        const pairIds = [unitIds[first], unitIds[second]];
+        const pairKey = getBalanceLabPairKey(pairIds);
+        const pairStat = report.pairStats[pairKey] || {
+          key: pairKey,
+          unitIds: pairIds,
+          label: getBalanceLabPairLabel(pairIds),
+          appearances: 0,
+          wins: 0,
+        };
+        pairStat.appearances += 1;
+        pairStat.wins += entry.won ? 1 : 0;
+        report.pairStats[pairKey] = pairStat;
+      }
+    }
+  });
+
+  winnerEntries.forEach((winner) => {
+    loserEntries.forEach((loser) => {
+      (winner.unitIds || []).forEach((attackerUnitId) => {
+        (loser.unitIds || []).forEach((defenderUnitId) => {
+          const counterKey = getBalanceLabCounterKey(attackerUnitId, defenderUnitId);
+          const counterStat = report.counterStats[counterKey] || {
+            key: counterKey,
+            attackerUnitId,
+            attackerName: getUnitDefinition(attackerUnitId).name,
+            defenderUnitId,
+            defenderName: getUnitDefinition(defenderUnitId).name,
+            appearances: 0,
+            wins: 0,
+          };
+          counterStat.appearances += 1;
+          counterStat.wins += 1;
+          report.counterStats[counterKey] = counterStat;
+
+          const reverseKey = getBalanceLabCounterKey(defenderUnitId, attackerUnitId);
+          const reverseStat = report.counterStats[reverseKey] || {
+            key: reverseKey,
+            attackerUnitId: defenderUnitId,
+            attackerName: getUnitDefinition(defenderUnitId).name,
+            defenderUnitId: attackerUnitId,
+            defenderName: getUnitDefinition(attackerUnitId).name,
+            appearances: 0,
+            wins: 0,
+          };
+          reverseStat.appearances += 1;
+          report.counterStats[reverseKey] = reverseStat;
+        });
+      });
+    });
+  });
+}
+
+function getBalanceLabComboRows(report) {
+  const comboStats = Object.values(report?.comboStats || {});
+  const totalAppearances = comboStats.reduce((sum, entry) => sum + (entry.appearances || 0), 0);
+  const totalWins = comboStats.reduce((sum, entry) => sum + (entry.wins || 0), 0);
+  const fieldAverage = totalAppearances > 0 ? totalWins / totalAppearances : 0;
+  return comboStats
+    .map((entry) => ({
+      ...entry,
+      winRate: entry.appearances > 0 ? entry.wins / entry.appearances : 0,
+      solidScore: (entry.wins + 1) / (entry.appearances + 2),
+      winBias: (entry.appearances > 0 ? entry.wins / entry.appearances : 0) - fieldAverage,
+    }))
+    .sort((a, b) => {
+      if (b.solidScore !== a.solidScore) return b.solidScore - a.solidScore;
+      if (b.winRate !== a.winRate) return b.winRate - a.winRate;
+      if (b.appearances !== a.appearances) return b.appearances - a.appearances;
+      return b.wins - a.wins;
+    });
+}
+
+function getBalanceLabQuantityCorrelation(entry) {
+  const samples = entry?.quantitySamples || 0;
+  if (samples < 2) return 0;
+  const sumX = entry.quantitySum || 0;
+  const sumY = entry.quantityWinSum || 0;
+  const sumXY = entry.quantityProductSum || 0;
+  const sumXX = entry.quantitySquaredSum || 0;
+  const sumYY = sumY;
+  const numerator = (samples * sumXY) - (sumX * sumY);
+  const left = (samples * sumXX) - (sumX * sumX);
+  const right = (samples * sumYY) - (sumY * sumY);
+  if (left <= 0 || right <= 0) return 0;
+  return numerator / Math.sqrt(left * right);
+}
+
+function getBalanceLabUnitRows(report) {
+  const comboRows = getBalanceLabComboRows(report);
+  const fieldAverage = comboRows.length
+    ? comboRows.reduce((sum, entry) => sum + entry.winRate, 0) / comboRows.length
+    : 0;
+  return UNIT_LIBRARY.map((unit) => report?.unitStats?.[unit.id] || {
+    unitId: unit.id,
+    name: unit.name,
+    appearances: 0,
+    wins: 0,
+  })
+    .map((entry) => ({
+      ...entry,
+      winRate: entry.appearances > 0 ? entry.wins / entry.appearances : 0,
+      averageCount: entry.appearances > 0 ? entry.totalCount / entry.appearances : 0,
+      quantityCorrelation: getBalanceLabQuantityCorrelation(entry),
+    }))
+    .map((entry) => ({
+      ...entry,
+      winBias: entry.winRate - fieldAverage,
+    }))
+    .sort((a, b) => b.winBias - a.winBias);
+}
+
+function getBalanceLabPairRows(report, filter = "") {
+  const query = `${filter || ""}`.trim().toLowerCase();
+  return Object.values(report?.pairStats || {})
+    .map((entry) => {
+      const unitA = report?.unitStats?.[entry.unitIds[0]];
+      const unitB = report?.unitStats?.[entry.unitIds[1]];
+      const unitAWinRate = unitA?.appearances > 0 ? unitA.wins / unitA.appearances : 0;
+      const unitBWinRate = unitB?.appearances > 0 ? unitB.wins / unitB.appearances : 0;
+      const expected = (unitAWinRate + unitBWinRate) / 2;
+      const winRate = entry.appearances > 0 ? entry.wins / entry.appearances : 0;
+      return {
+        ...entry,
+        winRate,
+        synergyDelta: winRate - expected,
+      };
+    })
+    .filter((entry) => !query || entry.label.toLowerCase().includes(query))
+    .sort((a, b) => b.synergyDelta - a.synergyDelta);
+}
+
+function getBalanceLabCounterRows(report, filter = "") {
+  const query = `${filter || ""}`.trim().toLowerCase();
+  return Object.values(report?.counterStats || {})
+    .map((entry) => {
+      const winRate = entry.appearances > 0 ? entry.wins / entry.appearances : 0;
+      return {
+        ...entry,
+        winRate,
+        counterDelta: winRate - 0.5,
+      };
+    })
+    .filter((entry) => !query || entry.attackerName.toLowerCase().includes(query))
+    .filter((entry) => entry.appearances >= 3)
+    .sort((a, b) => {
+      if (b.counterDelta !== a.counterDelta) return b.counterDelta - a.counterDelta;
+      return b.appearances - a.appearances;
+    });
+}
+
+function csvEscape(value) {
+  const text = `${value ?? ""}`;
+  if (/[",\n]/.test(text)) return `"${text.replace(/"/g, "\"\"")}"`;
+  return text;
+}
+
+function downloadTextFile(filename, content, mimeType = "text/csv;charset=utf-8") {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function getBalanceLabExportRows(kind) {
+  const report = state.balanceLab.report;
+  if (kind === "units") {
+    return {
+      filename: "balance-lab-unit-pressure.csv",
+      headers: ["Unit", "Bias vs Field", "Win Rate", "Qty Corr", "Avg Qty", "Wins", "Samples"],
+      rows: getBalanceLabUnitRows(report).map((row) => [
+        row.name,
+        formatBalanceLabSignedPercent(row.winBias),
+        formatBalanceLabPercent(row.winRate),
+        formatBalanceLabSignedCorrelation(row.quantityCorrelation),
+        formatBalanceLabCount(row.averageCount),
+        row.wins,
+        row.appearances,
+      ]),
+    };
+  }
+  if (kind === "combos") {
+    return {
+      filename: "balance-lab-army-compositions.csv",
+      headers: ["Army Composition", "Bias vs Field", "Win Rate", "Wins", "Samples"],
+      rows: getBalanceLabComboRows(report).map((row) => [
+        row.label,
+        formatBalanceLabSignedPercent(row.winBias),
+        formatBalanceLabPercent(row.winRate),
+        row.wins,
+        row.appearances,
+      ]),
+    };
+  }
+  if (kind === "pairs") {
+    return {
+      filename: "balance-lab-pair-synergies.csv",
+      headers: ["Pair", "Synergy", "Pair Win Rate", "Samples"],
+      rows: getBalanceLabPairRows(report, state.balanceLab.filters.pair).map((row) => [
+        row.label,
+        formatBalanceLabSignedPercent(row.synergyDelta),
+        formatBalanceLabPercent(row.winRate),
+        row.appearances,
+      ]),
+    };
+  }
+  return {
+    filename: "balance-lab-counter-matrix.csv",
+    headers: ["Counter Signal", "Edge", "Win Rate", "Samples"],
+    rows: getBalanceLabCounterRows(report, state.balanceLab.filters.counter).map((row) => [
+      `${row.attackerName} -> ${row.defenderName}`,
+      formatBalanceLabSignedPercent(row.counterDelta),
+      formatBalanceLabPercent(row.winRate),
+      row.appearances,
+    ]),
+  };
+}
+
+function downloadBalanceLabSheet(kind) {
+  const exportData = getBalanceLabExportRows(kind);
+  const lines = [
+    exportData.headers.map(csvEscape).join(","),
+    ...exportData.rows.map((row) => row.map(csvEscape).join(",")),
+  ];
+  downloadTextFile(exportData.filename, lines.join("\n"));
 }
 
 function clearRiggedUnitCaches() {
@@ -5315,6 +6314,20 @@ function openTournamentPage() {
   syncTournamentViewState(true);
   const tournamentWindow = window.open("tournament.html", "tbr-warfare-tournament-view");
   tournamentWindow?.focus?.();
+}
+
+function openBalanceLabPage() {
+  const balanceWindow = window.open("balance-lab.html", "tbr-warfare-balance-lab");
+  balanceWindow?.focus?.();
+}
+
+function returnToBattlePage() {
+  if (window.opener && !window.opener.closed) {
+    window.opener.focus();
+    window.close();
+    return;
+  }
+  window.location.href = "index.html";
 }
 
 function buildTournamentViewSnapshot() {
@@ -6528,30 +7541,65 @@ function getUnitStats(unitOrType, unitDef = getUnitDefinition(unitOrType)) {
   return modifyStatsForStatuses(unit, modifiedStats);
 }
 
+function getActiveBattleContext() {
+  return state.simulationContext?.battle || state.battle || null;
+}
+
+function findStatusSourceUnit(status, battle = getActiveBattleContext()) {
+  if (!status?.sourceId || !battle) return null;
+  return findUnitById(battle, status.sourceId);
+}
+
+function getBardSongModifiers(sourceOrType = "bard") {
+  const stats = getUnitDefinition(sourceOrType)?.stats || {};
+  return {
+    marchSpeedBonus: stats.marchSpeedBonus ?? 1,
+    marchCooldownBonus: stats.marchCooldownBonus ?? 1,
+    valorPowerBonus: stats.valorPowerBonus ?? 1,
+    valorRangeBonus: stats.valorRangeBonus ?? 1,
+    guardReduction: stats.guardReduction ?? 0,
+    healingPerSecond: stats.healingPerSecond ?? STATUS_DEFINITIONS.bardichealing.healPerSecond ?? 0,
+  };
+}
+
+function formatPercentFromMultiplier(multiplier) {
+  return formatHoverStatNumber((Math.max(0, multiplier) - 1) * 100);
+}
+
+function formatPercentReductionFromRate(rate) {
+  return formatHoverStatNumber((1 - Math.max(0, rate)) * 100);
+}
+
 function modifyStatsForStatuses(unit, stats) {
   if (!unit || !stats) return stats;
   let modified = stats;
-  if (getUnitStatus(unit, "bardichaste")) {
+  const hasteStatus = getUnitStatus(unit, "bardichaste");
+  if (hasteStatus) {
+    const hasteSource = findStatusSourceUnit(hasteStatus);
+    const modifiers = getBardSongModifiers(hasteSource || "bard");
     modified = {
       ...modified,
-      speed: (modified.speed ?? 0) * 1.24,
-      cooldown: (modified.cooldown ?? 1) * 0.82,
+      speed: (modified.speed ?? 0) * modifiers.marchSpeedBonus,
+      cooldown: (modified.cooldown ?? 1) * modifiers.marchCooldownBonus,
     };
   }
-  if (getUnitStatus(unit, "bardicvalor")) {
+  const valorStatus = getUnitStatus(unit, "bardicvalor");
+  if (valorStatus) {
+    const valorSource = findStatusSourceUnit(valorStatus);
+    const modifiers = getBardSongModifiers(valorSource || "bard");
     modified = {
       ...modified,
-      damage: typeof modified.damage === "number" ? modified.damage * 1.18 : modified.damage,
-      heal: typeof modified.heal === "number" ? modified.heal * 1.18 : modified.heal,
-      backstabDamage: typeof modified.backstabDamage === "number" ? modified.backstabDamage * 1.18 : modified.backstabDamage,
-      slashDamage: typeof modified.slashDamage === "number" ? modified.slashDamage * 1.18 : modified.slashDamage,
-      impulseDamage: typeof modified.impulseDamage === "number" ? modified.impulseDamage * 1.18 : modified.impulseDamage,
-      holdDamage: typeof modified.holdDamage === "number" ? modified.holdDamage * 1.18 : modified.holdDamage,
-      poisonDamage: typeof modified.poisonDamage === "number" ? modified.poisonDamage * 1.18 : modified.poisonDamage,
-      igniteDamage: typeof modified.igniteDamage === "number" ? modified.igniteDamage * 1.18 : modified.igniteDamage,
-      biteDamage: typeof modified.biteDamage === "number" ? modified.biteDamage * 1.18 : modified.biteDamage,
-      biteHeal: typeof modified.biteHeal === "number" ? modified.biteHeal * 1.18 : modified.biteHeal,
-      range: typeof modified.range === "number" ? modified.range * 1.05 : modified.range,
+      damage: typeof modified.damage === "number" ? modified.damage * modifiers.valorPowerBonus : modified.damage,
+      heal: typeof modified.heal === "number" ? modified.heal * modifiers.valorPowerBonus : modified.heal,
+      backstabDamage: typeof modified.backstabDamage === "number" ? modified.backstabDamage * modifiers.valorPowerBonus : modified.backstabDamage,
+      slashDamage: typeof modified.slashDamage === "number" ? modified.slashDamage * modifiers.valorPowerBonus : modified.slashDamage,
+      impulseDamage: typeof modified.impulseDamage === "number" ? modified.impulseDamage * modifiers.valorPowerBonus : modified.impulseDamage,
+      holdDamage: typeof modified.holdDamage === "number" ? modified.holdDamage * modifiers.valorPowerBonus : modified.holdDamage,
+      poisonDamage: typeof modified.poisonDamage === "number" ? modified.poisonDamage * modifiers.valorPowerBonus : modified.poisonDamage,
+      igniteDamage: typeof modified.igniteDamage === "number" ? modified.igniteDamage * modifiers.valorPowerBonus : modified.igniteDamage,
+      biteDamage: typeof modified.biteDamage === "number" ? modified.biteDamage * modifiers.valorPowerBonus : modified.biteDamage,
+      biteHeal: typeof modified.biteHeal === "number" ? modified.biteHeal * modifiers.valorPowerBonus : modified.biteHeal,
+      range: typeof modified.range === "number" ? modified.range * modifiers.valorRangeBonus : modified.range,
     };
   }
   const blizzardModifiers = getBlizzardStatusModifiers(unit);
@@ -6943,6 +7991,8 @@ function applyStatus(unit, kind, stacks = 1, duration = null, source = null, bat
     ?? (kind === "ignite" ? sourceStats?.igniteDamage : null)
     ?? (kind === "blizzard" ? sourceStats?.blizzardDamage : null)
     ?? statusDef.dps;
+  const statusHealPerSecond = (kind === "bardichealing" ? sourceStats?.healingPerSecond : null)
+    ?? statusDef.healPerSecond;
   const statusMoveMultiplier = (kind === "blizzard" ? sourceStats?.blizzardMoveMultiplier : null)
     ?? statusDef.moveMultiplier;
   const statusCooldownRate = (kind === "blizzard" ? sourceStats?.blizzardCooldownRate : null)
@@ -6960,6 +8010,7 @@ function applyStatus(unit, kind, stacks = 1, duration = null, source = null, bat
       sourceId: source?.id || null,
       sourceFactionId: source?.factionId || null,
       dps: statusDps,
+      healPerSecond: statusHealPerSecond,
       moveMultiplier: statusMoveMultiplier,
       cooldownRate: statusCooldownRate,
     };
@@ -6975,6 +8026,9 @@ function applyStatus(unit, kind, stacks = 1, duration = null, source = null, bat
   status.sourceId = source?.id || status.sourceId || null;
   status.sourceFactionId = source?.factionId || status.sourceFactionId || null;
   status.dps = Math.max(status.dps || 0, statusDps);
+  if (typeof statusHealPerSecond === "number") {
+    status.healPerSecond = Math.max(status.healPerSecond || 0, statusHealPerSecond);
+  }
   if (typeof statusMoveMultiplier === "number") {
     status.moveMultiplier = typeof status.moveMultiplier === "number"
       ? Math.min(status.moveMultiplier, statusMoveMultiplier)
@@ -8807,8 +9861,11 @@ function loop(timestamp) {
     updateCamera(dt);
     render();
   }
+  if (HAS_BATTLE_PAGE || HAS_BALANCE_LAB_PAGE) {
+    updateBalanceLab(timestamp);
+  }
   if (HAS_SPRITE_RIG_PAGE) renderSpriteRigPreview();
-  if (HAS_BATTLE_PAGE || HAS_SPRITE_RIG_PAGE) requestAnimationFrame(loop);
+  if (HAS_BATTLE_PAGE || HAS_SPRITE_RIG_PAGE || HAS_BALANCE_LAB_PAGE) requestAnimationFrame(loop);
 }
 
 function stepBattle(battle, dt) {
@@ -8848,13 +9905,15 @@ function stepBattle(battle, dt) {
     battle.completed = true;
     stopInkLordEvent(battle);
     endBattleAudio();
-    els.battleState.textContent = state.tournament ? `${getCurrentMatchLabel(state.tournament)} complete` : "Complete";
-    els.winnerLabel.textContent = winner.title;
-    setTicker(`${winner.title} survives the melee.`);
-    showWinnerCard(winner, battle);
-    renderBracketTracker();
-    updateAdvanceButtonLabel();
-    renderSpeedControls();
+    if (!isHeadlessSimulationActive()) {
+      els.battleState.textContent = state.tournament ? `${getCurrentMatchLabel(state.tournament)} complete` : "Complete";
+      els.winnerLabel.textContent = winner.title;
+      setTicker(`${winner.title} survives the melee.`);
+      showWinnerCard(winner, battle);
+      renderBracketTracker();
+      updateAdvanceButtonLabel();
+      renderSpeedControls();
+    }
     return;
   }
   if (!battle.completed && contenders.length === 0) {
@@ -8863,19 +9922,21 @@ function stepBattle(battle, dt) {
     battle.completed = true;
     stopInkLordEvent(battle);
     endBattleAudio();
-    els.battleState.textContent = state.tournament ? `${getCurrentMatchLabel(state.tournament)} complete` : "Complete";
-    if (winner) {
-      els.winnerLabel.textContent = winner.title;
-      setTicker(`${winner.title} survives the melee.`);
-      showWinnerCard(winner, battle);
-    } else {
-      els.winnerLabel.textContent = "Mutual destruction";
-      setTicker("No army survived the field.");
-      showWinnerCard(null, battle);
+    if (!isHeadlessSimulationActive()) {
+      els.battleState.textContent = state.tournament ? `${getCurrentMatchLabel(state.tournament)} complete` : "Complete";
+      if (winner) {
+        els.winnerLabel.textContent = winner.title;
+        setTicker(`${winner.title} survives the melee.`);
+        showWinnerCard(winner, battle);
+      } else {
+        els.winnerLabel.textContent = "Mutual destruction";
+        setTicker("No army survived the field.");
+        showWinnerCard(null, battle);
+      }
+      renderBracketTracker();
+      updateAdvanceButtonLabel();
+      renderSpeedControls();
     }
-    renderBracketTracker();
-    updateAdvanceButtonLabel();
-    renderSpeedControls();
   }
 }
 
@@ -9102,10 +10163,14 @@ function updateBardAuras(battle) {
     bards.forEach((bard) => {
       const stats = getUnitStats(bard);
       const songKind = bard.activeSongKind || "bardichaste";
+      const songDefinition = getStatusDefinition(songKind);
       getNearbyLivingUnits(battle, bard.x, bard.y, stats.auraRadius).forEach((ally) => {
         if (!areUnitsAllied(bard, ally, battle)) return;
         if (getBattlefieldEllipseDistance(ally.x - bard.x, ally.y - bard.y) <= stats.auraRadius) {
-          applyStatus(ally, songKind, 1, 0.35, bard, battle);
+          const status = applyStatus(ally, songKind, 1, songDefinition?.defaultDuration, bard, battle);
+          if (status && songKind === "bardichealing") {
+            status.healPerSecond = Math.max(status.healPerSecond || 0, getBardSongModifiers(bard).healingPerSecond);
+          }
         }
       });
     });
@@ -9192,6 +10257,7 @@ function ensureTrackPlayback(trackKey) {
 }
 
 function playOneShotAudio(trackKey) {
+  if (isHeadlessSimulationActive()) return;
   const track = state.audio.tracks[trackKey];
   if (!track || state.audio.muted) return;
   track.element.pause();
@@ -9249,6 +10315,7 @@ function updateAudioFades(dt) {
 }
 
 function switchMusicTrack(trackKey, duration = AUDIO_DEFAULT_FADE_SECONDS) {
+  if (isHeadlessSimulationActive()) return;
   if (state.audio.activeMusicKey === trackKey) return;
   if (state.audio.activeMusicKey) fadeTrackTo(state.audio.activeMusicKey, 0, duration);
   state.audio.activeMusicKey = trackKey;
@@ -9256,6 +10323,7 @@ function switchMusicTrack(trackKey, duration = AUDIO_DEFAULT_FADE_SECONDS) {
 }
 
 function startBattleAudio() {
+  if (isHeadlessSimulationActive()) return;
   initializeBattleAudio();
   state.audio.muted = false;
   fadeTrackTo("ambience", state.audio.tracks.ambience.baseVolume, 0.9);
@@ -9282,6 +10350,7 @@ function resumeBattleAudio() {
 }
 
 function endBattleAudio() {
+  if (isHeadlessSimulationActive()) return;
   fadeTrackTo("main", 0, AUDIO_END_FADE_SECONDS);
   fadeTrackTo("inklord", 0, AUDIO_END_FADE_SECONDS);
   fadeTrackTo("ambience", 0, AUDIO_END_FADE_SECONDS);
@@ -9418,6 +10487,7 @@ function updateUnit(unit, faction, battle, dt) {
   }
 
   let destination = getDesiredDestination(unit, unitDef, target, distance, battle, allies, enemies, graves);
+  const hazardAvoidance = !unit.fleeing ? getUnitHazardAvoidanceDestination(unit, battle, destination) : null;
   const igniteStatus = getUnitStatus(unit, "ignite");
   if (unit.fleeing) {
     const awayX = unit.x - battle.field.centerX;
@@ -9430,6 +10500,9 @@ function updateUnit(unit, faction, battle, dt) {
   } else if (igniteStatus) {
     destination = getIgnitePanicDestination(unit, battle);
     updateUnitActivity(unit, "Panicking through the flames.");
+  } else if (hazardAvoidance) {
+    destination = hazardAvoidance;
+    updateUnitActivity(unit, hazardAvoidance.reason === "blizzard" ? "Trying to get out of the blizzard." : "Backing away from a live bomb.");
   }
 
   const dx = destination.x - unit.x;
@@ -9637,6 +10710,14 @@ function getHoldPositionDestination(threshold) {
 }
 
 function selectMedicTarget({ unit, allies }) {
+  const selfNeedsHealing = unit.health < unit.maxHealth || hasNegativeStatuses(unit);
+  const selfHealthRatio = unit.health / Math.max(1, unit.maxHealth);
+  const shouldPrioritizeSelf = selfNeedsHealing && (selfHealthRatio <= 0.45 || hasNegativeStatuses(unit));
+  if (shouldPrioritizeSelf) {
+    unit.focusTargetId = unit.id;
+    updateUnitActivity(unit, "Stabilizing own wounds.");
+    return unit;
+  }
   const locked = allies.find((ally) => ally.id === unit.focusTargetId && (ally.health < ally.maxHealth || hasNegativeStatuses(ally)) && !ally.liftedBySpellId);
   if (locked) {
     updateUnitActivity(unit, `Moving to heal ${getUnitActivityTargetLabel(locked, state.battle)}.`);
@@ -10141,10 +11222,11 @@ function modifyGraverobberStats(unit, stats) {
   const robbed = unit.gravesRobbed || 0;
   return {
     ...stats,
-    damage: stats.damage * (1 + robbed * 0.32),
-    speed: stats.speed * (1 + robbed * 0.08),
+    damage: stats.damage * (1 + robbed * 0.5),
+    speed: stats.speed * (1 + robbed * 0.3),
     range: stats.range + robbed * 3.5,
     graveRange: stats.graveRange + robbed * 2,
+    maxHealth: stats.maxHealth * (1 + robbed * 0.1),
   };
 }
 
@@ -10275,6 +11357,108 @@ function getIgnitePanicDestination(unit, battle) {
     x: unit.panicTargetX,
     y: unit.panicTargetY,
   };
+}
+
+function getUnitHazardAvoidanceDestination(unit, battle, preferredDestination) {
+  if (!battle || unit.dead || unit.fled || unit.liftedBySpellId || unit.displacedBySpellId) return null;
+  const activeUntil = unit.hazardAvoidanceUntil ?? 0;
+  const activeTargetX = unit.hazardAvoidanceTargetX;
+  const activeTargetY = unit.hazardAvoidanceTargetY;
+  if (battle.time < activeUntil && Number.isFinite(activeTargetX) && Number.isFinite(activeTargetY)) {
+    const remainingDistance = Math.hypot(activeTargetX - unit.x, activeTargetY - unit.y);
+    if (remainingDistance > 14) {
+      return {
+        x: activeTargetX,
+        y: activeTargetY,
+        reason: unit.hazardAvoidanceReason || "hazard",
+      };
+    }
+  }
+
+  let totalWeight = 0;
+  let awayX = 0;
+  let awayY = 0;
+  let strongestReason = "";
+  let strongestWeight = 0;
+
+  battle.spells.forEach((spell) => {
+    if (spell.kind !== "winter-blizzard") return;
+    const source = spell.sourceId ? findUnitById(battle, spell.sourceId) : null;
+    if (source && !areUnitsHostile(source, unit, battle)) return;
+    const dx = unit.x - spell.x;
+    const dy = unit.y - spell.y;
+    const distance = getBattlefieldEllipseDistance(dx, dy);
+    if (distance > spell.radius) return;
+    const edgePressure = clamp(1 - distance / Math.max(1, spell.radius), 0.2, 1);
+    const weight = 0.75 + edgePressure * 1.2;
+    awayX += dx * weight;
+    awayY += dy * weight;
+    totalWeight += weight;
+    if (weight > strongestWeight) {
+      strongestWeight = weight;
+      strongestReason = "blizzard";
+    }
+  });
+
+  battle.projectiles.forEach((projectile) => {
+    if (projectile.kind !== "bomb" || !projectile.landed) return;
+    const fuse = Math.max(0.001, projectile.fuse || 0);
+    if ((projectile.timer || 0) >= fuse) return;
+    const concernRadius = projectile.radius * 1.35;
+    const dx = unit.x - projectile.endX;
+    const dy = unit.y - projectile.endY;
+    const distance = getBattlefieldEllipseDistance(dx, dy);
+    if (distance > concernRadius) return;
+    const timePressure = clamp((projectile.timer || 0) / fuse, 0, 1);
+    const edgePressure = clamp(1 - distance / Math.max(1, concernRadius), 0.18, 1);
+    const weight = 0.35 + edgePressure * 0.95 + timePressure * 1.35;
+    awayX += dx * weight;
+    awayY += dy * weight;
+    totalWeight += weight;
+    if (weight > strongestWeight) {
+      strongestWeight = weight;
+      strongestReason = "bomb";
+    }
+  });
+
+  if (totalWeight <= 0.01) {
+    unit.hazardAvoidanceUntil = 0;
+    unit.hazardAvoidanceReason = "";
+    return null;
+  }
+
+  const courageFactor = clamp(1 - (unit.bravery ?? 0) * 0.32, 0.62, 1.08);
+  const leaveChance = clamp((0.17 + totalWeight * 0.23) * courageFactor, 0.16, 0.92);
+  if (Math.random() > leaveChance) return null;
+
+  let norm = Math.hypot(awayX, awayY);
+  if (norm < 0.001) {
+    const fallbackX = unit.x - (preferredDestination?.x ?? unit.x);
+    const fallbackY = unit.y - (preferredDestination?.y ?? unit.y);
+    norm = Math.hypot(fallbackX, fallbackY);
+    if (norm < 0.001) {
+      const angle = unit.statusVisualSeed + (battle.time || 0) * 1.7;
+      awayX = Math.cos(angle);
+      awayY = Math.sin(angle);
+      norm = 1;
+    } else {
+      awayX = fallbackX;
+      awayY = fallbackY;
+      norm = Math.hypot(awayX, awayY);
+    }
+  }
+
+  const travel = clamp(52 + totalWeight * 34, 54, 132);
+  const destination = {
+    x: clamp(unit.x + (awayX / norm) * travel, 24, battle.field.width - 24),
+    y: clamp(unit.y + (awayY / norm) * travel, 24, battle.field.height - 24),
+    reason: strongestReason || "hazard",
+  };
+  unit.hazardAvoidanceTargetX = destination.x;
+  unit.hazardAvoidanceTargetY = destination.y;
+  unit.hazardAvoidanceReason = destination.reason;
+  unit.hazardAvoidanceUntil = (battle.time || 0) + 0.45 + Math.random() * 0.45;
+  return destination;
 }
 
 function selectWinterWitchTarget({ unit, enemies, allies, unitDef, battle }) {
@@ -11705,8 +12889,8 @@ function distributeNecromancerHealing(unit, totalAmount, battle) {
 
 function performMedicHeal({ unit, target, battle, unitDef }) {
   const stats = getUnitStats(unit, unitDef);
-  if (!target || target.id === unit.id || (target.health >= target.maxHealth && !hasNegativeStatuses(target))) return;
-  const amount = stats.heal * (0.9 + Math.random() * 0.35);
+  if (!target || (target.health >= target.maxHealth && !hasNegativeStatuses(target))) return;
+  const amount = Math.max(0, target.maxHealth * stats.heal);
   if (getUnitStatus(target, "zombie")) {
     updateUnitActivity(unit, `Burning ${getUnitActivityTargetLabel(target, battle)} with restorative energy.`);
     applyDamage(target, amount, battle, unit, { damageKind: "healing" });
@@ -11715,7 +12899,11 @@ function performMedicHeal({ unit, target, battle, unitDef }) {
     if (target.dead) unit.focusTargetId = null;
     return;
   }
-  updateUnitActivity(unit, `Healing ${getUnitActivityTargetLabel(target, battle)}.`);
+  if (target.id === unit.id) {
+    updateUnitActivity(unit, "Healing own wounds.");
+  } else {
+    updateUnitActivity(unit, `Healing ${getUnitActivityTargetLabel(target, battle)}.`);
+  }
   const amountHealed = applyHealing(target, Math.min(Math.max(0, target.maxHealth - target.health), amount), battle, unit);
   recordUnitContribution(unit, "healing", amountHealed, battle);
   const cleansed = clearNegativeStatuses(target);
@@ -12033,10 +13221,6 @@ function updateSpells(battle, dt) {
 }
 
 function updateWinterBlizzardSpell(spell, battle, source, target, dt) {
-  if (target && !target.dead && !target.fled) {
-    spell.x = target.x;
-    spell.y = target.y;
-  }
   getNearbyLivingUnits(battle, spell.x, spell.y, spell.radius).forEach((unit) => {
     if (unit.dead || unit.fled) return;
     const distance = getBattlefieldEllipseDistance(unit.x - spell.x, unit.y - spell.y);
@@ -12332,8 +13516,8 @@ function applyRawDamage(unit, amount, battle, attacker = null, options = {}) {
   }
   const bardGuardStatus = getUnitStatus(unit, "bardicguard");
   if (damageKind !== "healing" && damageKind !== "status" && bardGuardStatus) {
-    const guardSource = bardGuardStatus.sourceId ? findUnitById(battle, bardGuardStatus.sourceId) : null;
-    const reduction = getUnitStats(guardSource || "bard").guardReduction ?? 0.18;
+    const guardSource = findStatusSourceUnit(bardGuardStatus, battle);
+    const reduction = getBardSongModifiers(guardSource || "bard").guardReduction;
     resolvedAmount *= Math.max(0, 1 - reduction);
   }
   const previousHealth = unit.health;
@@ -12420,6 +13604,7 @@ function spawnBurst(battle, x, y, color, count) {
 }
 
 function showWinnerCard(winner, battle) {
+  if (isHeadlessSimulationActive()) return;
   const alive = winner?.units.filter((unit) => !unit.dead && !unit.fled).length ?? 0;
   const routed = winner?.units.filter((unit) => unit.fled).length ?? 0;
   const tournamentMode = Boolean(state.tournament);
@@ -12694,10 +13879,12 @@ function advanceTournament() {
 }
 
 function setTicker(text) {
+  if (isHeadlessSimulationActive()) return;
   els.battleTicker.textContent = text;
 }
 
 function setHighlight(text) {
+  if (isHeadlessSimulationActive()) return;
   const now = performance.now();
   if ((now - state.lastBattleHighlightAt) < BATTLE_HIGHLIGHT_COOLDOWN_MS) return;
   state.lastBattleHighlightAt = now;
@@ -12705,6 +13892,7 @@ function setHighlight(text) {
 }
 
 function queueKnockoutAnnouncement(battle, faction) {
+  if (isHeadlessSimulationActive()) return;
   battle.knockoutQueue.push({
     id: `${faction.id}-${Math.round(battle.time * 1000)}`,
     title: faction.title,
@@ -12754,6 +13942,7 @@ function clearKnockoutAnnouncement() {
 }
 
 function showBossAnnouncement(text) {
+  if (isHeadlessSimulationActive()) return;
   if (!els.bossAnnouncement) return;
   els.bossAnnouncement.textContent = text;
   els.bossAnnouncement.classList.remove("exiting");
@@ -12988,6 +14177,7 @@ function getUnitCurrentActivity(unit, battle) {
 function getStatusTooltipCopy(unit, status, battle) {
   const definition = getStatusDefinition(status.kind);
   if (!definition) return "";
+  const source = findStatusSourceUnit(status, battle);
   if (status.kind === "poison") {
     const totalDps = (status.dps ?? definition.dps) * Math.max(1, status.stacks || 1);
     return `Deals ${formatHoverStatNumber(totalDps)} damage per second for ${formatHoverDuration(status.duration)}. ${Math.max(1, Math.round(status.stacks || 1))} stack${Math.round(status.stacks || 1) === 1 ? "" : "s"}.`;
@@ -13000,23 +14190,23 @@ function getStatusTooltipCopy(unit, status, battle) {
     return "Reanimated thrall. Permanent until destroyed, with reduced max health, damage, speed, and duration-based stats.";
   }
   if (status.kind === "shielded") {
-    const source = status.sourceId ? findUnitById(battle, status.sourceId) : null;
     const reduction = (getUnitStats(source || "bodyguard").shieldReduction ?? 0.18) * 100;
     return `Protected${source ? ` by ${getUnitDefinition(source).name}` : ""}. Reduces incoming direct damage by ${formatHoverStatNumber(reduction)}% for ${formatHoverDuration(status.duration)}.`;
   }
   if (status.kind === "bardichaste") {
-    return `Inspired by a marching song. Movement speed is increased by 24% and attack cooldowns are reduced by 18% while the bard keeps playing nearby.`;
+    const modifiers = getBardSongModifiers(source || "bard");
+    return `Inspired by a marching song. Movement speed is increased by ${formatPercentFromMultiplier(modifiers.marchSpeedBonus)}% and attack cooldowns are reduced by ${formatPercentReductionFromRate(modifiers.marchCooldownBonus)}% while the bard keeps playing nearby.`;
   }
   if (status.kind === "bardicvalor") {
-    return `Emboldened by a war anthem. Damage and healing are increased by 18%, and basic attack reach is slightly extended while the song lasts.`;
+    const modifiers = getBardSongModifiers(source || "bard");
+    return `Emboldened by a war anthem. Damage and healing are increased by ${formatPercentFromMultiplier(modifiers.valorPowerBonus)}%, and basic attack reach is extended by ${formatPercentFromMultiplier(modifiers.valorRangeBonus)}% while the song lasts.`;
   }
   if (status.kind === "bardicguard") {
-    const source = status.sourceId ? findUnitById(battle, status.sourceId) : null;
-    const reduction = (getUnitStats(source || "bard").guardReduction ?? 0.18) * 100;
+    const reduction = getBardSongModifiers(source || "bard").guardReduction * 100;
     return `Protected by a guarding ballad. Incoming direct damage is reduced by ${formatHoverStatNumber(reduction)}% while the bard maintains the refrain nearby.`;
   }
   if (status.kind === "bardichealing") {
-    const healingPerSecond = definition.healPerSecond ?? 0;
+    const healingPerSecond = status.healPerSecond ?? getBardSongModifiers(source || "bard").healingPerSecond;
     return `Steadied by a healing song. Restores ${formatHoverStatNumber(healingPerSecond)} health per second while the bard keeps the refrain nearby.`;
   }
   if (status.kind === "bloodfrenzy") {
@@ -13039,7 +14229,6 @@ function getStatusTooltipCopy(unit, status, battle) {
     return `Frozen solid for ${formatHoverDuration(status.duration)}. The unit cannot move or attack.`;
   }
   if (status.kind === "possessed") {
-    const source = status.sourceId ? findUnitById(battle, status.sourceId) : null;
     return `Body seized${source ? ` by ${getUnitDefinition(source).name}` : ""}. The host fights for the possessor's side until the spirit is knocked loose.`;
   }
   return definition.name;
