@@ -15,6 +15,7 @@ const els = {
   canvas: document.getElementById("tournamentCanvas"),
   status: document.getElementById("tournamentStatus"),
   updatedAt: document.getElementById("tournamentUpdatedAt"),
+  returnToBattleBtn: document.getElementById("returnToBattleBtn"),
 };
 
 const ctx = els.canvas.getContext("2d");
@@ -39,6 +40,7 @@ function bootstrapTournamentView() {
   window.addEventListener("resize", sizeCanvas);
   window.addEventListener("storage", onStorageUpdate);
   els.canvas.addEventListener("pointerdown", onPointerDown);
+  els.returnToBattleBtn?.addEventListener("click", returnToBattle);
   window.addEventListener("pointermove", onPointerMove);
   window.addEventListener("pointerup", onPointerUp);
   els.canvas.addEventListener("wheel", onWheel, { passive: false });
@@ -46,6 +48,15 @@ function bootstrapTournamentView() {
   refreshSnapshot();
   window.setInterval(refreshSnapshot, VIEW_POLL_INTERVAL_MS);
   requestAnimationFrame(loop);
+}
+
+function returnToBattle() {
+  if (window.opener && !window.opener.closed) {
+    window.opener.focus();
+    window.close();
+    return;
+  }
+  window.location.href = "index.html";
 }
 
 function sizeCanvas() {

@@ -70,6 +70,7 @@ const DEFAULT_TOURNAMENT_CONFIG = Object.freeze({
   minFactionsPerHeat: 2,
   maxFactionsPerHeat: MAX_BATTLE_FACTIONS,
   maxUnitsOnBattlefield: 0,
+  inklordInvasionDelaySeconds: INKLORD_DEBUG_DELAY,
   paperbackOnly: false,
 });
 const DEFAULT_COMPOSITION = { archer: 1, mage: 1, knight: 1, paladin: 0, bodyguard: 0, medic: 0, bard: 0, bomber: 0, assassin: 0, mountainman: 0, catapult: 0, poisoner: 0, firebreather: 0, necromancer: 0, graverobber: 0, arachnomist: 0, krieger: 0, huntsman: 0, winterwitch: 0, phantom: 0 };
@@ -1564,6 +1565,7 @@ const els = {
   tournamentMinFactionsInput: document.getElementById("tournamentMinFactionsInput"),
   tournamentMaxFactionsInput: document.getElementById("tournamentMaxFactionsInput"),
   tournamentMaxUnitsInput: document.getElementById("tournamentMaxUnitsInput"),
+  tournamentInkLordDelayInput: document.getElementById("tournamentInkLordDelayInput"),
   autoCalibratePerformanceBtn: document.getElementById("autoCalibratePerformanceBtn"),
   tournamentPaperbackOnlyInput: document.getElementById("tournamentPaperbackOnlyInput"),
   tournamentConfigSummary: document.getElementById("tournamentConfigSummary"),
@@ -1745,7 +1747,7 @@ function bindUi() {
   els.randomizeArenaBtn.addEventListener("click", randomizeArenaAndWeather);
   els.viewTournamentStoryBtn.addEventListener("click", openTournamentPage);
   els.toggleTournamentConfigBtn?.addEventListener("click", toggleTournamentConfigPanel);
-  [els.tournamentMinFactionsInput, els.tournamentMaxFactionsInput, els.tournamentMaxUnitsInput, els.tournamentPaperbackOnlyInput]
+  [els.tournamentMinFactionsInput, els.tournamentMaxFactionsInput, els.tournamentMaxUnitsInput, els.tournamentInkLordDelayInput, els.tournamentPaperbackOnlyInput]
     .filter(Boolean)
     .forEach((input) => input.addEventListener("change", commitTournamentConfigFromInputs));
   els.autoCalibratePerformanceBtn?.addEventListener("click", startPerformanceCalibration);
@@ -4341,6 +4343,11 @@ function normalizeTournamentConfig(config = {}) {
       0,
       MAX_BATTLEFIELD_UNIT_CAP,
     ),
+    inklordInvasionDelaySeconds: clampInt(
+      config.inklordInvasionDelaySeconds ?? DEFAULT_TOURNAMENT_CONFIG.inklordInvasionDelaySeconds,
+      5,
+      600,
+    ),
     paperbackOnly: config.paperbackOnly === true,
   };
 }
@@ -4399,6 +4406,7 @@ function commitTournamentConfigFromInputs() {
     minFactionsPerHeat: els.tournamentMinFactionsInput?.value,
     maxFactionsPerHeat: els.tournamentMaxFactionsInput?.value,
     maxUnitsOnBattlefield: els.tournamentMaxUnitsInput?.value,
+    inklordInvasionDelaySeconds: els.tournamentInkLordDelayInput?.value,
     paperbackOnly: Boolean(els.tournamentPaperbackOnlyInput?.checked),
   });
   const changed = JSON.stringify(nextConfig) !== JSON.stringify(state.tournamentConfig);
@@ -4425,6 +4433,9 @@ function renderTournamentConfigPanel() {
   if (els.tournamentMaxUnitsInput) {
     els.tournamentMaxUnitsInput.value = String(config.maxUnitsOnBattlefield);
   }
+  if (els.tournamentInkLordDelayInput) {
+    els.tournamentInkLordDelayInput.value = String(config.inklordInvasionDelaySeconds);
+  }
   if (els.autoCalibratePerformanceBtn) {
     els.autoCalibratePerformanceBtn.disabled = state.performanceCalibration.active;
     els.autoCalibratePerformanceBtn.textContent = state.performanceCalibration.active
@@ -4441,13 +4452,14 @@ function renderTournamentConfigPanel() {
     const unitText = config.maxUnitsOnBattlefield > 0
       ? `Battlefields are capped at ${config.maxUnitsOnBattlefield} total units.`
       : "Battlefields use full army sizes with no unit cap.";
+    const inklordText = `InkLord invades after ${config.inklordInvasionDelaySeconds} seconds.`;
     const paperbackText = config.paperbackOnly
       ? "Tournament heats only include paperback submissions."
       : "Tournament heats include all submissions.";
     const calibrationText = state.performanceCalibration.active
       ? ` Calibration is probing ${state.performanceCalibration.currentUnits} units.`
       : "";
-    els.tournamentConfigSummary.textContent = `${heatText}. ${unitText} ${paperbackText}${calibrationText}`;
+    els.tournamentConfigSummary.textContent = `${heatText}. ${unitText} ${inklordText} ${paperbackText}${calibrationText}`;
   }
 }
 
@@ -5301,7 +5313,8 @@ function confirmResetTournament() {
 function openTournamentPage() {
   if (!isTournamentViewAvailable()) return;
   syncTournamentViewState(true);
-  window.open("tournament.html", "_blank", "noopener");
+  const tournamentWindow = window.open("tournament.html", "tbr-warfare-tournament-view");
+  tournamentWindow?.focus?.();
 }
 
 function buildTournamentViewSnapshot() {
@@ -5497,7 +5510,7 @@ function buildBattle(factionPool = state.factions, arena = createArenaVariant(0,
     knockoutQueue: [],
     activeKnockout: null,
     inklordEvent: {
-      scheduledAt: INKLORD_DEBUG_DELAY,
+      scheduledAt: normalizeTournamentConfig(state.tournamentConfig).inklordInvasionDelaySeconds,
       phase: "waiting",
       bannerShown: false,
       unitId: null,
@@ -13330,7 +13343,7 @@ function getCinematicCameraTarget(battle) {
   return {
     x: clamp(cinematic.focusX, 0, FIELD.width),
     y: clamp(cinematic.focusY, 0, FIELD.height),
-    zoom: clamp(cinematic.focusZoom, 1.75, 3.65),
+    zoom: clamp(cinematic.focusZoom, 1.75, 4.85),
   };
 }
 
@@ -13386,7 +13399,7 @@ function buildCinematicCameraPois(battle, activeUnits, fit) {
     id: "fit-overview",
     x: fit.x,
     y: fit.y,
-    zoom: Math.max(1.8, fit.zoom * 1.45),
+    zoom: Math.max(1.9, fit.zoom * 1.55),
     score: 12,
   }];
 
@@ -13395,7 +13408,7 @@ function buildCinematicCameraPois(battle, activeUnits, fit) {
       id: `trace-${index}`,
       x: lerp(trace.startX, trace.endX, 0.72),
       y: lerp(trace.startY, trace.endY, 0.72),
-      zoom: 3.4,
+      zoom: 4.35,
       score: 120,
     });
   });
@@ -13405,7 +13418,7 @@ function buildCinematicCameraPois(battle, activeUnits, fit) {
       id: `swipe-${index}-${Math.round(swipe.x)}-${Math.round(swipe.y)}`,
       x: swipe.x,
       y: swipe.y,
-      zoom: 3.05,
+      zoom: 4.05,
       score: 82,
     });
   });
@@ -13418,7 +13431,7 @@ function buildCinematicCameraPois(battle, activeUnits, fit) {
       id: `spell-${spell.id || index}`,
       x: lerp(source.x, target.x, 0.5),
       y: lerp(source.y, target.y, 0.5),
-      zoom: spell.kind === "flame-breath" ? 2.55 : 2.95,
+      zoom: spell.kind === "flame-breath" ? 3.05 : 3.55,
       score: spell.kind === "flame-breath" ? 90 : 106,
     });
   });
@@ -13444,7 +13457,7 @@ function buildCinematicCameraPois(battle, activeUnits, fit) {
       id: `endangered-${featuredEndangered.faction.id}`,
       x: centroid.x,
       y: centroid.y,
-      zoom: survivors.length === 1 ? 3.4 : 3.2,
+      zoom: survivors.length === 1 ? 4.2 : 3.9,
       score: 260,
     });
     survivors.forEach((unit) => {
@@ -13452,7 +13465,7 @@ function buildCinematicCameraPois(battle, activeUnits, fit) {
         id: `endangered-unit-${unit.id}`,
         x: unit.x,
         y: unit.y,
-        zoom: unit.type === "inklord" ? 2.2 : 3.25,
+        zoom: unit.type === "inklord" ? 2.55 : 3.95,
         score: 240 + ((1 - (unit.health / Math.max(1, unit.maxHealth))) * 24),
       });
     });
@@ -13475,7 +13488,7 @@ function buildCinematicCameraPois(battle, activeUnits, fit) {
       id: `unit-${unit.id || index}`,
       x: unit.x,
       y: unit.y - (unit.type === "inklord" ? 20 : 0),
-      zoom: unit.type === "inklord" ? 1.95 : 2.85,
+      zoom: unit.type === "inklord" ? 2.35 : 3.55,
       score,
     });
   });
@@ -13491,7 +13504,7 @@ function buildCinematicCameraPois(battle, activeUnits, fit) {
         id: `duel-${a.id}-${b.id}`,
         x: (a.x + b.x) / 2,
         y: (a.y + b.y) / 2,
-        zoom: clamp(3.4 - distance / 150, 2.35, 3.55),
+        zoom: clamp(4.25 - distance / 150, 2.7, 4.45),
         score: 70 + (136 - distance) * 0.35 + ((1 - a.health / Math.max(1, a.maxHealth)) + (1 - b.health / Math.max(1, b.maxHealth))) * 16,
       });
     }

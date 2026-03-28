@@ -70,6 +70,11 @@ body {
   font-weight: 700;
 }
 
+.action-link-button {
+  cursor: pointer;
+  font: inherit;
+}
+
 .action-link:hover {
   background: rgba(255, 242, 220, 0.14);
 }
