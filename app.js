@@ -486,6 +486,18 @@ const STATUS_DEFINITIONS = {
     badgeColor: "#7fdf9c",
     accentColor: "#e1ffe8",
   },
+  medicregen: {
+    kind: "medicregen",
+    name: "Field Dressing",
+    negative: false,
+    stackable: false,
+    defaultDuration: 4,
+    tickInterval: 1,
+    dps: 0,
+    healPerSecond: 10,
+    badgeColor: "#93efba",
+    accentColor: "#effff4",
+  },
   bloodfrenzy: {
     kind: "bloodfrenzy",
     name: "Blood Frenzy",
@@ -650,7 +662,7 @@ const UNIT_DEFINITIONS = {
     name: "Paladin",
     keywords: ["holy", "melee", "undead", "thrall", "cleanse", "heal", "templar"],
     description: "Paladins are steadfast holy warriors who excel at purging corrupted foes. Their melee strikes punish undead and thralls especially hard, and every kill releases a sanctifying burst that cleanses poison and restores a little health to nearby allies.",
-    stats: { maxHealth: 172, speed: 30, range: 24, damage: 31, cooldown: 1.12, undeadBonus: 2.25, consecrationRadius: 30, consecrationHeal: 30 },
+    stats: { maxHealth: 172, speed: 30, range: 24, damage: 31, cooldown: 1.12, undeadBonus: 2.25, consecrationRadius: 30, consecrationHeal: 25 },
     healthBarWidth: 28,
     iconPaths: getPaladinIconSvgPaths,
     getMoveSpeed: (unit, unitDef) => getUnitStats(unit, unitDef).speed,
@@ -663,7 +675,7 @@ const UNIT_DEFINITIONS = {
     name: "Bodyguard",
     keywords: ["tank", "shield", "guard", "protector", "melee", "aura"],
     description: "Bodyguards are slow defensive anchors who hold the army together. Their shielding aura is lighter than before, but if a nearby ally is struck they can zip in, take the hit themselves, and hurl that ally back behind the line before returning to the brawl.",
-    stats: { maxHealth: 220, speed: 24, range: 24, damage: 21, cooldown: 1.28, auraRadius: 96, aggroRadius: 132, shieldReduction: 0.18, interceptRadiusFactor: 0.5, interceptCooldown: 5 },
+    stats: { maxHealth: 220, speed: 24, range: 24, damage: 21, cooldown: 1.28, auraRadius: 96, aggroRadius: 132, shieldReduction: 0.25, interceptRadiusFactor: 0.5, interceptCooldown: 5 },
     healthBarWidth: 28,
     iconPaths: getBodyguardIconSvgPaths,
     getMoveSpeed: (unit, unitDef) => getUnitStats(unit, unitDef).speed,
@@ -678,12 +690,12 @@ const UNIT_DEFINITIONS = {
     name: "Medic",
     keywords: ["heal", "support", "frail"],
     description: "Medics contribute no direct offense, but they can swing long fights by repeatedly restoring allies on the front line. They are fragile and need protection, yet a well-screened medic can make an entire formation much harder to grind down.",
-    supportOnly: true,
-    stats: { maxHealth: 50, speed: 56, range: 22, heal: 0.4, cooldown: 1 },
+    stats: { maxHealth: 50, speed: 56, range: 22, heal: 0.4, cooldown: 1, healingBuffDuration: 4, healingBuffPerSecond: 10, personalSpaceRadius: 18, meleeDamage: 20, meleeRange: 18 },
     healthBarWidth: 20,
     iconPaths: getMedicIconSvgPaths,
     canActWithoutEnemies: true,
     selectTarget: selectMedicTarget,
+    getAttackRange: getMedicAttackRange,
     getDesiredDestination: getMedicDestination,
     performAttack: performMedicHeal,
     render: drawMedic,
@@ -710,7 +722,7 @@ const UNIT_DEFINITIONS = {
     name: "Bomber",
     keywords: ["explosive", "grenade", "suicide"],
     description: "Bombers are volatile area-denial specialists built around explosive splash damage. They threaten clustered enemies from range, and even their deaths are dangerous thanks to a larger final blast that punishes anyone crowding them.",
-    stats: { maxHealth: 62, speed: 40, range: 255, damage: 40, splash: 62, deathSplash: 86, cooldown: 2.9, fuse: 1.4 },
+    stats: { maxHealth: 62, speed: 40, range: 255, damage: 45, splash: 62, deathSplash: 75, cooldown: 2.9, fuse: 1.3 },
     healthBarWidth: 20,
     iconPaths: getBomberIconSvgPaths,
     selectTarget: selectBomberTarget,
@@ -733,6 +745,7 @@ const UNIT_DEFINITIONS = {
     selectTarget: selectAssassinTarget,
     getDesiredDestination: getAssassinDestination,
     getAttackRange: getAssassinAttackRange,
+    getMoveSpeed: getAssassinMoveSpeed,
     performAttack: performAssassinAttack,
     afterMove: handleAssassinAfterMove,
     isTargetable: ({ unit, attacker }) => !(unit.invisible && attacker && areUnitsHostile(attacker, unit, state.battle)),
@@ -761,7 +774,7 @@ const UNIT_DEFINITIONS = {
     name: "Catapult",
     keywords: ["siege", "stone", "artillery", "boulder"],
     description: "Catapults are siege engines with the longest reach in the roster. They fire slowly and are vulnerable if pressured, but their arcing stones can hammer enemy groups from extreme range and force the battle to revolve around protecting or diving them.",
-    stats: { maxHealth: 35, speed: 10, range: 400, damage: 45, splash: 20, cooldown: 4, variance: 40 },
+    stats: { maxHealth: 35, speed: 10, range: 440, damage: 44, splash: 20, cooldown: 4, variance: 43 },
     healthBarWidth: 26,
     iconPaths: getCatapultIconSvgPaths,
     selectTarget: selectCatapultTarget,
@@ -777,7 +790,7 @@ const UNIT_DEFINITIONS = {
     name: "Poisoner",
     keywords: ["venom", "poison", "potion", "toxin", "alchemist"],
     description: "Poisoners specialize in attrition. Their bottles do modest immediate damage, but the real threat is stacking poison over an area, causing enemies to keep losing health after the initial impact and making sustained engagements increasingly costly.",
-    stats: { maxHealth: 50, speed: 42, range: 225, damage: 2, splash: 40, poisonStacks: 1, poisonDuration: 6, poisonDamage: 3, cooldown: 2.6 },
+    stats: { maxHealth: 50, speed: 42, range: 200, damage: 2, splash: 35, poisonStacks: 1, poisonDuration: 6, poisonDamage: 3, cooldown: 2.6 },
     healthBarWidth: 20,
     iconPaths: getPoisonerIconSvgPaths,
     getDesiredDestination: getRetreatingDestination(132, 1.05),
@@ -841,8 +854,8 @@ const UNIT_DEFINITIONS = {
     id: "arachnomist",
     name: "Arachnomist",
     keywords: ["spider", "grave", "swarm", "web", "poison", "caster"],
-    description: "Arachnomists weave grave-magic into living infestations. They seek graves that sit near enemy pressure but away from friendly lines, crack them open into allied spider swarms, and resort to a venomous bite if enemies rush them.",
-    stats: { maxHealth: 72, speed: 38, range: 0, graveRange: 224, graveDeadZone: 86, cooldown: 4.4, swarmCount: 5, swarmSpread: 20, biteRange: 18, biteThreatRange: 34, biteDamage: 7.5, biteCooldown: 1.2, poisonStacks: 1, poisonDuration: 7, poisonDamage: 3.6 },
+    description: "Arachnomists weave grave-magic into living infestations. They stalk promising graves, crack them open from moderate range into allied spider swarms, and resort to a venomous bite if enemies rush them.",
+    stats: { maxHealth: 72, speed: 38, range: 0, graveRange: 224, graveSummonRange: 108, cooldown: 4.4, swarmCount: 5, swarmSpread: 20, biteRange: 18, biteThreatRange: 34, defensiveThreatRange: 120, biteDamage: 7.5, biteCooldown: 1, poisonStacks: 1, poisonDuration: 7, poisonDamage: 3.6 },
     healthBarWidth: 22,
     iconPaths: getArachnomistIconSvgPaths,
     beforeStep: updateArachnomistState,
@@ -966,7 +979,7 @@ const UNIT_DEFINITIONS = {
     draftable: false,
     keywords: ["construct", "stationary", "rapid fire", "anti-swarm"],
     description: "A compact deployable turret that cannot move, ignores damage from poison and other status effects, and sprays weak shots into a tight area.",
-    stats: { maxHealth: 56, speed: 0, range: 120, damage: 3, splash: 5, cooldown: 0.5 },
+    stats: { maxHealth: 56, speed: 0, range: 120, damage: 3, splash: 5, cooldown: 0.5, lifetime: 15, riseDuration: 0.7, sinkDuration: 0.8 },
     healthBarWidth: 16,
     iconPaths: getTurretIconSvgPaths,
     leavesGrave: false,
@@ -987,7 +1000,7 @@ const UNIT_DEFINITIONS = {
     draftable: false,
     keywords: ["spider", "swarm", "poison", "bite"],
     description: "Spider swarms are short-lived summoned hazards. They skitter quickly, bite lightly, and spread poison over anything living that strays too close.",
-    stats: { maxHealth: 14, speed: 78, range: 13, biteDamage: 3.2, cooldown: 1.08, poisonStacks: 1, poisonDuration: 5.5, poisonDamage: 2.1, lifetime: 20 },
+    stats: { maxHealth: 14, speed: 78, range: 17, seekRadius: 140, wanderStep: 34, biteDamage: 3.2, cooldown: 1.08, poisonStacks: 1, poisonDuration: 5.5, poisonDamage: 2.1, lifetime: 20 },
     healthBarWidth: 12,
     iconPaths: getSpiderSwarmIconSvgPaths,
     leavesGrave: false,
@@ -1615,6 +1628,9 @@ const els = {
   balanceLabComboTable: document.getElementById("balanceLabComboTable"),
   balanceLabPairTable: document.getElementById("balanceLabPairTable"),
   balanceLabCounterTable: document.getElementById("balanceLabCounterTable"),
+  balanceLabTrendMeta: document.getElementById("balanceLabTrendMeta"),
+  balanceLabTrendChart: document.getElementById("balanceLabTrendChart"),
+  balanceLabTrendColorLegend: document.getElementById("balanceLabTrendColorLegend"),
   useRiggedSpritesToggle: document.getElementById("useRiggedSpritesToggle"),
   useTerrainTexturingToggle: document.getElementById("useTerrainTexturingToggle"),
   useUnitOverlapShadowsToggle: document.getElementById("useUnitOverlapShadowsToggle"),
@@ -4402,6 +4418,9 @@ function bindBalanceLabPageUi() {
     state.balanceLab.filters.counter = `${els.balanceLabCounterSearchInput.value || ""}`.trim();
     renderBalanceLabCounterTable();
   });
+  els.balanceLabTrendChart?.addEventListener("pointermove", handleBalanceLabTrendPointerMove);
+  els.balanceLabTrendChart?.addEventListener("pointerleave", handleBalanceLabTrendPointerLeave);
+  window.addEventListener("resize", renderBalanceLabTrendChart);
 }
 
 function normalizeBalanceLabConfig(config = {}) {
@@ -4425,6 +4444,7 @@ function createEmptyBalanceLabReport(config = normalizeBalanceLabConfig()) {
     unitStats: {},
     pairStats: {},
     counterStats: {},
+    winRateTimeline: [],
   };
 }
 
@@ -4442,6 +4462,12 @@ function createBalanceLabState() {
     filters: {
       pair: "",
       counter: "",
+    },
+    chart: {
+      hoveredSnapshotIndex: null,
+      hoverClientX: null,
+      hoverClientY: null,
+      metrics: null,
     },
   };
 }
@@ -4641,6 +4667,7 @@ function renderBalanceLabPanel() {
 
   renderBalanceLabSummary();
   renderBalanceLabTables();
+  renderBalanceLabTrendChart();
 }
 
 function renderBalanceLabSummary() {
@@ -4823,6 +4850,221 @@ function renderBalanceLabCounterTable() {
   `;
 }
 
+function renderBalanceLabTrendChart() {
+  if (!els.balanceLabTrendChart || !els.balanceLabTrendColorLegend || !els.balanceLabTrendMeta) return;
+  const timeline = state.balanceLab.report?.winRateTimeline || [];
+  if (!timeline.length) {
+    state.balanceLab.chart.metrics = null;
+    els.balanceLabTrendMeta.innerHTML = `
+      <div class="balance-lab-trend-pill">
+        <span>Current Slice</span>
+        <strong>Waiting for samples</strong>
+      </div>
+      <div class="balance-lab-trend-pill">
+        <span>Tracked Units</span>
+        <strong>0</strong>
+      </div>
+    `;
+    els.balanceLabTrendChart.innerHTML = '<div class="balance-lab-empty">Run the lab to begin plotting each unit\'s running win rate over time.</div>';
+    els.balanceLabTrendColorLegend.innerHTML = '<div class="balance-lab-empty">Unit colors will appear here once the first samples land.</div>';
+    return;
+  }
+
+  const chartWidth = 1100;
+  const chartHeight = 420;
+  const plot = { top: 24, right: 28, bottom: 42, left: 62 };
+  const plotWidth = chartWidth - plot.left - plot.right;
+  const plotHeight = chartHeight - plot.top - plot.bottom;
+  plot.width = plotWidth;
+  plot.height = plotHeight;
+  const latestSnapshot = timeline[timeline.length - 1];
+  const maxIndex = timeline.length - 1;
+  const preferredIndex = state.balanceLab.chart.hoveredSnapshotIndex;
+  const activeIndex = Number.isFinite(preferredIndex)
+    ? clampInt(preferredIndex, 0, maxIndex)
+    : maxIndex;
+  const activeSnapshot = timeline[activeIndex];
+  const maxBattleCount = Math.max(1, latestSnapshot.battleCount || timeline.length);
+  const sampledUnits = UNIT_LIBRARY
+    .map((unit) => {
+      const latestEntry = latestSnapshot.rates?.[unit.id];
+      if (!latestEntry) return null;
+      return {
+        id: unit.id,
+        name: unit.name,
+        color: getBalanceLabUnitChartColor(unit.id),
+        latestEntry,
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => {
+      if ((b.latestEntry.appearances || 0) !== (a.latestEntry.appearances || 0)) {
+        return (b.latestEntry.appearances || 0) - (a.latestEntry.appearances || 0);
+      }
+      return (b.latestEntry.winRate || 0) - (a.latestEntry.winRate || 0);
+    });
+
+  const yTicks = [0, 0.25, 0.5, 0.75, 1];
+  const xTicks = [0, 0.25, 0.5, 0.75, 1].map((ratio) => Math.max(1, Math.round(maxBattleCount * ratio)));
+  const activeX = plot.left + ((Math.max(1, activeSnapshot.battleCount) - 1) / Math.max(1, maxBattleCount - 1)) * plotWidth;
+  const activeRows = sampledUnits
+    .map((unit) => {
+      const activeEntry = activeSnapshot.rates?.[unit.id];
+      if (!activeEntry) return null;
+      const latestEntry = latestSnapshot.rates?.[unit.id] || activeEntry;
+      return {
+        ...unit,
+        activeEntry,
+        drift: (latestEntry.winRate || 0) - (activeEntry.winRate || 0),
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => (b.activeEntry.winRate || 0) - (a.activeEntry.winRate || 0));
+  const hoverX = Number.isFinite(state.balanceLab.chart.hoverClientX) ? state.balanceLab.chart.hoverClientX : null;
+  const hoverY = Number.isFinite(state.balanceLab.chart.hoverClientY) ? state.balanceLab.chart.hoverClientY : null;
+  const tooltipLeft = hoverX == null ? null : clamp(hoverX + 14, 14, chartWidth - 250);
+  const tooltipTop = hoverY == null ? null : clamp(hoverY + 16, 14, chartHeight - 18);
+
+  els.balanceLabTrendMeta.innerHTML = `
+    <div class="balance-lab-trend-pill">
+      <span>Current Slice</span>
+      <strong>Battle ${escapeHtml(String(activeSnapshot.battleCount || 1))}</strong>
+    </div>
+    <div class="balance-lab-trend-pill">
+      <span>Tracked Units</span>
+      <strong>${escapeHtml(String(sampledUnits.length))}</strong>
+    </div>
+    <div class="balance-lab-trend-pill">
+      <span>Latest Sample</span>
+      <strong>Battle ${escapeHtml(String(latestSnapshot.battleCount || 1))}</strong>
+    </div>
+  `;
+
+  els.balanceLabTrendChart.innerHTML = `
+    <svg class="balance-lab-trend-svg" viewBox="0 0 ${chartWidth} ${chartHeight}" preserveAspectRatio="none" role="img" aria-label="Line chart of each unit's running win rate across sampled battles">
+      <defs>
+        <linearGradient id="balanceLabTrendBackdrop" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#fff3d9" stop-opacity="0.08"></stop>
+          <stop offset="100%" stop-color="#fff3d9" stop-opacity="0.01"></stop>
+        </linearGradient>
+      </defs>
+      <rect x="${plot.left}" y="${plot.top}" width="${plotWidth}" height="${plotHeight}" rx="18" fill="#22170f"></rect>
+      <rect x="${plot.left}" y="${plot.top}" width="${plotWidth}" height="${plotHeight}" rx="18" fill="url(#balanceLabTrendBackdrop)"></rect>
+      ${yTicks.map((tick) => {
+        const y = plot.top + (1 - tick) * plotHeight;
+        const emphasized = Math.abs(tick - 0.5) < 1e-6;
+        return `
+          <line x1="${plot.left}" y1="${y}" x2="${plot.left + plotWidth}" y2="${y}" stroke="${emphasized ? "rgba(255, 217, 145, 0.35)" : "rgba(255, 239, 210, 0.12)"}" stroke-width="1"></line>
+          <text x="${plot.left - 12}" y="${y + 5}" text-anchor="end" fill="#dec69f" class="balance-lab-trend-axis-label">${escapeHtml(formatBalanceLabPercent(tick))}</text>
+        `;
+      }).join("")}
+      ${xTicks.map((tick, index) => {
+        const x = plot.left + (index / Math.max(1, xTicks.length - 1)) * plotWidth;
+        return `
+          <line x1="${x}" y1="${plot.top}" x2="${x}" y2="${plot.top + plotHeight}" stroke="rgba(255, 239, 210, 0.1)" stroke-width="1" stroke-dasharray="4 8"></line>
+          <text x="${x}" y="${plot.top + plotHeight + 26}" text-anchor="middle" fill="#dec69f" class="balance-lab-trend-axis-label">B${escapeHtml(String(tick))}</text>
+        `;
+      }).join("")}
+      <rect x="${plot.left}" y="${plot.top}" width="${plotWidth}" height="${plotHeight}" rx="18" fill="none" stroke="rgba(255, 237, 205, 0.22)" stroke-width="1.2"></rect>
+      ${sampledUnits.map((unit) => {
+        const linePath = buildBalanceLabTrendLinePath(timeline, unit.id, plot, maxBattleCount);
+        return linePath
+          ? `<path d="${linePath}" fill="none" stroke="${escapeHtml(unit.color)}" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" opacity="0.94"></path>`
+          : "";
+      }).join("")}
+      <line x1="${activeX}" y1="${plot.top}" x2="${activeX}" y2="${plot.top + plotHeight}" stroke="rgba(255, 247, 232, 0.82)" stroke-width="1.4" stroke-dasharray="5 7"></line>
+      ${activeRows.map((row) => {
+        const y = plot.top + (1 - (row.activeEntry.winRate || 0)) * plotHeight;
+        return `
+          <circle cx="${activeX}" cy="${y}" r="5.5" fill="rgba(17, 12, 9, 0.92)" stroke="rgba(255, 248, 235, 0.42)" stroke-width="1.1"></circle>
+          <circle cx="${activeX}" cy="${y}" r="3.4" fill="${escapeHtml(row.color)}"></circle>
+        `;
+      }).join("")}
+    </svg>
+    ${tooltipLeft == null || tooltipTop == null ? "" : `
+      <div class="balance-lab-trend-tooltip" style="left:${tooltipLeft}px; top:${tooltipTop}px;">
+        <strong>Battle ${escapeHtml(String(activeSnapshot.battleCount || 1))}</strong>
+        ${activeRows.map((row) => `
+          <div class="balance-lab-trend-tooltip-row">
+            <span class="balance-lab-trend-swatch" style="--trend-color: ${escapeHtml(row.color)}"></span>
+            <span>${escapeHtml(row.name)}</span>
+            <span>${escapeHtml(formatBalanceLabPercent(row.activeEntry.winRate || 0))}</span>
+          </div>
+        `).join("")}
+      </div>
+    `}
+  `;
+
+  els.balanceLabTrendColorLegend.innerHTML = sampledUnits.length
+    ? sampledUnits.map((unit) => `
+      <div class="balance-lab-trend-key-item">
+        <span class="balance-lab-trend-swatch" style="--trend-color: ${escapeHtml(unit.color)}"></span>
+        <span>${escapeHtml(unit.name)}</span>
+      </div>
+    `).join("")
+    : '<div class="balance-lab-empty">No unit color key is available yet.</div>';
+
+  state.balanceLab.chart.metrics = {
+    width: chartWidth,
+    height: chartHeight,
+    plotLeft: plot.left,
+    plotWidth,
+    snapshotCount: timeline.length,
+  };
+}
+
+function buildBalanceLabTrendLinePath(timeline, unitId, plot, maxBattleCount) {
+  let path = "";
+  timeline.forEach((snapshot) => {
+    const entry = snapshot.rates?.[unitId];
+    if (!entry) return;
+    const x = plot.left + ((Math.max(1, snapshot.battleCount) - 1) / Math.max(1, maxBattleCount - 1)) * plot.width;
+    const y = plot.top + (1 - (entry.winRate || 0)) * plot.height;
+    path += path ? ` L ${x.toFixed(2)} ${y.toFixed(2)}` : `M ${x.toFixed(2)} ${y.toFixed(2)}`;
+  });
+  return path;
+}
+
+function getBalanceLabUnitChartColor(unitId) {
+  const unitIndex = Math.max(0, UNIT_LIBRARY.findIndex((unit) => unit.id === unitId));
+  const hue = Math.round((unitIndex * 137.508) % 360);
+  const saturation = 68 + ((unitIndex % 3) * 5);
+  const lightness = 61 - ((Math.floor(unitIndex / 3) % 3) * 6);
+  return `hsl(${hue} ${saturation}% ${lightness}%)`;
+}
+
+function handleBalanceLabTrendPointerMove(event) {
+  const metrics = state.balanceLab.chart.metrics;
+  const container = els.balanceLabTrendChart;
+  if (!metrics || !container) return;
+  const rect = container.getBoundingClientRect();
+  if (!rect.width) return;
+  const plotLeft = (metrics.plotLeft / metrics.width) * rect.width;
+  const plotWidth = (metrics.plotWidth / metrics.width) * rect.width;
+  const relativeX = clamp(event.clientX - rect.left - plotLeft, 0, plotWidth);
+  const index = clampInt(
+    Math.round((relativeX / Math.max(1, plotWidth)) * Math.max(0, metrics.snapshotCount - 1)),
+    0,
+    Math.max(0, metrics.snapshotCount - 1),
+  );
+  state.balanceLab.chart.hoverClientX = ((event.clientX - rect.left) / Math.max(1, rect.width)) * metrics.width;
+  state.balanceLab.chart.hoverClientY = ((event.clientY - rect.top) / Math.max(1, rect.height)) * metrics.height;
+  if (state.balanceLab.chart.hoveredSnapshotIndex === index) {
+    renderBalanceLabTrendChart();
+    return;
+  }
+  state.balanceLab.chart.hoveredSnapshotIndex = index;
+  renderBalanceLabTrendChart();
+}
+
+function handleBalanceLabTrendPointerLeave() {
+  if (state.balanceLab.chart.hoveredSnapshotIndex == null) return;
+  state.balanceLab.chart.hoveredSnapshotIndex = null;
+  state.balanceLab.chart.hoverClientX = null;
+  state.balanceLab.chart.hoverClientY = null;
+  renderBalanceLabTrendChart();
+}
+
 function getBalanceLabToneClass(value) {
   if (value > 0.02) return "balance-lab-positive";
   if (value < -0.02) return "balance-lab-negative";
@@ -4947,6 +5189,9 @@ function startBalanceLabSimulation() {
   const config = normalizeBalanceLabConfig(state.balanceLab.config);
   state.balanceLab.active = true;
   state.balanceLab.paused = false;
+  state.balanceLab.chart.hoveredSnapshotIndex = null;
+  state.balanceLab.chart.hoverClientX = null;
+  state.balanceLab.chart.hoverClientY = null;
   state.balanceLab.queue = createBalanceLabJobBatch(0);
   state.balanceLab.totalJobs = state.balanceLab.queue.length;
   state.balanceLab.completedJobs = 0;
@@ -4961,6 +5206,9 @@ function cancelBalanceLabSimulation() {
   if (!state.balanceLab.active) return;
   state.balanceLab.active = false;
   state.balanceLab.paused = false;
+  state.balanceLab.chart.hoveredSnapshotIndex = null;
+  state.balanceLab.chart.hoverClientX = null;
+  state.balanceLab.chart.hoverClientY = null;
   state.balanceLab.queue = [];
   state.balanceLab.totalJobs = 0;
   state.balanceLab.completedJobs = 0;
@@ -5286,6 +5534,25 @@ function recordBalanceLabJobResult(report, result) {
       });
     });
   });
+
+  report.winRateTimeline.push(captureBalanceLabWinRateSnapshot(report));
+}
+
+function captureBalanceLabWinRateSnapshot(report) {
+  const rates = {};
+  UNIT_LIBRARY.forEach((unit) => {
+    const entry = report?.unitStats?.[unit.id];
+    if (!entry?.appearances) return;
+    rates[unit.id] = {
+      appearances: entry.appearances,
+      wins: entry.wins,
+      winRate: entry.wins / entry.appearances,
+    };
+  });
+  return {
+    battleCount: report?.completedBattles || 0,
+    rates,
+  };
 }
 
 function getBalanceLabComboRows(report) {
@@ -7995,6 +8262,7 @@ function applyStatus(unit, kind, stacks = 1, duration = null, source = null, bat
     ?? (kind === "blizzard" ? sourceStats?.blizzardDamage : null)
     ?? statusDef.dps;
   const statusHealPerSecond = (kind === "bardichealing" ? sourceStats?.healingPerSecond : null)
+    ?? (kind === "medicregen" ? sourceStats?.healingBuffPerSecond : null)
     ?? statusDef.healPerSecond;
   const statusMoveMultiplier = (kind === "blizzard" ? sourceStats?.blizzardMoveMultiplier : null)
     ?? statusDef.moveMultiplier;
@@ -9035,6 +9303,38 @@ function drawUnitSprite(unit, color, scale) {
     targetHeight,
   );
   return true;
+}
+
+function getTurretEmergenceProgress(unit) {
+  if (!unit || unit.type !== "turret") return 1;
+  if (unit.deactivating) {
+    const sinkDuration = Math.max(0.001, unit.turretSinkDuration || 0.8);
+    return clamp((unit.turretSinkTimer || 0) / sinkDuration, 0, 1);
+  }
+  const riseDuration = Math.max(0.001, unit.turretRiseDuration || 0.7);
+  const riseProgress = 1 - ((unit.turretRiseTimer || 0) / riseDuration);
+  return clamp(riseProgress, 0, 1);
+}
+
+function applyTurretRiseSinkRenderEffect(unit, renderScale) {
+  const reveal = getTurretEmergenceProgress(unit);
+  if (reveal >= 0.999) return;
+  const scaled = renderScale / 2.1;
+  const width = 40 * scaled;
+  const top = -24 * scaled;
+  const bottom = 18 * scaled;
+  const wipeY = lerp(top + 2.5 * scaled, bottom + 4 * scaled, reveal);
+  const riseOffset = (1 - reveal) * 18 * scaled;
+  ctx.translate(0, riseOffset);
+  ctx.beginPath();
+  ctx.rect(-width / 2, top, width, wipeY - top);
+  ctx.clip();
+  ctx.strokeStyle = `rgba(245, 224, 177, ${0.18 + reveal * 0.4})`;
+  ctx.lineWidth = Math.max(1, 1.3 * scaled);
+  ctx.beginPath();
+  ctx.moveTo(-width * 0.34, wipeY);
+  ctx.lineTo(width * 0.34, wipeY);
+  ctx.stroke();
 }
 
 function drawRiggedUnitSprite(unit, color, scale) {
@@ -10634,6 +10934,13 @@ function getUnitMoveSpeed(unit, unitDef = getUnitDefinition(unit)) {
   return stats.speed * (0.42 + 0.58 * (unit.health / unit.maxHealth));
 }
 
+function getAssassinMoveSpeed(unit, unitDef) {
+  const stats = getUnitStats(unit, unitDef);
+  let speed = stats.speed * (0.42 + 0.58 * (unit.health / unit.maxHealth));
+  if (unit.assassinStealthRecoverySlow) speed *= 0.7;
+  return speed;
+}
+
 function isUnitRoutingImmune(unit, unitDef = getUnitDefinition(unit)) {
   return Boolean(unitDef.routingImmune);
 }
@@ -10767,12 +11074,29 @@ function getMedicRepulsionVector(unit, allies = [], target = null) {
   }, { x: 0, y: 0, pressure: 0 });
 }
 
-function selectMedicTarget({ unit, allies }) {
+function selectMedicTarget({ unit, allies, enemies, battle }) {
+  const stats = getUnitStats(unit);
+  const closeThreats = (enemies || [])
+    .filter((enemy) => (
+      !enemy.dead
+      && !enemy.fled
+      && canUnitBeTargeted(enemy, unit)
+      && Math.hypot(enemy.x - unit.x, enemy.y - unit.y) <= (stats.personalSpaceRadius || stats.meleeRange || 18)
+    ))
+    .sort((a, b) => Math.hypot(a.x - unit.x, a.y - unit.y) - Math.hypot(b.x - unit.x, b.y - unit.y));
+  if (closeThreats.length) {
+    const target = closeThreats[0];
+    unit.focusTargetId = target.id;
+    unit.currentTargetKind = "enemy";
+    updateUnitActivity(unit, `Protecting personal space from ${getUnitActivityTargetLabel(target, battle || state.battle)}.`);
+    return target;
+  }
   const selfNeedsHealing = unit.health < unit.maxHealth || hasNegativeStatuses(unit);
   const selfHealthRatio = unit.health / Math.max(1, unit.maxHealth);
   const shouldPrioritizeSelf = selfNeedsHealing && (selfHealthRatio <= 0.45 || hasNegativeStatuses(unit));
   if (shouldPrioritizeSelf) {
     unit.focusTargetId = unit.id;
+    unit.currentTargetKind = "ally";
     updateUnitActivity(unit, "Stabilizing own wounds.");
     return unit;
   }
@@ -10795,17 +11119,38 @@ function selectMedicTarget({ unit, allies }) {
       }
     });
     unit.focusTargetId = target?.id || null;
-    updateUnitActivity(unit, `Moving to heal ${getUnitActivityTargetLabel(target, state.battle)}.`);
+    unit.currentTargetKind = target ? "ally" : null;
+    updateUnitActivity(unit, `Moving to heal ${getUnitActivityTargetLabel(target, battle || state.battle)}.`);
     return target;
   }
   unit.focusTargetId = null;
+  unit.currentTargetKind = null;
   updateUnitActivity(unit, "Seeking a wounded ally to heal.");
   return null;
+}
+
+function getMedicAttackRange(unitDef, unit) {
+  const stats = getUnitStats(unit, unitDef);
+  return Math.max(stats.range, stats.meleeRange || 0);
 }
 
 function getMedicDestination({ unit, target, battle, allies, destination, unitDef }) {
   const field = battle?.field || FIELD;
   const stats = getUnitStats(unit, unitDef);
+  if (target && unit.currentTargetKind === "enemy") {
+    const distance = Math.hypot(target.x - unit.x, target.y - unit.y);
+    if (distance <= (stats.meleeRange || 18) + 2) {
+      return { x: unit.x, y: unit.y };
+    }
+    const anchor = getMedicSupportAnchor(unit, allies, battle);
+    const awayX = anchor.x - target.x;
+    const awayY = anchor.y - target.y;
+    const awayLength = Math.max(0.001, Math.hypot(awayX, awayY));
+    return {
+      x: clamp(target.x + (awayX / awayLength) * (stats.meleeRange || 18), 20, field.width - 20),
+      y: clamp(target.y + (awayY / awayLength) * (stats.meleeRange || 18) * 0.72, 24, field.height - 24),
+    };
+  }
   const activeTarget = target && !target.dead && !target.fled && (target.health < target.maxHealth || hasNegativeStatuses(target))
     ? target
     : null;
@@ -11100,6 +11445,7 @@ function updateAssassinState({ unit, faction, battle, enemies }) {
     if (Math.hypot(unit.x - homeBase.x, unit.y - homeBase.y) <= stats.resetRadius) {
       unit.behaviorState = "stalking";
       unit.invisible = true;
+      unit.assassinStealthRecoverySlow = false;
       unit.focusTargetId = null;
       unit.slashCooldown = 0;
       unit.cooldown = Math.max(unit.cooldown, 0.3);
@@ -11159,6 +11505,7 @@ function performAssassinAttack({ unit, target, battle, unitDef }) {
   spawnBurst(battle, target.x, target.y - 4, "#d8d8ff", 14);
   unit.behaviorState = "retreat";
   unit.invisible = false;
+  unit.assassinStealthRecoverySlow = true;
   unit.focusTargetId = null;
   unit.slashCooldown = 0.2;
   setHighlight(`${findFaction(battle, unit.factionId).title}'s assassin lands a backstab`);
@@ -11324,10 +11671,10 @@ function modifyGraverobberStats(unit, stats) {
   return {
     ...stats,
     damage: stats.damage * (1 + robbed * 0.3),
-    speed: stats.speed * (1 + robbed * 0.15),
+    speed: stats.speed * (1 + robbed * 0.2),
     range: stats.range + robbed * 3.5,
     graveRange: stats.graveRange + robbed * 2,
-    maxHealth: stats.maxHealth * (1 + robbed * 0.1),
+    maxHealth: stats.maxHealth * (1 + robbed * 0.13),
   };
 }
 
@@ -11682,6 +12029,7 @@ function createArtificerTurret(builder, target, battle) {
   const faction = findFaction(battle, builder.factionId);
   if (!faction) return null;
   const stats = getUnitStats(builder);
+  const turretStats = getUnitStats({ ...builder, type: "turret" }, getUnitDefinition("turret"));
   const angle = target ? Math.atan2(target.y - builder.y, target.x - builder.x) : builder.facing || 0;
   const radius = stats.buildOffset || 26;
   const turret = makeUnit(
@@ -11697,6 +12045,12 @@ function createArtificerTurret(builder, target, battle) {
   turret.displayFacingX = 1;
   turret.bravery = 2;
   turret.cooldown = 0.12;
+  turret.lifeTimer = turretStats.lifetime ?? turret.lifeTimer;
+  turret.turretRiseTimer = turretStats.riseDuration || 0.7;
+  turret.turretRiseDuration = turretStats.riseDuration || 0.7;
+  turret.turretSinkTimer = 0;
+  turret.turretSinkDuration = turretStats.sinkDuration || 0.8;
+  turret.deactivating = false;
   faction.units.push(turret);
   builder.constructedTurretId = turret.id;
   return turret;
@@ -11718,14 +12072,41 @@ function performArtificerAttack({ unit, target, battle, unitDef }) {
 }
 
 function updateTurretState({ unit, battle, enemies, dt }) {
+  const stats = getUnitStats(unit);
   unit.vx = 0;
   unit.vy = 0;
+  unit.turretRiseTimer = Math.max(0, (unit.turretRiseTimer || 0) - dt);
+  if (unit.deactivating) {
+    unit.turretSinkTimer = Math.max(0, (unit.turretSinkTimer || 0) - dt);
+    if ((unit.turretSinkTimer || 0) <= 0) {
+      unit.expiredByTimer = true;
+      applyDamage(unit, unit.health + 999, battle, null, { noAttackerCredit: true, skipDefaultDeathBurst: true });
+      return;
+    }
+  } else if (typeof unit.lifeTimer === "number") {
+    unit.lifeTimer -= dt;
+    if (unit.lifeTimer <= 0) {
+      unit.lifeTimer = 0;
+      unit.deactivating = true;
+      unit.focusTargetId = null;
+      unit.currentTargetKind = null;
+      unit.turretSinkTimer = unit.turretSinkDuration || stats.sinkDuration || 0.8;
+      updateUnitActivity(unit, "Powering down and sinking back underground.");
+      spawnBurst(battle, unit.x, unit.y - 2, "#d7bb84", 10);
+      battle.particles.push({ kind: "ring", x: unit.x, y: unit.y + 3, vx: 0, vy: 0, life: 0.32, age: 0, color: "rgba(160, 122, 73, 0.48)", size: 18, lineWidth: 2 });
+    }
+  }
   updateUnitProceduralWalk(unit, dt, getUnitLocomotionProfile(unit), 0, 0);
   updateUnitWalkBlend(unit, 0, dt);
   unit.walkTilt += (0 - unit.walkTilt) * Math.min(1, dt * 12);
   unit.stride += (0 - unit.stride) * Math.min(1, dt * 12);
   unit.bob += (0 - unit.bob) * Math.min(1, dt * 10);
   unit.displayFacingX = 1;
+  if (unit.deactivating || (unit.turretRiseTimer || 0) > 0) {
+    unit.focusTargetId = null;
+    if (!unit.deactivating) updateUnitActivity(unit, "Rising into firing position.");
+    return;
+  }
   const target = enemies.find((enemy) => enemy.id === unit.focusTargetId && !enemy.dead && !enemy.fled) || null;
   if (target) {
     const desiredAngle = Math.atan2(target.y - unit.y, target.x - unit.x);
@@ -11743,6 +12124,11 @@ function getTurretDestination({ unit }) {
 }
 
 function selectTurretTarget({ unit, enemies, unitDef }) {
+  if (unit.deactivating || (unit.turretRiseTimer || 0) > 0) {
+    unit.focusTargetId = null;
+    unit.currentTargetKind = null;
+    return null;
+  }
   const stats = getUnitStats(unit, unitDef);
   const inRangeEnemies = enemies.filter((enemy) => Math.hypot(enemy.x - unit.x, enemy.y - unit.y) <= stats.range);
   const pool = inRangeEnemies.length ? inRangeEnemies : [];
@@ -12024,6 +12410,21 @@ function updateArachnomistState({ unit, dt }) {
   unit.arachnomistBiteCooldown = Math.max(0, (unit.arachnomistBiteCooldown || 0) - dt * cooldownTick);
 }
 
+function findNearestTargetableEnemy(unit, enemies = [], battle = null) {
+  let best = null;
+  let bestDistance = Infinity;
+  enemies.forEach((enemy) => {
+    if (!enemy || enemy.dead || enemy.fled) return;
+    if (battle && !areUnitsHostile(unit, enemy, battle)) return;
+    if (!canUnitBeTargeted(enemy, unit)) return;
+    const distance = Math.hypot(enemy.x - unit.x, enemy.y - unit.y);
+    if (distance >= bestDistance) return;
+    best = enemy;
+    bestDistance = distance;
+  });
+  return best;
+}
+
 function pickArachnomistPressureGrave(unit, graves, enemies, allies, unitDef) {
   const stats = getUnitStats(unit, unitDef);
   if (!graves?.length) return null;
@@ -12067,11 +12468,8 @@ function pickArachnomistPressureGrave(unit, graves, enemies, allies, unitDef) {
     }
 
     const inRangeBias = castDistance <= stats.graveRange
-      ? 1.2 - Math.max(0, castDistance - stats.graveDeadZone) * 0.0025
+      ? 1.25 - castDistance * 0.003
       : Math.max(-1.8, -((castDistance - stats.graveRange) / 70));
-    const deadZonePenalty = castDistance < stats.graveDeadZone
-      ? ((stats.graveDeadZone - castDistance) / Math.max(1, stats.graveDeadZone)) * 2.6
-      : 0;
     const enemyCloseness = Math.max(0, 1.6 - (nearestEnemy / 72));
     const allyDistanceBonus = Number.isFinite(nearestAlly)
       ? Math.min(2.4, Math.max(0, (nearestAlly - 34) / 46))
@@ -12083,8 +12481,7 @@ function pickArachnomistPressureGrave(unit, graves, enemies, allies, unitDef) {
       + allyDistanceBonus
       + inRangeBias
       + graveOwnershipBias
-      - friendlyPressurePenalty
-      - deadZonePenalty;
+      - friendlyPressurePenalty;
     pushCandidate(grave, score);
   });
 
@@ -12104,6 +12501,15 @@ function pickArachnomistPressureGrave(unit, graves, enemies, allies, unitDef) {
 
 function selectArachnomistTarget({ unit, graves, unitDef, enemies, allies, battle }) {
   const stats = getUnitStats(unit, unitDef);
+  const noGravesRemain = !graves?.length;
+  if (noGravesRemain) {
+    const threat = findNearestTargetableEnemy(unit, enemies, battle);
+    unit.currentTargetKind = threat ? "enemy" : null;
+    unit.currentGraveId = null;
+    unit.focusTargetId = threat?.id || null;
+    updateUnitActivity(unit, threat ? "Keeping clear of danger until a grave appears." : "Holding back until a grave appears.");
+    return threat;
+  }
   const closeThreat = enemies
     .filter((enemy) => Math.hypot(enemy.x - unit.x, enemy.y - unit.y) <= stats.biteThreatRange)
     .sort((a, b) => Math.hypot(a.x - unit.x, a.y - unit.y) - Math.hypot(b.x - unit.x, b.y - unit.y))[0] || null;
@@ -12115,7 +12521,21 @@ function selectArachnomistTarget({ unit, graves, unitDef, enemies, allies, battl
     return closeThreat;
   }
 
-  const target = pickArachnomistPressureGrave(unit, graves, enemies, allies, unitDef);
+  const lockedGrave = unit.currentGraveId ? findGraveById(battle, unit.currentGraveId) : null;
+  const readyToSummon = (unit.cooldown || 0) <= 0;
+  const farthestSummonableGrave = readyToSummon
+    ? findFarthestGrave(unit, graves, (grave) => Math.hypot(grave.x - unit.x, grave.y - unit.y) <= stats.graveSummonRange)
+    : null;
+  const nearestGrave = findNearestGrave(unit, graves);
+  let target = farthestSummonableGrave || lockedGrave || nearestGrave || null;
+
+  if (readyToSummon && lockedGrave && farthestSummonableGrave && lockedGrave.id !== farthestSummonableGrave.id) {
+    const lockedDistance = Math.hypot(lockedGrave.x - unit.x, lockedGrave.y - unit.y);
+    if (lockedDistance > stats.graveSummonRange + 4) {
+      target = farthestSummonableGrave;
+    }
+  }
+
   unit.currentTargetKind = target ? "grave" : null;
   unit.currentGraveId = target?.id || null;
   unit.focusTargetId = null;
@@ -12128,12 +12548,31 @@ function getArachnomistAttackRange(unitDef, unit) {
   return Math.max(stats.graveRange, stats.biteRange);
 }
 
-function getArachnomistDestination({ unit, target, destination, unitDef, battle, distance }) {
+function getArachnomistDestination({ unit, target, destination, unitDef, battle, distance, graves }) {
   const stats = getUnitStats(unit, unitDef);
+  const faction = battle ? findFaction(battle, unit.factionId) : null;
+  const anchor = faction?.bannerPos || faction?.homeBase || unit;
+  const defensiveMode = !graves?.length;
+  if (defensiveMode) {
+    if (!target || unit.currentTargetKind !== "enemy") {
+      return {
+        x: clamp(anchor.x, 24, battle.field.width - 24),
+        y: clamp(anchor.y, 24, battle.field.height - 24),
+      };
+    }
+    const awayX = unit.x - target.x;
+    const awayY = unit.y - target.y;
+    const awayLength = Math.max(0.001, Math.hypot(awayX, awayY));
+    const isThreatening = distance <= stats.defensiveThreatRange;
+    const fallbackX = isThreatening ? unit.x + (awayX / awayLength) * 76 : anchor.x;
+    const fallbackY = isThreatening ? unit.y + (awayY / awayLength) * 58 : anchor.y;
+    return {
+      x: clamp(lerp(fallbackX, anchor.x, isThreatening ? 0.22 : 0.6), 24, battle.field.width - 24),
+      y: clamp(lerp(fallbackY, anchor.y, isThreatening ? 0.16 : 0.6), 24, battle.field.height - 24),
+    };
+  }
   if (target && unit.currentTargetKind === "enemy") {
     if (distance <= stats.biteRange + 2) return { x: unit.x, y: unit.y };
-    const faction = battle ? findFaction(battle, unit.factionId) : null;
-    const anchor = faction?.bannerPos || faction?.homeBase || unit;
     const awayX = unit.x - target.x;
     const awayY = unit.y - target.y;
     const awayLength = Math.max(0.001, Math.hypot(awayX, awayY));
@@ -12145,28 +12584,8 @@ function getArachnomistDestination({ unit, target, destination, unitDef, battle,
     };
   }
   if (!target || unit.currentTargetKind !== "grave") return destination;
-  const faction = battle ? findFaction(battle, unit.factionId) : null;
-  const anchor = faction?.bannerPos || unit;
-  const dx = target.x - unit.x;
-  const dy = target.y - unit.y;
-  const graveDistance = Math.max(0.001, Math.hypot(dx, dy));
-  if (graveDistance > stats.graveRange) return destination;
-  if (graveDistance < stats.graveDeadZone) {
-    const retreat = stats.graveDeadZone - graveDistance + 28;
-    return {
-      x: unit.x - (dx / graveDistance) * retreat,
-      y: unit.y - (dy / graveDistance) * retreat,
-    };
-  }
-  const anchorDx = anchor.x - target.x;
-  const anchorDy = anchor.y - target.y;
-  const anchorDistance = Math.hypot(anchorDx, anchorDy);
-  if (anchorDistance <= 0.001) return { x: unit.x, y: unit.y };
-  const desiredRadius = clamp(anchorDistance, stats.graveDeadZone + 6, stats.graveRange - 6);
-  return {
-    x: target.x + (anchorDx / anchorDistance) * desiredRadius,
-    y: target.y + (anchorDy / anchorDistance) * desiredRadius,
-  };
+  if (distance <= stats.graveSummonRange * 0.92) return { x: unit.x, y: unit.y };
+  return destination;
 }
 
 function createSpiderSwarm(arachnomist, grave, battle) {
@@ -12193,6 +12612,75 @@ function createSpiderSwarm(arachnomist, grave, battle) {
   return spiders;
 }
 
+function emitArachnomistSummonBeam(battle, arachnomist, grave) {
+  battle.particles.push({
+    kind: "beam",
+    x: arachnomist.x,
+    y: arachnomist.y - 10,
+    endX: grave.x,
+    endY: grave.y - 6,
+    vx: 0,
+    vy: 0,
+    life: 0.16,
+    age: 0,
+    color: "#b8f27c",
+    glowColor: "#6fbb44",
+    lineWidth: 4,
+  });
+}
+
+function isSpiderSwarmFriendlyTarget(unit, candidate, battle) {
+  if (!unit || !candidate) return false;
+  const owner = unit.summonOwnerId ? findUnitById(battle, unit.summonOwnerId) : null;
+  const controllerFactionId = getUnitControlFactionId(owner || unit, battle);
+  return getUnitControlFactionId(candidate, battle) === controllerFactionId;
+}
+
+function findBestSpiderSwarmTarget(unit, battle, unitDef = getUnitDefinition(unit)) {
+  if (!battle) return null;
+  const stats = getUnitStats(unit, unitDef);
+  let best = null;
+  let bestScore = -Infinity;
+  battle.factions.forEach((faction) => {
+    faction.units.forEach((candidate) => {
+      if (!candidate || candidate.id === unit.id || candidate.dead || candidate.fled) return;
+      if (candidate.type === "spiderswarm") return;
+      if (!canUnitBeTargeted(candidate, unit)) return;
+      if (isSpiderSwarmFriendlyTarget(unit, candidate, battle)) return;
+      const distance = Math.hypot(candidate.x - unit.x, candidate.y - unit.y);
+      if (distance > stats.seekRadius) return;
+      const woundedBias = 1 - (candidate.health / Math.max(1, candidate.maxHealth));
+      const score = (stats.seekRadius - distance) + woundedBias * 18 + getTargetSelectionPreference(unit, candidate, "spider-swarm") * 6;
+      if (score <= bestScore) return;
+      best = candidate;
+      bestScore = score;
+    });
+  });
+  return best;
+}
+
+function retargetSpiderSwarmWander(unit, battle, target, unitDef = getUnitDefinition(unit)) {
+  const stats = getUnitStats(unit, unitDef);
+  const step = stats.wanderStep * (0.85 + Math.random() * 0.4);
+  let angle = Math.random() * Math.PI * 2;
+  if (target) {
+    const baseAngle = Math.atan2(target.y - unit.y, target.x - unit.x);
+    const roll = Math.random();
+    if (roll < 0.5) {
+      angle = baseAngle;
+    } else if (roll < (2 / 3)) {
+      angle = baseAngle + (Math.PI / 2);
+    } else if (roll < (5 / 6)) {
+      angle = baseAngle - (Math.PI / 2);
+    } else {
+      angle = baseAngle + Math.PI;
+    }
+  }
+  unit.wanderTargetX = clamp(unit.x + Math.cos(angle) * step, 16, battle.field.width - 16);
+  unit.wanderTargetY = clamp(unit.y + Math.sin(angle) * step, 16, battle.field.height - 16);
+  unit.wanderTimer = 0.18 + Math.random() * 0.34;
+}
+
 function performArachnomistAttack({ unit, target, battle, unitDef }) {
   const stats = getUnitStats(unit, unitDef);
   if (!target) return false;
@@ -12211,12 +12699,13 @@ function performArachnomistAttack({ unit, target, battle, unitDef }) {
   const grave = findGraveById(battle, target.id || unit.currentGraveId);
   if (!grave) return false;
   const distance = Math.hypot(grave.x - unit.x, grave.y - unit.y);
-  if (distance > stats.graveRange + 4 || distance < Math.max(0, stats.graveDeadZone - 4)) return false;
+  if (distance > stats.graveSummonRange + 4) return false;
   removeGrave(battle, grave.id);
   const spiders = createSpiderSwarm(unit, grave, battle);
   if (!spiders.length) return false;
   unit.cooldown = stats.cooldown * (0.84 + Math.random() * 0.28);
-  updateUnitActivity(unit, "Turning a gravestone into a spider swarm.");
+  updateUnitActivity(unit, "Cracking open a gravestone into a spider swarm.");
+  emitArachnomistSummonBeam(battle, unit, grave);
   spawnBurst(battle, grave.x, grave.y - 4, "#96d55f", 18);
   battle.particles.push({ kind: "ring", x: grave.x, y: grave.y, vx: 0, vy: 0, life: 0.48, age: 0, color: "#7ab34b", size: 22, lineWidth: 4 });
   setHighlight(`${findFaction(battle, unit.factionId)?.title || "A faction"}'s arachnomist turns a grave into a spider swarm`);
@@ -12233,44 +12722,50 @@ function updateSpiderSwarmState({ unit, battle, dt, unitDef }) {
       return;
     }
   }
+  unit.allyAvoidanceTimer = Math.max(0, (unit.allyAvoidanceTimer || 0) - dt);
   unit.wanderTimer = Math.max(0, (unit.wanderTimer || 0) - dt);
+  if ((unit.allyAvoidanceTimer || 0) > 0) {
+    unit.focusTargetId = null;
+    unit.currentTargetKind = null;
+    unit.wanderTargetX = clamp(unit.x + (unit.allyAvoidanceVectorX || 0) * 92, 16, battle.field.width - 16);
+    unit.wanderTargetY = clamp(unit.y + (unit.allyAvoidanceVectorY || 0) * 92, 16, battle.field.height - 16);
+    updateUnitActivity(unit, "Skittering away from the allied line.");
+    return;
+  }
+  const bestTarget = findBestSpiderSwarmTarget(unit, battle, unitDef);
+  unit.focusTargetId = bestTarget?.id || null;
   const dx = (unit.wanderTargetX ?? unit.x) - unit.x;
   const dy = (unit.wanderTargetY ?? unit.y) - unit.y;
   const distance = Math.hypot(dx, dy);
   if (unit.wanderTimer <= 0 || distance < 10) {
-    const angle = Math.random() * Math.PI * 2;
-    const radius = 18 + Math.random() * 54;
-    unit.wanderTargetX = clamp(unit.x + Math.cos(angle) * radius, 16, battle.field.width - 16);
-    unit.wanderTargetY = clamp(unit.y + Math.sin(angle) * radius, 16, battle.field.height - 16);
-    unit.wanderTimer = 0.2 + Math.random() * 0.45;
+    retargetSpiderSwarmWander(unit, battle, bestTarget, unitDef);
   }
-  updateUnitActivity(unit, "Skittering in search of prey.");
-  const encountered = [];
-  battle.factions.forEach((faction) => {
-    faction.units.forEach((candidate) => {
-      if (candidate.id === unit.id || candidate.dead || candidate.fled || candidate.type === "spiderswarm") return;
-      if (!canUnitBeTargeted(candidate, unit)) return;
-      const encounterDistance = Math.hypot(candidate.x - unit.x, candidate.y - unit.y);
-      if (encounterDistance <= stats.range + 10) {
-        encountered.push(candidate.id);
-      }
-    });
-  });
-  unit.focusTargetId = encountered.length ? encountered[Math.floor(Math.random() * encountered.length)] : null;
+  updateUnitActivity(unit, bestTarget ? `Skittering toward ${getUnitActivityTargetLabel(bestTarget, battle)}.` : "Skittering in search of prey.");
 }
 
 function selectSpiderSwarmTarget({ unit, battle }) {
   if (!battle) return null;
   const target = battle.factions
     .flatMap((faction) => faction.units)
-    .find((candidate) => candidate.id === unit.focusTargetId && !candidate.dead && !candidate.fled && candidate.type !== "spiderswarm");
+    .find((candidate) => (
+      candidate.id === unit.focusTargetId
+      && !candidate.dead
+      && !candidate.fled
+      && candidate.type !== "spiderswarm"
+      && !isSpiderSwarmFriendlyTarget(unit, candidate, battle)
+    ));
   unit.currentTargetKind = target ? "enemy" : null;
   updateUnitActivity(unit, target ? `Swarming ${getUnitActivityTargetLabel(target, battle)}.` : "Skittering in search of prey.");
   return target;
 }
 
 function getSpiderSwarmDestination({ unit, target, destination }) {
-  if (target && unit.currentTargetKind === "enemy") return destination;
+  if ((unit.allyAvoidanceTimer || 0) > 0) {
+    return {
+      x: unit.wanderTargetX ?? unit.x,
+      y: unit.wanderTargetY ?? unit.y,
+    };
+  }
   return {
     x: unit.wanderTargetX ?? unit.x,
     y: unit.wanderTargetY ?? unit.y,
@@ -12280,7 +12775,15 @@ function getSpiderSwarmDestination({ unit, target, destination }) {
 function performSpiderSwarmAttack({ unit, target, battle, unitDef }) {
   const stats = getUnitStats(unit, unitDef);
   if (!target || Math.hypot(target.x - unit.x, target.y - unit.y) > stats.range + 4) return;
-  if (areUnitsAllied(unit, target, battle) && Math.random() < 0.75) {
+  if (isSpiderSwarmFriendlyTarget(unit, target, battle)) {
+    const bearing = Number.isFinite(unit.facing)
+      ? unit.facing
+      : Math.atan2(target.y - unit.y, target.x - unit.x);
+    unit.allyAvoidanceTimer = 2;
+    unit.allyAvoidanceVectorX = Math.cos(bearing + Math.PI);
+    unit.allyAvoidanceVectorY = Math.sin(bearing + Math.PI);
+    unit.wanderTargetX = clamp(unit.x + unit.allyAvoidanceVectorX * 92, 16, battle.field.width - 16);
+    unit.wanderTargetY = clamp(unit.y + unit.allyAvoidanceVectorY * 92, 16, battle.field.height - 16);
     unit.focusTargetId = null;
     updateUnitActivity(unit, "Skittering past a familiar scent.");
     return false;
@@ -13133,6 +13636,14 @@ function distributeNecromancerHealing(unit, totalAmount, battle) {
 
 function performMedicHeal({ unit, target, battle, unitDef }) {
   const stats = getUnitStats(unit, unitDef);
+  if (target && unit.currentTargetKind === "enemy") {
+    if (Math.hypot(target.x - unit.x, target.y - unit.y) > (stats.meleeRange || stats.range) + 4) return false;
+    updateUnitActivity(unit, `Jabbing ${getUnitActivityTargetLabel(target, battle)} back out of reach.`);
+    applyDamage(target, stats.meleeDamage * (0.92 + Math.random() * 0.16), battle, unit);
+    battle.swipes.push({ x: target.x, y: target.y - 8, angle: unit.facing, life: 0.16, maxLife: 0.16, color: "rgba(213, 255, 208, 0.8)" });
+    spawnBurst(battle, target.x, target.y - 2, "#cff7c5", 6);
+    return true;
+  }
   if (!target || (target.health >= target.maxHealth && !hasNegativeStatuses(target))) return;
   const amount = Math.max(0, target.maxHealth * stats.heal);
   if (getUnitStatus(target, "zombie")) {
@@ -13150,6 +13661,7 @@ function performMedicHeal({ unit, target, battle, unitDef }) {
   }
   const amountHealed = applyHealing(target, Math.min(Math.max(0, target.maxHealth - target.health), amount), battle, unit);
   recordUnitContribution(unit, "healing", amountHealed, battle);
+  applyStatus(target, "medicregen", 1, stats.healingBuffDuration, unit, battle);
   const cleansed = clearNegativeStatuses(target);
   battle.particles.push({ x: target.x, y: target.y - 10, vx: 0, vy: -20, life: 0.55, age: 0, color: "#b8ffbf", size: 7 });
   if (cleansed) spawnBurst(battle, target.x, target.y - 10, "#e8fff0", 10);
@@ -13634,7 +14146,7 @@ function updateParticles(battle, dt) {
     particle.age += dt;
     particle.x += particle.vx * dt;
     particle.y += particle.vy * dt;
-    particle.vy += 40 * dt;
+    if (particle.kind !== "beam") particle.vy += 40 * dt;
     if (particle.kind === "debris") {
       particle.rotation = (particle.rotation || 0) + (particle.spin || 0) * dt;
     }
@@ -14293,6 +14805,8 @@ function clearBattleHover() {
     els.battleUnitTooltip.classList.add("hidden");
     els.battleUnitTooltip.innerHTML = "";
     els.battleUnitTooltip.dataset.tooltipKey = "";
+    els.battleUnitTooltip.dataset.activityKey = "";
+    els.battleUnitTooltip.dataset.activityText = "";
   }
 }
 
@@ -14453,6 +14967,10 @@ function getStatusTooltipCopy(unit, status, battle) {
     const healingPerSecond = status.healPerSecond ?? getBardSongModifiers(source || "bard").healingPerSecond;
     return `Steadied by a healing song. Restores ${formatHoverStatNumber(healingPerSecond)} health per second while the bard keeps the refrain nearby.`;
   }
+  if (status.kind === "medicregen") {
+    const healingPerSecond = status.healPerSecond ?? getStatusDefinition("medicregen")?.healPerSecond ?? 10;
+    return `Freshly dressed by a medic. Restores ${formatHoverStatNumber(healingPerSecond)} health per second for ${formatHoverDuration(status.duration)}.`;
+  }
   if (status.kind === "bloodfrenzy") {
     return `Berserk for ${formatHoverDuration(status.duration)}. Attacks the closest unit in reach, including allies.`;
   }
@@ -14484,6 +15002,8 @@ function renderBattleUnitTooltip(unit, battle, viewport) {
       els.battleUnitTooltip.classList.add("hidden");
       els.battleUnitTooltip.innerHTML = "";
       els.battleUnitTooltip.dataset.tooltipKey = "";
+      els.battleUnitTooltip.dataset.activityKey = "";
+      els.battleUnitTooltip.dataset.activityText = "";
     }
     return;
   }
@@ -14502,37 +15022,46 @@ function renderBattleUnitTooltip(unit, battle, viewport) {
     })
     .filter(Boolean)
     .join("");
-  const tooltipMarkup = `
-    <div class="battle-unit-tooltip-header">
-      <span class="battle-unit-tooltip-faction">${escapeHtml(faction?.title || "Neutral")}</span>
-      <h3>${escapeHtml(`${getUnitDefinition(unit).name}${unit.veteran ? " Veteran" : ""}`)}</h3>
-      <p class="battle-unit-tooltip-health">Health ${formatHoverStatNumber(unit.health)} / ${formatHoverStatNumber(unit.maxHealth)}</p>
-      <p class="battle-unit-tooltip-copy">Currently ${escapeHtml(currentActivity)}.</p>
-    </div>
-    ${statuses ? `<ul>${statuses}</ul>` : '<p class="battle-unit-tooltip-empty">No active status effects.</p>'}
-  `;
-  const tooltipKey = JSON.stringify({
+  const activityKey = JSON.stringify({
+    unitId: unit.id,
+    activity: currentActivity,
+  });
+  const liveTooltipKey = JSON.stringify({
     unitId: unit.id,
     factionTitle: faction?.title || "Neutral",
     veteran: Boolean(unit.veteran),
     health: formatHoverStatNumber(unit.health),
     maxHealth: formatHoverStatNumber(unit.maxHealth),
-    activity: currentActivity,
     statuses: (unit.statuses || []).map((status) => `${status.kind}:${formatHoverDuration(status.duration)}:${Math.round(status.stacks || 1)}`).join("|"),
   });
   const now = performance.now();
   const isSameTooltipUnit = state.hover.lastTooltipUnitId === unit.id;
   const cooldownElapsed = (now - state.hover.lastTooltipUpdateAt) >= SHIFT_INSPECT_TOOLTIP_COOLDOWN_MS;
-  const shouldApplyTooltipUpdate = els.battleUnitTooltip.dataset.tooltipKey !== tooltipKey
-    && (
-      state.disableShiftInspectTooltipCooldown
-      || !isSameTooltipUnit
-      || cooldownElapsed
-      || !els.battleUnitTooltip.dataset.tooltipKey
-    );
+  const canRefreshActivity = state.disableShiftInspectTooltipCooldown
+    || !isSameTooltipUnit
+    || cooldownElapsed
+    || !els.battleUnitTooltip.dataset.activityKey;
+  const displayedActivity = canRefreshActivity
+    ? currentActivity
+    : (els.battleUnitTooltip.dataset.activityText || currentActivity);
+  const tooltipMarkup = `
+    <div class="battle-unit-tooltip-header">
+      <span class="battle-unit-tooltip-faction">${escapeHtml(faction?.title || "Neutral")}</span>
+      <h3>${escapeHtml(`${getUnitDefinition(unit).name}${unit.veteran ? " Veteran" : ""}`)}</h3>
+      <p class="battle-unit-tooltip-health">Health ${formatHoverStatNumber(unit.health)} / ${formatHoverStatNumber(unit.maxHealth)}</p>
+      <p class="battle-unit-tooltip-copy">Currently ${escapeHtml(displayedActivity)}.</p>
+    </div>
+    ${statuses ? `<ul>${statuses}</ul>` : '<p class="battle-unit-tooltip-empty">No active status effects.</p>'}
+  `;
+  const combinedTooltipKey = `${liveTooltipKey}::${displayedActivity}`;
+  const shouldApplyTooltipUpdate = els.battleUnitTooltip.dataset.tooltipKey !== combinedTooltipKey;
   if (shouldApplyTooltipUpdate) {
     els.battleUnitTooltip.innerHTML = tooltipMarkup;
-    els.battleUnitTooltip.dataset.tooltipKey = tooltipKey;
+    els.battleUnitTooltip.dataset.tooltipKey = combinedTooltipKey;
+  }
+  if (canRefreshActivity && els.battleUnitTooltip.dataset.activityKey !== activityKey) {
+    els.battleUnitTooltip.dataset.activityKey = activityKey;
+    els.battleUnitTooltip.dataset.activityText = currentActivity;
     state.hover.lastTooltipUpdateAt = now;
     state.hover.lastTooltipUnitId = unit.id;
   }
@@ -16623,6 +17152,7 @@ function drawSingleUnit(viewport, unit, renderEntry = null) {
   );
   ctx.rotate((unit.walkTilt || 0) + (unit.rotation || 0) + (knockdownPose?.rotation || 0));
   ctx.scale((unit.displayFacingX || 1) * (knockdownPose?.scaleX || 1), knockdownPose?.scaleY || 1);
+  if (unit.type === "turret") applyTurretRiseSinkRenderEffect(unit, renderScale);
   if (!drawUnitSprite(unit, main, scale)) {
     unitDef.render?.(main, dark, light, renderScale, unit);
   }
@@ -17316,6 +17846,7 @@ function drawStatusBadge(badge, x, y, scale) {
     if (badge.kind === "bardicvalor") drawBardValorBadgeIcon(scale, badge.accentColor);
     if (badge.kind === "bardicguard") drawBardGuardBadgeIcon(scale, badge.accentColor);
     if (badge.kind === "bardichealing") drawBardHealingBadgeIcon(scale, badge.accentColor);
+    if (badge.kind === "medicregen") drawMedicRegenBadgeIcon(scale, badge.accentColor);
     if (badge.kind === "bloodfrenzy") drawBloodFrenzyBadgeIcon(scale, badge.accentColor);
     if (badge.kind === "immobilized") drawImmobilizedBadgeIcon(scale, badge.accentColor);
     if (badge.kind === "bleed") drawBleedBadgeIcon(scale, badge.accentColor);
@@ -17717,6 +18248,45 @@ function drawBardHealingBadgeIcon(scale, color) {
   ctx.lineTo(0, 2.1 * scale / 2.1);
   ctx.moveTo(-1.6 * scale / 2.1, 0.5 * scale / 2.1);
   ctx.lineTo(1.6 * scale / 2.1, 0.5 * scale / 2.1);
+  ctx.stroke();
+}
+
+function drawMedicRegenBadgeIcon(scale, color) {
+  const scaled = scale / 2.1;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.1 * scaled;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  
+  // Inner healing cross
+  ctx.beginPath();
+  ctx.moveTo(0, -1.6 * scaled);
+  ctx.lineTo(0, 1.6 * scaled);
+  ctx.moveTo(-1.6 * scaled, 0);
+  ctx.lineTo(1.6 * scaled, 0);
+  ctx.stroke();
+
+  // Outer radiating aura waves
+  ctx.beginPath();
+  // Top wave
+  ctx.moveTo(-1.6 * scaled, -3.0 * scaled);
+  ctx.lineTo(0, -4.8 * scaled);
+  ctx.lineTo(1.6 * scaled, -3.0 * scaled);
+  
+  // Right wave
+  ctx.moveTo(3.0 * scaled, -1.6 * scaled);
+  ctx.lineTo(4.8 * scaled, 0);
+  ctx.lineTo(3.0 * scaled, 1.6 * scaled);
+  
+  // Bottom wave
+  ctx.moveTo(-1.6 * scaled, 3.0 * scaled);
+  ctx.lineTo(0, 4.8 * scaled);
+  ctx.lineTo(1.6 * scaled, 3.0 * scaled);
+  
+  // Left wave
+  ctx.moveTo(-3.0 * scaled, -1.6 * scaled);
+  ctx.lineTo(-4.8 * scaled, 0);
+  ctx.lineTo(-3.0 * scaled, 1.6 * scaled);
   ctx.stroke();
 }
 
@@ -19145,6 +19715,24 @@ function drawParticles(viewport, particles) {
   particles.forEach((particle) => {
     const point = worldToScreen(particle.x, particle.y, viewport);
     const alpha = 1 - particle.age / particle.life;
+    if (particle.kind === "beam") {
+      const endPoint = worldToScreen(particle.endX, particle.endY, viewport);
+      ctx.save();
+      ctx.strokeStyle = hexToRgba(particle.glowColor || particle.color, alpha * 0.28);
+      ctx.lineWidth = (particle.lineWidth || 4) * point.scale * 1.8;
+      ctx.beginPath();
+      ctx.moveTo(point.x, point.y);
+      ctx.lineTo(endPoint.x, endPoint.y);
+      ctx.stroke();
+      ctx.strokeStyle = hexToRgba(particle.color, alpha * 0.92);
+      ctx.lineWidth = (particle.lineWidth || 4) * point.scale / 2.1;
+      ctx.beginPath();
+      ctx.moveTo(point.x, point.y);
+      ctx.lineTo(endPoint.x, endPoint.y);
+      ctx.stroke();
+      ctx.restore();
+      return;
+    }
     if (particle.kind === "shockwave" || particle.kind === "ring" || particle.kind === "debug-ring") {
       ctx.strokeStyle = hexToRgba(particle.color, particle.kind === "shockwave" ? alpha * 0.85 : particle.kind === "debug-ring" ? alpha : alpha * 0.45);
       ctx.lineWidth = (particle.lineWidth || 4) * point.scale / (particle.kind === "debug-ring" ? 1 : 2.1) * (particle.kind === "shockwave" ? (1 - alpha * 0.25) : 1);
