@@ -8,6 +8,11 @@ const POST_BATTLE_REVIEW_SPEED = 0.5;
 const AUDIO_DEFAULT_FADE_SECONDS = 1.8;
 const AUDIO_END_FADE_SECONDS = 0.4;
 const AUDIO_PAUSE_DUCK_FACTOR = 0.24;
+const EXPLOSION_SOUND_VARIANT_COUNT = 10;
+const EXPLOSION_SOUND_PATHS = Array.from(
+  { length: EXPLOSION_SOUND_VARIANT_COUNT },
+  (_, index) => `assets/Sound/explosions/explosion_${String(index + 1).padStart(3, "0")}.mp3`,
+);
 const SHIFT_INSPECT_TOOLTIP_COOLDOWN_MS = 1000;
 const AUDIO_TRACKS = {
   main: {
@@ -29,6 +34,21 @@ const AUDIO_TRACKS = {
     src: "assets/music/death_bell.wav",
     loop: false,
     volume: 0.72,
+  },
+  weatherLightRain: {
+    src: "assets/Sound/light_rain.wav",
+    loop: true,
+    volume: 0.32,
+  },
+  weatherHeavyRain: {
+    src: "assets/Sound/heavy_rain.wav",
+    loop: true,
+    volume: 0.42,
+  },
+  weatherWind: {
+    src: "assets/Sound/wind.wav",
+    loop: true,
+    volume: 0.34,
   },
 };
 const BANNER_FLOAT_OFFSET = 76;
@@ -1207,6 +1227,9 @@ function createAudioState() {
     initialized: false,
     muted: false,
     activeMusicKey: null,
+    activeWeatherKey: null,
+    lastExplosionVariantIndex: -1,
+    explosionVariants: [],
     tracks: {},
     fades: [],
   };
@@ -6547,6 +6570,8 @@ function resetBattle(options = {}) {
   const tournamentEntrants = getTournamentEligibleFactions(state.factions);
   state.tournament = shouldUseTournament(tournamentEntrants) ? createTournament(tournamentEntrants) : null;
   state.battle = buildActiveBattle({ preserveArenaVisuals, regenerateTerrain, terrainMirrorKey });
+  primeBattleWeatherAudioSelection();
+  syncBattleWeatherAudio(0.35);
   if (!state.battle.terrainTexture?.ready) queueBattleTerrainTextureGeneration(state.battle);
   clearKnockoutAnnouncement();
   clearBossAnnouncement();
@@ -7503,6 +7528,7 @@ function applyArenaToBattle(battle, arena) {
   if (!battle.terrainTexture.ready) queueBattleTerrainTextureGeneration(battle);
   battle.props = buildFieldProps(battle.field, arena);
   clearSelectedBattleProp();
+  syncBattleWeatherAudio(0.45);
 }
 
 function randomizeArenaAndWeather() {
@@ -10260,6 +10286,7 @@ function loop(timestamp) {
     if (state.tournament || state.running || state.battle?.completed) syncTournamentViewState();
     updateAudioFades(dt);
     updateCamera(dt);
+    syncDynamicAudioMix();
     render();
   }
   if (HAS_BATTLE_PAGE || HAS_BALANCE_LAB_PAGE) {
@@ -10632,6 +10659,11 @@ function togglePauseBattle() {
 function initializeBattleAudio() {
   if (state.audio.initialized) return;
   state.audio.initialized = true;
+  state.audio.explosionVariants = EXPLOSION_SOUND_PATHS.map((src) => {
+    const variant = new Audio(src);
+    variant.preload = "auto";
+    return variant;
+  });
   Object.entries(AUDIO_TRACKS).forEach(([key, config]) => {
     const track = new Audio(config.src);
     track.loop = Boolean(config.loop);
@@ -10641,6 +10673,7 @@ function initializeBattleAudio() {
       key,
       element: track,
       baseVolume: config.volume,
+      currentRawVolume: 0,
       targetVolume: 0,
     };
   });
@@ -10663,9 +10696,51 @@ function playOneShotAudio(trackKey) {
   if (!track || state.audio.muted) return;
   track.element.pause();
   track.element.currentTime = 0;
-  track.element.volume = track.baseVolume;
+  track.currentRawVolume = track.baseVolume;
+  track.element.volume = getEffectiveTrackVolume(trackKey, track.baseVolume);
   track.targetVolume = track.baseVolume;
   const playAttempt = track.element.play();
+  if (playAttempt?.catch) {
+    playAttempt.catch(() => {
+      state.audio.muted = true;
+    });
+  }
+}
+
+function getExplosionZoomBaseVolume() {
+  const zoom = clamp(state.camera?.zoom ?? 1, 0.28, 6.5);
+  return lerp(0.05, 0.6, smoothstep(0.28, 6.5, zoom));
+}
+
+function getOffscreenSoundAttenuation(x, y) {
+  const viewport = getViewport();
+  const bounds = getViewportWorldBounds(viewport);
+  const dx = x < bounds.minX ? (bounds.minX - x) : x > bounds.maxX ? (x - bounds.maxX) : 0;
+  const dy = y < bounds.minY ? (bounds.minY - y) : y > bounds.maxY ? (y - bounds.maxY) : 0;
+  const offscreenDistance = Math.hypot(dx, dy);
+  if (offscreenDistance <= 0.0001) return 1;
+  return 1 - smoothstep(30, 460, offscreenDistance);
+}
+
+function playRandomExplosionAudioAt(x, y) {
+  if (isHeadlessSimulationActive()) return;
+  initializeBattleAudio();
+  if (state.audio.muted || !state.audio.explosionVariants.length) return;
+  const zoomVolume = getExplosionZoomBaseVolume();
+  const distanceMultiplier = getOffscreenSoundAttenuation(x, y);
+  const finalVolume = clamp(zoomVolume * distanceMultiplier, 0, 1);
+  if (finalVolume <= 0.005) return;
+
+  let variantIndex = Math.floor(Math.random() * state.audio.explosionVariants.length);
+  if (state.audio.explosionVariants.length > 1 && variantIndex === state.audio.lastExplosionVariantIndex) {
+    variantIndex = (variantIndex + 1 + Math.floor(Math.random() * (state.audio.explosionVariants.length - 1))) % state.audio.explosionVariants.length;
+  }
+  state.audio.lastExplosionVariantIndex = variantIndex;
+
+  const prototype = state.audio.explosionVariants[variantIndex];
+  const effect = prototype.cloneNode();
+  effect.volume = finalVolume;
+  const playAttempt = effect.play();
   if (playAttempt?.catch) {
     playAttempt.catch(() => {
       state.audio.muted = true;
@@ -10681,7 +10756,8 @@ function fadeTrackTo(trackKey, targetVolume, duration = AUDIO_DEFAULT_FADE_SECON
   state.audio.fades = state.audio.fades.filter((fade) => fade.trackKey !== trackKey);
   if (safeTarget > 0) ensureTrackPlayback(trackKey);
   if (duration <= 0) {
-    track.element.volume = safeTarget;
+    track.currentRawVolume = safeTarget;
+    track.element.volume = getEffectiveTrackVolume(trackKey, safeTarget);
     if (safeTarget === 0) {
       track.element.pause();
       track.element.currentTime = 0;
@@ -10690,7 +10766,7 @@ function fadeTrackTo(trackKey, targetVolume, duration = AUDIO_DEFAULT_FADE_SECON
   }
   state.audio.fades.push({
     trackKey,
-    startVolume: track.element.volume,
+    startVolume: track.currentRawVolume || 0,
     targetVolume: safeTarget,
     duration,
     elapsed: 0,
@@ -10704,14 +10780,73 @@ function updateAudioFades(dt) {
     if (!track) return false;
     fade.elapsed += dt;
     const progress = Math.min(1, fade.elapsed / fade.duration);
-    track.element.volume = lerp(fade.startVolume, fade.targetVolume, progress);
+    const rawVolume = lerp(fade.startVolume, fade.targetVolume, progress);
+    track.currentRawVolume = rawVolume;
+    track.element.volume = getEffectiveTrackVolume(fade.trackKey, rawVolume);
     if (progress < 1) return true;
-    track.element.volume = fade.targetVolume;
+    track.currentRawVolume = fade.targetVolume;
+    track.element.volume = getEffectiveTrackVolume(fade.trackKey, fade.targetVolume);
     if (fade.targetVolume === 0) {
       track.element.pause();
       track.element.currentTime = 0;
     }
     return false;
+  });
+}
+
+function getWeatherAmbienceTrackKey(weather) {
+  if (weather === "drizzle") return "weatherLightRain";
+  if (weather === "downpour") return "weatherHeavyRain";
+  return "weatherWind";
+}
+
+function primeBattleWeatherAudioSelection() {
+  if (!state.audio.initialized) return;
+  state.audio.activeWeatherKey = state.battle ? getWeatherAmbienceTrackKey(state.battle.arena?.weather) : null;
+}
+
+function getWindZoomVolumeMultiplier() {
+  const zoom = state.camera?.zoom ?? 1;
+  return 1 - smoothstep(0.5, 3.2, zoom);
+}
+
+function getTrackVolumeMultiplier(trackKey) {
+  if (trackKey === "weatherWind") return getWindZoomVolumeMultiplier();
+  return 1;
+}
+
+function getEffectiveTrackVolume(trackKey, rawVolume) {
+  const track = state.audio.tracks[trackKey];
+  const cappedVolume = clamp(rawVolume || 0, 0, track?.baseVolume ?? 1);
+  return cappedVolume * getTrackVolumeMultiplier(trackKey);
+}
+
+function syncDynamicAudioMix() {
+  if (isHeadlessSimulationActive() || !state.audio.initialized) return;
+  const fadingKeys = new Set(state.audio.fades.map((fade) => fade.trackKey));
+  Object.values(state.audio.tracks).forEach((track) => {
+    if (!track || fadingKeys.has(track.key) || track.targetVolume <= 0) return;
+    track.currentRawVolume = track.targetVolume;
+    track.element.volume = getEffectiveTrackVolume(track.key, track.targetVolume);
+  });
+}
+
+function syncBattleWeatherAudio(duration = 0.45) {
+  if (isHeadlessSimulationActive()) return;
+  initializeBattleAudio();
+  const nextWeatherKey = state.battle ? getWeatherAmbienceTrackKey(state.battle.arena?.weather) : null;
+  if (state.audio.activeWeatherKey === nextWeatherKey) {
+    if (nextWeatherKey) {
+      const track = state.audio.tracks[nextWeatherKey];
+      fadeTrackTo(nextWeatherKey, track?.baseVolume || 0, duration);
+    }
+    syncDynamicAudioMix();
+    return;
+  }
+  state.audio.activeWeatherKey = nextWeatherKey;
+  ["weatherLightRain", "weatherHeavyRain", "weatherWind"].forEach((trackKey) => {
+    const track = state.audio.tracks[trackKey];
+    fadeTrackTo(trackKey, trackKey === nextWeatherKey ? (track?.baseVolume || 0) : 0, duration);
   });
 }
 
@@ -10730,6 +10865,7 @@ function startBattleAudio() {
   fadeTrackTo("ambience", state.audio.tracks.ambience.baseVolume, 0.9);
   switchMusicTrack("main", 0.9);
   fadeTrackTo("inklord", 0, 0);
+  syncBattleWeatherAudio(0.9);
 }
 
 function pauseBattleAudio() {
@@ -10748,6 +10884,7 @@ function resumeBattleAudio() {
     fadeTrackTo(state.audio.activeMusicKey, state.audio.tracks[state.audio.activeMusicKey].baseVolume, 0.45);
   }
   fadeTrackTo("ambience", state.audio.tracks.ambience.baseVolume, 0.45);
+  syncBattleWeatherAudio(0.45);
 }
 
 function endBattleAudio() {
@@ -10755,7 +10892,11 @@ function endBattleAudio() {
   fadeTrackTo("main", 0, AUDIO_END_FADE_SECONDS);
   fadeTrackTo("inklord", 0, AUDIO_END_FADE_SECONDS);
   fadeTrackTo("ambience", 0, AUDIO_END_FADE_SECONDS);
+  fadeTrackTo("weatherLightRain", 0, AUDIO_END_FADE_SECONDS);
+  fadeTrackTo("weatherHeavyRain", 0, AUDIO_END_FADE_SECONDS);
+  fadeTrackTo("weatherWind", 0, AUDIO_END_FADE_SECONDS);
   state.audio.activeMusicKey = null;
+  state.audio.activeWeatherKey = null;
 }
 
 function updateFlameExposure(unit, dt) {
@@ -13915,6 +14056,7 @@ function resolveArrowProjectile(projectile, battle) {
 function resolveBombProjectile(projectile, battle) {
   const source = findUnitById(battle, projectile.sourceId);
   explodeAt(battle, projectile.endX, projectile.endY, projectile.radius, projectile.damage, source, "#ffbb66", 32);
+  playRandomExplosionAudioAt(projectile.endX, projectile.endY);
   setHighlight(`${findFaction(battle, source?.factionId || "")?.title || "A bomber"} detonates a charge`);
 }
 
@@ -13970,6 +14112,7 @@ function resolveHuntingKnifeProjectile(projectile, battle) {
 function resolveCatapultProjectile(projectile, battle) {
   const source = findUnitById(battle, projectile.sourceId);
   explodeAt(battle, projectile.endX, projectile.endY, projectile.radius, projectile.damage, source, "#c69a62", 24);
+  playRandomExplosionAudioAt(projectile.endX, projectile.endY);
   spawnCatapultImpactDebris(battle, projectile.endX, projectile.endY, projectile.radius);
   battle.particles.push({ kind: "blast-glow", x: projectile.endX, y: projectile.endY, vx: 0, vy: 0, life: 0.34, age: 0, color: "#ffd2a1", size: projectile.radius * 1.06 });
   battle.particles.push({ kind: "shockwave", x: projectile.endX, y: projectile.endY, vx: 0, vy: 0, life: 0.48, age: 0, color: "#f1c07f", size: projectile.radius * 0.34, startSize: projectile.radius * 0.34, maxSize: projectile.radius * 1.18, lineWidth: clamp(projectile.radius * 0.08, 8, 18) });
@@ -14441,6 +14584,7 @@ function isMeleeHitAgainstWinterWitch(attacker, target) {
 function handleBomberDeath({ unit, battle, attacker, unitDef }) {
   const stats = getUnitStats(unit, unitDef);
   explodeAt(battle, unit.x, unit.y, stats.deathSplash, stats.damage * 1.2, unit, "#ff8b4a", 44);
+  playRandomExplosionAudioAt(unit.x, unit.y);
   setHighlight(`${findFaction(battle, unit.factionId).title} loses a bomber in a huge blast`);
 }
 
@@ -17375,7 +17519,6 @@ function drawDepthSortedGroundEntities(viewport, battle) {
   state.renderDebug.visibleUnits = visibleUnits.length;
   state.renderDebug.culledUnits = Math.max(0, livingUnits.length - visibleUnits.length);
   state.renderDebug.overlapShadowCasters = visibleUnits.reduce((total, entry) => total + (entry.rearShadowStrength > 0 ? 1 : 0), 0);
-
   const drawEntries = [
     ...visibleProps.map((prop, index) => ({ kind: "prop", sortY: getGroundPropSortDepth(viewport, prop), index, prop })),
     ...visibleGraves.map((grave, index) => ({ kind: "grave", sortY: getGraveSortDepth(viewport, grave), index, grave })),
@@ -17511,6 +17654,13 @@ function drawUnitRearOverlapShadow(unit, renderEntry) {
   ctx.restore();
 }
 
+function drawUnitBodyVisual(unit, renderScale, scale, main, dark, light) {
+  const unitDef = getUnitDefinition(unit);
+  if (!drawUnitSprite(unit, main, scale)) {
+    unitDef.render?.(main, dark, light, renderScale, unit);
+  }
+}
+
 function drawSingleUnit(viewport, unit, renderEntry = null) {
   const unitDef = getUnitDefinition(unit);
   const { pose, renderScale, healthBarY, healthBarX, hpWidth } = getUnitHoverMetrics(unit, viewport);
@@ -17552,9 +17702,7 @@ function drawSingleUnit(viewport, unit, renderEntry = null) {
   ctx.rotate((unit.walkTilt || 0) + (unit.rotation || 0) + (knockdownPose?.rotation || 0));
   ctx.scale((unit.displayFacingX || 1) * (knockdownPose?.scaleX || 1), knockdownPose?.scaleY || 1);
   if (unit.type === "turret") applyTurretRiseSinkRenderEffect(unit, renderScale);
-  if (!drawUnitSprite(unit, main, scale)) {
-    unitDef.render?.(main, dark, light, renderScale, unit);
-  }
+  drawUnitBodyVisual(unit, renderScale, scale, main, dark, light);
   drawUnitStatusOverlay(unit, renderScale);
   ctx.restore();
   drawUnitStatusBadges(unit, point.x + 16 * renderScale / 2.1, bodyY - 30 * renderScale / 2.1, scale);
