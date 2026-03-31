@@ -712,7 +712,7 @@ const UNIT_DEFINITIONS = {
     id: "bodyguard",
     name: "Bodyguard",
     keywords: ["tank", "shield", "guard", "protector", "melee", "aura"],
-    description: "Bodyguards are slow defensive anchors who hold the army together. Their shielding aura is lighter than before, but if a nearby ally is struck they can zip in, take the hit themselves, and hurl that ally back behind the line before returning to the brawl.",
+    description: "Bodyguards are slow defensive anchors who hold the army together. Their shielding aura protects nearby units, and if a nearby ally is struck they can zip in, take the hit themselves, and hurl that ally back behind the line before returning to the brawl.",
     stats: { maxHealth: 220, speed: 24, range: 24, damage: 21, cooldown: 1.28, auraRadius: 96, aggroRadius: 132, shieldReduction: 0.25, interceptRadiusFactor: 0.5, interceptCooldown: 5 },
     healthBarWidth: 28,
     iconPaths: getBodyguardIconSvgPaths,
@@ -727,8 +727,8 @@ const UNIT_DEFINITIONS = {
     id: "medic",
     name: "Medic",
     keywords: ["heal", "support", "frail"],
-    description: "Medics contribute no direct offense, but they can swing long fights by repeatedly restoring allies on the front line. They are fragile and need protection, yet a well-screened medic can make an entire formation much harder to grind down.",
-    stats: { maxHealth: 50, speed: 56, range: 22, heal: 0.4, cooldown: 1, healingBuffDuration: 4, healingBuffPerSecond: 10, personalSpaceRadius: 18, meleeDamage: 20, meleeRange: 18 },
+    description: "Medics contribute little direct offense, but they can swing long fights by repeatedly restoring allies on the front line. They are fragile and need protection, yet a well-screened medic can make an entire formation much harder to grind down.",
+    stats: { maxHealth: 45, speed: 56, range: 22, heal: 20, cooldown: 1, healingBuffDuration: 4, healingBuffPerSecond: 5, personalSpaceRadius: 18, meleeDamage: 20, meleeRange: 18 },
     healthBarWidth: 20,
     iconPaths: getMedicIconSvgPaths,
     canActWithoutEnemies: true,
@@ -812,6 +812,7 @@ const UNIT_DEFINITIONS = {
     name: "Catapult",
     keywords: ["siege", "stone", "artillery", "boulder"],
     description: "Catapults are siege engines with the longest reach in the roster. They fire slowly and are vulnerable if pressured, but their arcing stones can hammer enemy groups from extreme range and force the battle to revolve around protecting or diving them.",
+    leavesGrave: false,
     stats: { maxHealth: 35, speed: 10, range: 440, damage: 44, splash: 20, cooldown: 4, variance: 43 },
     healthBarWidth: 26,
     iconPaths: getCatapultIconSvgPaths,
@@ -874,12 +875,13 @@ const UNIT_DEFINITIONS = {
     id: "graverobber",
     name: "Graverobber",
     keywords: ["grave", "corpse", "raider", "shovel", "melee"],
-    description: "Graverobbers thrive where others have already died. They prowl near corpses and graves, turning battlefield remains into a resource that improves their effectiveness, which makes them especially dangerous in messy, prolonged fights.",
+    description: "Graverobbers stitch themselves into battlefield abominations. Each grave they loot grafts on a stolen limb from the buried unit, replacing one of their own body parts and swapping in that donor's signature attack, spell, or aura.",
     stats: { maxHealth: 78, speed: 42, range: 18, graveRange: 24, graveSnapRange: 58, damage: 15, cooldown: 1 },
     healthBarWidth: 22,
     iconPaths: getGraverobberIconSvgPaths,
     canActWithoutEnemies: true,
     beforeStep: updateGraverobberState,
+    managesOwnCooldown: true,
     selectTarget: selectGraverobberTarget,
     getAttackRange: getGraverobberAttackRange,
     getDesiredDestination: getGraverobberDestination,
@@ -910,7 +912,7 @@ const UNIT_DEFINITIONS = {
     name: "Krieger",
     keywords: ["titan", "hulk", "brute", "regeneration", "blood frenzy", "melee"],
     description: "Kriegers are towering lurching hulks that crush whatever they reach. They regenerate steadily, hit like siege beasts in melee, and can lose all sense of allegiance in a blood frenzy after a kill, turning on the nearest body no matter whose banner it serves.",
-    stats: { maxHealth: 240, speed: 22, range: 32, damage: 58, cooldown: 1.55, regenPerSecond: 4.2, frenzyChance: 0.32 },
+    stats: { maxHealth: 220, speed: 22, range: 32, damage: 50, cooldown: 1.55, regenPerSecond: 3.5, frenzyChance: 0.32 },
     healthBarWidth: 36,
     iconPaths: getKriegerIconSvgPaths,
     canActWithoutEnemies: true,
@@ -972,7 +974,7 @@ const UNIT_DEFINITIONS = {
     name: "Artificer",
     keywords: ["engineer", "builder", "turret", "construct", "anti-swarm"],
     description: "Artificers are battlefield engineers who deploy compact sentry turrets. They reposition cautiously behind the line, rebuild when the fight shifts, and are best at shredding clustered light units rather than winning straight duels.",
-    stats: { maxHealth: 64, speed: 40, range: 138, buildOffset: 28, cooldown: 3.9, rebuildThreshold: 110 },
+    stats: { maxHealth: 50, speed: 40, range: 138, buildOffset: 28, cooldown: 3.9, rebuildThreshold: 110 },
     healthBarWidth: 20,
     iconPaths: getArtificerIconSvgPaths,
     beforeStep: updateArtificerState,
@@ -1096,6 +1098,31 @@ const UNIT_LIBRARY = Object.values(UNIT_DEFINITIONS)
   .filter((unit) => unit.draftable !== false)
   .map(({ id, name, keywords, description }) => ({ id, name, keywords, description }));
 const UNIT_STATS = Object.fromEntries(Object.values(UNIT_DEFINITIONS).map((unit) => [unit.id, unit.stats]));
+const GRAVEROBBER_GRAFT_SLOTS = ["head", "torso", "leftArm", "rightArm", "legs"];
+const GRAVEROBBER_RIG_LEG_PART_IDS = ["legFrontThigh", "legFrontShin", "legBackThigh", "legBackShin"];
+const GRAVEROBBER_RIG_ARM_PART_IDS = ["armFront", "armBack"];
+const GRAVEROBBER_GRAFT_DEFINITIONS = {
+  archer: { label: "Arrow graft", accent: "#97c46f", light: "#ecf9cb", icon: "arrow", range: UNIT_STATS.archer.range, cooldown: UNIT_STATS.archer.cooldown, preferredDistance: 122 },
+  mage: { label: "Orb graft", accent: "#6fb4f0", light: "#dff3ff", icon: "orb", range: UNIT_STATS.mage.range, cooldown: UNIT_STATS.mage.cooldown, preferredDistance: 110 },
+  knight: { label: "Knight graft", accent: "#d7ba74", light: "#f6e4b7", icon: "blade", range: UNIT_STATS.knight.range, cooldown: UNIT_STATS.knight.cooldown, preferredDistance: 18 },
+  paladin: { label: "Paladin graft", accent: "#f1d67d", light: "#fff3bf", icon: "sun", range: UNIT_STATS.paladin.range, cooldown: UNIT_STATS.paladin.cooldown, preferredDistance: 18 },
+  bodyguard: { label: "Shield graft", accent: "#8ecfe7", light: "#e8fbff", icon: "shield", range: 0, cooldown: 0.34, auraRadius: UNIT_STATS.bodyguard.auraRadius },
+  medic: { label: "Medic graft", accent: "#89d7a1", light: "#e6ffe8", icon: "cross", range: 0, cooldown: 1.5, auraRadius: 44 },
+  bard: { label: "Song graft", accent: "#ffb46a", light: "#fff0d1", icon: "note", range: 0, cooldown: 0.38, auraRadius: UNIT_STATS.bard.auraRadius },
+  bomber: { label: "Bomb graft", accent: "#d88752", light: "#ffd7b0", icon: "bomb", range: UNIT_STATS.bomber.range, cooldown: UNIT_STATS.bomber.cooldown, preferredDistance: 146 },
+  assassin: { label: "Assassin graft", accent: "#8e6fb3", light: "#f1e5ff", icon: "fang", range: 22, cooldown: UNIT_STATS.assassin.cooldown, preferredDistance: 14 },
+  mountainman: { label: "Mountain graft", accent: "#7ab487", light: "#e0f8da", icon: "spark", range: UNIT_STATS.mountainman.impulseRange, cooldown: UNIT_STATS.mountainman.cooldown, preferredDistance: 82 },
+  catapult: { label: "Siege graft", accent: "#b98f63", light: "#efe0c5", icon: "stone", range: UNIT_STATS.catapult.range, cooldown: UNIT_STATS.catapult.cooldown, preferredDistance: 210 },
+  poisoner: { label: "Poison graft", accent: "#88d45a", light: "#efffdc", icon: "vial", range: UNIT_STATS.poisoner.range, cooldown: UNIT_STATS.poisoner.cooldown, preferredDistance: 126 },
+  firebreather: { label: "Flame graft", accent: "#ef8b43", light: "#ffe0b4", icon: "flame", range: UNIT_STATS.firebreather.range, cooldown: UNIT_STATS.firebreather.cooldown, preferredDistance: 64 },
+  necromancer: { label: "Necrotic graft", accent: "#8a65bf", light: "#ecdfff", icon: "skull", range: UNIT_STATS.necromancer.range, cooldown: UNIT_STATS.necromancer.cooldown, preferredDistance: 18 },
+  arachnomist: { label: "Spider graft", accent: "#95c85a", light: "#f0ffd8", icon: "fang", range: 22, cooldown: 1.2, preferredDistance: 16 },
+  krieger: { label: "Brute graft", accent: "#c06e58", light: "#ffd9cf", icon: "claw", range: UNIT_STATS.krieger.range, cooldown: UNIT_STATS.krieger.cooldown, preferredDistance: 20 },
+  huntsman: { label: "Hunter graft", accent: "#a4cfe2", light: "#eefaff", icon: "net", range: UNIT_STATS.huntsman.netRange, cooldown: 1, preferredDistance: 104 },
+  winterwitch: { label: "Frost graft", accent: "#9ddcf9", light: "#eefaff", icon: "snow", range: UNIT_STATS.winterwitch.range, cooldown: UNIT_STATS.winterwitch.cooldown, preferredDistance: 132 },
+  artificer: { label: "Turret graft", accent: "#d9ad49", light: "#fff0be", icon: "gear", range: UNIT_STATS.artificer.range, cooldown: UNIT_STATS.artificer.cooldown, preferredDistance: 92 },
+  phantom: { label: "Phantom graft", accent: "#c9d9ff", light: "#f7fbff", icon: "ghost", range: 150, cooldown: 1.7, preferredDistance: 82 },
+};
 const PROJECTILE_DEFINITIONS = {
   arrow: {
     arcHeight: 70,
@@ -8477,6 +8504,8 @@ function makeUnit(factionId, type, x, y) {
     currentTargetKind: null,
     currentGraveId: null,
     gravesRobbed: 0,
+    graverobberGrafts: null,
+    graverobberLastAttackKind: null,
     wanderTargetX: x,
     wanderTargetY: y,
     wanderTimer: 0,
@@ -9409,8 +9438,8 @@ function getTintedUnitSprite(image, url, color) {
   return state.tintedUnitSprites.get(cacheKey);
 }
 
-function drawUnitSprite(unit, color, scale) {
-  if (drawRiggedUnitSprite(unit, color, scale)) return true;
+function drawUnitSprite(unit, color, scale, options = {}) {
+  if (drawRiggedUnitSprite(unit, color, scale, options)) return true;
   const source = getUnitSpriteSource(unit.type);
   if (!source || source.status !== "loaded" || !source.image?.complete) return false;
   const layout = UNIT_SPRITE_LAYOUTS[unit.type] || { height: 39, anchorX: 0.5, anchorY: 0.88 };
@@ -9461,12 +9490,15 @@ function applyTurretRiseSinkRenderEffect(unit, renderScale) {
   ctx.stroke();
 }
 
-function drawRiggedUnitSprite(unit, color, scale) {
-  if (!state.useRiggedSprites) return false;
-  const source = getRiggedUnitSpriteSource(unit.type);
+function drawRiggedUnitSprite(unit, color, scale, options = {}) {
+  if (!state.useRiggedSprites && !options.forceLoad) return false;
+  const source = getRiggedUnitSpriteSource(unit.type, { forceLoad: options.forceLoad });
   if (!source || source.status !== "loaded" || !source.image?.complete || !source.manifest) return false;
   const image = getTintedUnitSprite(source.image, `${source.url}|rig`, color) || source.image;
-  drawRiggedSpriteFromManifest(ctx, source.manifest, image, unit, scale * getUnitRenderScale(unit));
+  const partOverrides = unit.type === "graverobber"
+    ? buildGraverobberRigPartOverrides(unit, color, source)
+    : null;
+  drawRiggedSpriteFromManifest(ctx, source.manifest, image, unit, scale * getUnitRenderScale(unit), { partOverrides });
   return true;
 }
 
@@ -9537,10 +9569,18 @@ function drawRiggedSpriteFromManifest(targetCtx, manifest, image, unit, scale, o
   renderOrder.forEach((id) => {
     const part = manifest.parts[id];
     if (!part) return;
-    const cellSize = manifest.sheet?.cellSize || 64;
-    const columns = manifest.sheet?.columns || 4;
-    const cellX = (part.cell % columns) * cellSize;
-    const cellY = Math.floor(part.cell / columns) * cellSize;
+    const override = options.partOverrides?.[id] || null;
+    const drawManifest = override?.manifest || manifest;
+    const drawImage = override?.image || image;
+    const drawPart = override?.sourcePartId ? drawManifest.parts?.[override.sourcePartId] : part;
+    if (!drawPart || !drawImage) return;
+    const drawSourceScale = override
+      ? getRigPartOverrideSourceScale(sourceScale, manifest, drawManifest, override.donorType)
+      : sourceScale;
+    const cellSize = drawManifest.sheet?.cellSize || 64;
+    const columns = drawManifest.sheet?.columns || 4;
+    const cellX = (drawPart.cell % columns) * cellSize;
+    const cellY = Math.floor(drawPart.cell / columns) * cellSize;
     const matrix = ensurePartMatrix(id);
     if (options.collectPartMetrics) {
       const bounds = getTransformedRectBounds(
@@ -9558,15 +9598,15 @@ function drawRiggedSpriteFromManifest(targetCtx, manifest, image, unit, scale, o
     targetCtx.save();
     targetCtx.setTransform(matrix);
     targetCtx.drawImage(
-      image,
-      cellX + part.frame.x,
-      cellY + part.frame.y,
-      part.frame.w,
-      part.frame.h,
-      -part.pivot.x * sourceScale,
-      -part.pivot.y * sourceScale,
-      part.frame.w * sourceScale,
-      part.frame.h * sourceScale,
+      drawImage,
+      cellX + drawPart.frame.x,
+      cellY + drawPart.frame.y,
+      drawPart.frame.w,
+      drawPart.frame.h,
+      -drawPart.pivot.x * drawSourceScale,
+      -drawPart.pivot.y * drawSourceScale,
+      drawPart.frame.w * drawSourceScale,
+      drawPart.frame.h * drawSourceScale,
     );
     targetCtx.restore();
   });
@@ -11838,6 +11878,448 @@ function findFarthestGrave(unit, graves, predicate = null) {
   return best;
 }
 
+function createDefaultGraverobberGrafts() {
+  return Object.fromEntries(GRAVEROBBER_GRAFT_SLOTS.map((slot) => [slot, null]));
+}
+
+function ensureGraverobberGrafts(unit) {
+  if (!unit.graverobberGrafts) {
+    unit.graverobberGrafts = createDefaultGraverobberGrafts();
+  }
+  GRAVEROBBER_GRAFT_SLOTS.forEach((slot) => {
+    if (!(slot in unit.graverobberGrafts)) unit.graverobberGrafts[slot] = null;
+  });
+  return unit.graverobberGrafts;
+}
+
+function getGraverobberGraftDefinition(donorType) {
+  return GRAVEROBBER_GRAFT_DEFINITIONS[donorType] || GRAVEROBBER_GRAFT_DEFINITIONS.knight;
+}
+
+function getGraverobberGraftEntries(unit) {
+  const grafts = ensureGraverobberGrafts(unit);
+  return GRAVEROBBER_GRAFT_SLOTS
+    .map((slot) => grafts[slot])
+    .filter(Boolean);
+}
+
+function getGraverobberPassiveAuraRadius(unit) {
+  let radius = 0;
+  getGraverobberGraftEntries(unit).forEach((graft) => {
+    const def = getGraverobberGraftDefinition(graft.donorType);
+    if (def.auraRadius) radius = Math.max(radius, def.auraRadius);
+  });
+  return radius;
+}
+
+function getGraverobberCombatReach(unit) {
+  let range = getUnitDefinition("graverobber").stats.range;
+  getGraverobberGraftEntries(unit).forEach((graft) => {
+    const def = getGraverobberGraftDefinition(graft.donorType);
+    range = Math.max(range, def.range || 0);
+  });
+  return range;
+}
+
+function getGraverobberPreferredDistance(unit) {
+  let preferred = 16;
+  getGraverobberGraftEntries(unit).forEach((graft) => {
+    const def = getGraverobberGraftDefinition(graft.donorType);
+    preferred = Math.max(preferred, def.preferredDistance || 0);
+  });
+  return preferred;
+}
+
+function chooseRandomGraverobberSlot() {
+  return GRAVEROBBER_GRAFT_SLOTS[Math.floor(Math.random() * GRAVEROBBER_GRAFT_SLOTS.length)];
+}
+
+function assignGraverobberGraft(unit, donorType, slot = chooseRandomGraverobberSlot()) {
+  const grafts = ensureGraverobberGrafts(unit);
+  const donorStats = UNIT_STATS[donorType] || {};
+  const oldGraft = grafts[slot];
+  const nextGraft = {
+    slot,
+    donorType,
+    cooldown: 0,
+    auxCooldown: 0,
+    pulseCooldown: 0,
+    seed: Math.random() * Math.PI * 2,
+    songKind: donorType === "bard"
+      ? ["bardichaste", "bardicvalor", "bardicguard", "bardichealing"][Math.floor(Math.random() * 4)]
+      : null,
+    turretId: donorType === "artificer" ? null : undefined,
+    sourceDamage: donorStats.damage ?? donorStats.biteDamage ?? donorStats.impulseDamage ?? 0,
+    rigReplacement: null,
+  };
+  if (oldGraft?.turretId && state.battle) {
+    const staleTurret = findUnitById(state.battle, oldGraft.turretId);
+    if (staleTurret && !staleTurret.dead && !staleTurret.fled) {
+      applyDamage(staleTurret, staleTurret.health + 999, state.battle, unit, { noAttackerCredit: true, skipDefaultDeathBurst: true });
+    }
+  }
+  grafts[slot] = nextGraft;
+  return nextGraft;
+}
+
+function tickGraverobberGraftCooldowns(unit, dt) {
+  ensureGraverobberGrafts(unit);
+  GRAVEROBBER_GRAFT_SLOTS.forEach((slot) => {
+    const graft = unit.graverobberGrafts[slot];
+    if (!graft) return;
+    graft.cooldown = Math.max(0, (graft.cooldown || 0) - dt);
+    graft.auxCooldown = Math.max(0, (graft.auxCooldown || 0) - dt);
+    graft.pulseCooldown = Math.max(0, (graft.pulseCooldown || 0) - dt);
+  });
+}
+
+function applyGraverobberBardAura(unit, allies, battle, graft) {
+  const def = getGraverobberGraftDefinition(graft.donorType);
+  if ((graft.pulseCooldown || 0) > 0) return;
+  graft.pulseCooldown = def.cooldown;
+  unit.activeSongKind = graft.songKind || "bardicvalor";
+  const songDef = getStatusDefinition(unit.activeSongKind);
+  allies.forEach((ally) => {
+    if (ally.dead || ally.fled) return;
+    if (getBattlefieldEllipseDistance(ally.x - unit.x, ally.y - unit.y) > def.auraRadius) return;
+    const status = applyStatus(ally, unit.activeSongKind, 1, songDef?.defaultDuration, unit, battle);
+    if (status && unit.activeSongKind === "bardichealing") {
+      status.healPerSecond = Math.max(status.healPerSecond || 0, getBardSongModifiers(unit).healingPerSecond * 0.7);
+    }
+  });
+}
+
+function applyGraverobberShieldAura(unit, allies, battle, graft) {
+  const def = getGraverobberGraftDefinition(graft.donorType);
+  if ((graft.pulseCooldown || 0) > 0) return;
+  graft.pulseCooldown = def.cooldown;
+  allies.forEach((ally) => {
+    if (ally.dead || ally.fled) return;
+    if (getBattlefieldEllipseDistance(ally.x - unit.x, ally.y - unit.y) > def.auraRadius) return;
+    applyStatus(ally, "shielded", 1, 0.36, unit, battle);
+  });
+}
+
+function applyGraverobberMedicAura(unit, allies, battle, graft) {
+  const def = getGraverobberGraftDefinition(graft.donorType);
+  if ((graft.pulseCooldown || 0) > 0) return;
+  const candidates = allies.filter((ally) => (
+    !ally.dead
+    && !ally.fled
+    && getBattlefieldEllipseDistance(ally.x - unit.x, ally.y - unit.y) <= def.auraRadius
+    && (ally.health < ally.maxHealth || hasNegativeStatuses(ally))
+  ));
+  const target = candidates.sort((a, b) => (a.health / Math.max(1, a.maxHealth)) - (b.health / Math.max(1, b.maxHealth)))[0]
+    || ((unit.health < unit.maxHealth || hasNegativeStatuses(unit)) ? unit : null);
+  if (!target) return;
+  graft.pulseCooldown = def.cooldown;
+  const amount = Math.max(4, target.maxHealth * 0.18);
+  const healed = applyHealing(target, amount, battle, unit, { ignoreZombieInversion: true });
+  if (healed > 0) {
+    recordUnitContribution(unit, "healing", healed, battle);
+    applyStatus(target, "medicregen", 1, 2.5, unit, battle);
+    battle.particles.push({ x: target.x, y: target.y - 10, vx: 0, vy: -16, life: 0.42, age: 0, color: "#b7ffc1", size: 6 });
+  }
+  clearNegativeStatuses(target);
+}
+
+function updateGraverobberPassives({ unit, allies, battle, dt }) {
+  unit.activeSongKind = null;
+  getGraverobberGraftEntries(unit).forEach((graft) => {
+    if (graft.donorType === "krieger") {
+      const regen = UNIT_STATS.krieger.regenPerSecond * 0.55;
+      if (unit.health < unit.maxHealth) {
+        unit.health = Math.min(unit.maxHealth, unit.health + regen * dt);
+        refreshUnitFleeingState(unit, battle);
+      }
+      return;
+    }
+    if (graft.donorType === "bodyguard") {
+      applyGraverobberShieldAura(unit, allies, battle, graft);
+      return;
+    }
+    if (graft.donorType === "bard") {
+      applyGraverobberBardAura(unit, allies, battle, graft);
+      return;
+    }
+    if (graft.donorType === "medic") {
+      applyGraverobberMedicAura(unit, allies, battle, graft);
+    }
+  });
+}
+
+function scoreGraverobberGraftAgainstTarget(unit, target, graft, battle) {
+  const def = getGraverobberGraftDefinition(graft.donorType);
+  const distance = Math.hypot(target.x - unit.x, target.y - unit.y);
+  if (distance > Math.max(20, def.range || 0) + 6) return -Infinity;
+  if ((graft.cooldown || 0) > 0) return -Infinity;
+  let score = (def.range || 0) - distance;
+  if (graft.donorType === "bodyguard" || graft.donorType === "bard" || graft.donorType === "medic") return -Infinity;
+  if (graft.donorType === "paladin" && isUndeadOrThrall(target)) score += 60;
+  if (graft.donorType === "huntsman" && !getUnitStatus(target, "immobilized")) score += 30;
+  if (graft.donorType === "bomber" || graft.donorType === "catapult" || graft.donorType === "winterwitch") {
+    const splashBias = getTargetableEnemies(battle, unit.factionId, unit)
+      .filter((enemy) => getBattlefieldEllipseDistance(enemy.x - target.x, enemy.y - target.y) <= (UNIT_STATS[graft.donorType]?.splash || UNIT_STATS.winterwitch.blizzardRadius || 0) * 1.1)
+      .length;
+    score += splashBias * 12;
+  }
+  return score;
+}
+
+function pickBestGraverobberAttack(unit, target, battle) {
+  let best = null;
+  let bestScore = -Infinity;
+  getGraverobberGraftEntries(unit).forEach((graft) => {
+    const score = scoreGraverobberGraftAgainstTarget(unit, target, graft, battle);
+    if (score > bestScore) {
+      bestScore = score;
+      best = graft;
+    }
+  });
+  const baseRange = getUnitDefinition("graverobber").stats.range;
+  const distance = Math.hypot(target.x - unit.x, target.y - unit.y);
+  if (distance <= baseRange + 4 && bestScore < 18) return { kind: "shovel" };
+  return best ? { kind: "graft", graft: best } : (distance <= baseRange + 4 ? { kind: "shovel" } : null);
+}
+
+function setGraverobberGraftCooldown(graft, multiplier = 1) {
+  const def = getGraverobberGraftDefinition(graft.donorType);
+  graft.cooldown = (def.cooldown || 1) * 1.5 * multiplier;
+}
+
+function performGraverobberGraftAttack(unit, target, battle, graft) {
+  const def = getGraverobberGraftDefinition(graft.donorType);
+  const distance = Math.hypot(target.x - unit.x, target.y - unit.y);
+  if (distance > Math.max(18, def.range || 0) + 4 || (graft.cooldown || 0) > 0) return false;
+  if (graft.donorType === "archer") {
+    const endX = target.x + (Math.random() - 0.5) * 28;
+    const endY = target.y + (Math.random() - 0.5) * 22;
+    const flight = Math.hypot(endX - unit.x, endY - unit.y);
+    battle.projectiles.push({ kind: "arrow", sourceId: unit.id, progress: 0, duration: clamp(0.35 + flight / 230 + Math.random() * 0.15, 0.38, 1.3), startX: unit.x, startY: unit.y - 18, endX, endY, impactAngle: Math.atan2(endY - unit.y, endX - unit.x), targetId: target.id, damage: UNIT_STATS.archer.damage * (0.82 + Math.random() * 0.35) });
+    setGraverobberGraftCooldown(graft, 0.9 + Math.random() * 0.2);
+    unit.graverobberLastAttackKind = "arrow";
+    return true;
+  }
+  if (graft.donorType === "mage") {
+    battle.projectiles.push({ kind: "orb", sourceId: unit.id, progress: 0, duration: 0.44 + Math.random() * 0.2, startX: unit.x, startY: unit.y - 22, endX: target.x, endY: target.y, targetId: target.id, damage: UNIT_STATS.mage.damage * (0.95 + Math.random() * 0.35), radius: 28 });
+    setGraverobberGraftCooldown(graft, 0.94 + Math.random() * 0.18);
+    unit.graverobberLastAttackKind = "orb";
+    return true;
+  }
+  if (graft.donorType === "bomber") {
+    const endX = target.x + (Math.random() - 0.5) * 14;
+    const endY = target.y + (Math.random() - 0.5) * 14;
+    const throwDistance = Math.hypot(endX - unit.x, endY - unit.y);
+    battle.projectiles.push({ kind: "bomb", sourceId: unit.id, progress: 0, duration: clamp(0.48 + throwDistance / 250 + Math.random() * 0.12, 0.5, 1.15), startX: unit.x, startY: unit.y - 16, endX, endY, targetId: target.id, damage: UNIT_STATS.bomber.damage * 0.9, radius: UNIT_STATS.bomber.splash * 0.9, fuse: UNIT_STATS.bomber.fuse, landed: false, timer: 0 });
+    setGraverobberGraftCooldown(graft, 0.94 + Math.random() * 0.16);
+    unit.graverobberLastAttackKind = "bomb";
+    return true;
+  }
+  if (graft.donorType === "poisoner") {
+    const endX = target.x + (Math.random() - 0.5) * 18;
+    const endY = target.y + (Math.random() - 0.5) * 18;
+    const throwDistance = Math.hypot(endX - unit.x, endY - unit.y);
+    battle.projectiles.push({ kind: "poisonBottle", sourceId: unit.id, progress: 0, duration: clamp(0.52 + throwDistance / 240 + Math.random() * 0.14, 0.6, 1.25), startX: unit.x, startY: unit.y - 18, endX, endY, targetId: target.id, damage: UNIT_STATS.poisoner.damage, radius: UNIT_STATS.poisoner.splash, poisonStacks: UNIT_STATS.poisoner.poisonStacks, poisonDuration: UNIT_STATS.poisoner.poisonDuration, poisonDamage: UNIT_STATS.poisoner.poisonDamage });
+    setGraverobberGraftCooldown(graft, 0.9 + Math.random() * 0.2);
+    unit.graverobberLastAttackKind = "poison";
+    return true;
+  }
+  if (graft.donorType === "firebreather") {
+    const spellId = `${unit.id}-graft-flame-${Math.random().toString(36).slice(2, 7)}`;
+    battle.spells.push({ id: spellId, kind: "flame-breath", sourceId: unit.id, targetId: target.id, time: 0, duration: UNIT_STATS.firebreather.breathDuration * 0.75, range: UNIT_STATS.firebreather.range, coneAngle: UNIT_STATS.firebreather.coneAngle, dps: UNIT_STATS.firebreather.damage * 0.9, ignitionExposure: UNIT_STATS.firebreather.ignitionExposure, exposureGrace: UNIT_STATS.firebreather.exposureGrace, igniteStacks: UNIT_STATS.firebreather.igniteStacks, igniteDuration: UNIT_STATS.firebreather.igniteDuration, color: "#ff9b48" });
+    unit.activeSpellId = spellId;
+    setGraverobberGraftCooldown(graft, 0.96 + Math.random() * 0.16);
+    unit.graverobberLastAttackKind = "flame";
+    return true;
+  }
+  if (graft.donorType === "winterwitch") {
+    const spellId = `${unit.id}-graft-blizzard-${Math.random().toString(36).slice(2, 7)}`;
+    battle.spells.push({ id: spellId, kind: "winter-blizzard", sourceId: unit.id, targetId: target.id, time: 0, duration: UNIT_STATS.winterwitch.blizzardDuration * 0.8, radius: UNIT_STATS.winterwitch.blizzardRadius * 0.9, dps: UNIT_STATS.winterwitch.blizzardDamage * 0.9, moveMultiplier: UNIT_STATS.winterwitch.blizzardMoveMultiplier, cooldownRate: UNIT_STATS.winterwitch.blizzardCooldownRate, statusDuration: UNIT_STATS.winterwitch.blizzardStatusDuration, x: target.x, y: target.y });
+    spawnBurst(battle, target.x, target.y - 8, "#c6ebff", 8);
+    setGraverobberGraftCooldown(graft, 0.94 + Math.random() * 0.18);
+    unit.graverobberLastAttackKind = "snow";
+    return true;
+  }
+  if (graft.donorType === "catapult") {
+    const variance = UNIT_STATS.catapult.variance * 0.6;
+    const endX = target.x + (Math.random() - 0.5) * variance;
+    const endY = target.y + (Math.random() - 0.5) * variance * 0.8;
+    battle.projectiles.push({ kind: "catapultStone", sourceId: unit.id, progress: 0, duration: clamp(0.95 + distance / 280, 0.95, 1.8), startX: unit.x, startY: unit.y - 20, endX, endY, targetId: target.id, damage: UNIT_STATS.catapult.damage * 0.9, radius: UNIT_STATS.catapult.splash * 1.1, impactAngle: Math.atan2(endY - unit.y, endX - unit.x), spin: (Math.random() > 0.5 ? 1 : -1) * (3.5 + Math.random() * 2) });
+    setGraverobberGraftCooldown(graft, 0.96 + Math.random() * 0.2);
+    unit.graverobberLastAttackKind = "stone";
+    return true;
+  }
+  if (graft.donorType === "artificer") {
+    const existingTurret = graft.turretId ? findUnitById(battle, graft.turretId) : null;
+    const existingDistance = existingTurret ? Math.hypot(target.x - existingTurret.x, target.y - existingTurret.y) : Infinity;
+    if (!existingTurret || existingTurret.dead || existingTurret.fled || existingDistance > UNIT_STATS.artificer.rebuildThreshold) {
+      if (existingTurret && !existingTurret.dead && !existingTurret.fled) {
+        applyDamage(existingTurret, existingTurret.health + 999, battle, unit, { noAttackerCredit: true, skipDefaultDeathBurst: true });
+      }
+      const turret = createArtificerTurret(unit, target, battle);
+      if (turret) graft.turretId = turret.id;
+      setGraverobberGraftCooldown(graft, 1);
+      unit.graverobberLastAttackKind = "gear";
+      return Boolean(turret);
+    }
+    return false;
+  }
+  if (graft.donorType === "huntsman") {
+    const canThrowNet = !getUnitStatus(target, "immobilized") && (graft.auxCooldown || 0) <= 0;
+    if (canThrowNet && distance <= UNIT_STATS.huntsman.netRange && Math.random() < 0.6) {
+      battle.projectiles.push({ kind: "net", sourceId: unit.id, progress: 0, duration: clamp(0.42 + distance / 260 + Math.random() * 0.08, 0.45, 1.05), startX: unit.x, startY: unit.y - 18, endX: target.x, endY: target.y - 4, targetId: target.id, netDuration: UNIT_STATS.huntsman.netDuration });
+      graft.auxCooldown = 4;
+      setGraverobberGraftCooldown(graft, 0.85);
+      unit.graverobberLastAttackKind = "net";
+      return true;
+    }
+    battle.projectiles.push({ kind: "huntingKnife", sourceId: unit.id, progress: 0, duration: clamp(0.48 + distance / 185 + Math.random() * 0.12, 0.52, 1.45), startX: unit.x + (unit.displayFacingX || 1) * 10, startY: unit.y - 18, endX: target.x, endY: target.y, targetId: target.id, damage: UNIT_STATS.huntsman.damage, impactAngle: Math.atan2(target.y - unit.y, target.x - unit.x), targetStartX: target.x, targetStartY: target.y });
+    setGraverobberGraftCooldown(graft, 1);
+    unit.graverobberLastAttackKind = "knife";
+    return true;
+  }
+  if (graft.donorType === "mountainman") {
+    applyDamage(target, UNIT_STATS.mountainman.impulseDamage * (0.9 + Math.random() * 0.25), battle, unit);
+    applyStatus(target, "knockdown", 1, 0.75, unit, battle);
+    const awayX = target.x - unit.x;
+    const awayY = target.y - unit.y;
+    const length = Math.max(0.001, Math.hypot(awayX, awayY));
+    target.vx += (awayX / length) * 62;
+    target.vy += (awayY / length) * 50;
+    spawnBurst(battle, target.x, target.y - 2, "#b0efb2", 12);
+    setGraverobberGraftCooldown(graft, 0.92 + Math.random() * 0.16);
+    unit.graverobberLastAttackKind = "spark";
+    return true;
+  }
+  if (graft.donorType === "phantom") {
+    applyDamage(target, 18 * (0.92 + Math.random() * 0.3), battle, unit);
+    applyStatus(target, "blizzard", 1, 0.22, unit, battle);
+    battle.particles.push({ kind: "ring", x: target.x, y: target.y - 2, vx: 0, vy: 0, life: 0.2, age: 0, color: "rgba(215, 231, 255, 0.82)", size: 14, lineWidth: 2 });
+    setGraverobberGraftCooldown(graft, 1);
+    unit.graverobberLastAttackKind = "ghost";
+    return true;
+  }
+  const meleeRange = Math.max(18, def.range || 18);
+  if (distance > meleeRange + 4) return false;
+  let damage = def.sourceDamage || 15;
+  if (graft.donorType === "assassin") damage = UNIT_STATS.assassin.backstabDamage * 0.48;
+  if (graft.donorType === "necromancer") damage = UNIT_STATS.necromancer.biteDamage;
+  if (graft.donorType === "arachnomist") damage = UNIT_STATS.arachnomist.biteDamage;
+  if (graft.donorType === "krieger") damage = UNIT_STATS.krieger.damage * 0.78;
+  if (graft.donorType === "paladin" && isUndeadOrThrall(target)) damage *= UNIT_STATS.paladin.undeadBonus;
+  applyDamage(target, damage * (0.92 + Math.random() * 0.28), battle, unit);
+  if (graft.donorType === "necromancer") applyHealing(unit, UNIT_STATS.necromancer.biteHeal * 0.6, battle, unit, { ignoreZombieInversion: true });
+  if (graft.donorType === "arachnomist") applyStatus(target, "poison", UNIT_STATS.arachnomist.poisonStacks, UNIT_STATS.arachnomist.poisonDuration, unit, battle);
+  if (graft.donorType === "krieger" && Math.random() < UNIT_STATS.krieger.frenzyChance * 0.4) applyStatus(unit, "bloodfrenzy", 1, 6, unit, battle);
+  battle.swipes.push({ x: target.x, y: target.y - 11, angle: unit.facing, life: 0.2, maxLife: 0.2, color: hexToRgba(def.accent, 0.86) });
+  spawnBurst(battle, target.x, target.y - 1, def.accent, graft.donorType === "krieger" ? 14 : 8);
+  setGraverobberGraftCooldown(graft, 0.92 + Math.random() * 0.22);
+  unit.graverobberLastAttackKind = def.icon;
+  return true;
+}
+
+function getStableGraftChoiceIndex(graft, length, offset = 0) {
+  if (!length) return 0;
+  const seed = Math.abs(Math.floor((graft?.seed || 0) * 10000)) + offset * 31;
+  return seed % length;
+}
+
+function getGraverobberRigReplacement(graft, targetManifest, donorManifest) {
+  if (!graft || !targetManifest?.parts || !donorManifest?.parts) return null;
+  const cached = graft.rigReplacement;
+  if (
+    cached
+    && cached.targetPartIds?.every((id) => targetManifest.parts[id])
+    && cached.sourcePartIds?.every((id) => donorManifest.parts[id])
+  ) {
+    return cached;
+  }
+
+  let replacement = null;
+  if (graft.slot === "head" && targetManifest.parts.head && donorManifest.parts.head) {
+    replacement = { targetPartIds: ["head"], sourcePartIds: ["head"] };
+  } else if (graft.slot === "torso" && targetManifest.parts.body && donorManifest.parts.body) {
+    replacement = { targetPartIds: ["body"], sourcePartIds: ["body"] };
+  } else if (graft.slot === "leftArm" && targetManifest.parts.armBack) {
+    const donorChoices = GRAVEROBBER_RIG_ARM_PART_IDS.filter((id) => donorManifest.parts[id]);
+    if (donorChoices.length) {
+      replacement = {
+        targetPartIds: ["armBack"],
+        sourcePartIds: [donorChoices[getStableGraftChoiceIndex(graft, donorChoices.length, 1)]],
+      };
+    }
+  } else if (graft.slot === "rightArm" && targetManifest.parts.armFront) {
+    const donorChoices = GRAVEROBBER_RIG_ARM_PART_IDS.filter((id) => donorManifest.parts[id]);
+    if (donorChoices.length) {
+      replacement = {
+        targetPartIds: ["armFront"],
+        sourcePartIds: [donorChoices[getStableGraftChoiceIndex(graft, donorChoices.length, 2)]],
+      };
+    }
+  } else if (graft.slot === "legs") {
+    const targetChoices = GRAVEROBBER_RIG_LEG_PART_IDS.filter((id) => targetManifest.parts[id]);
+    if (targetChoices.length) {
+      const targetPartId = targetChoices[getStableGraftChoiceIndex(graft, targetChoices.length, 3)];
+      const donorPool = targetPartId.includes("Thigh")
+        ? ["legFrontThigh", "legBackThigh"]
+        : ["legFrontShin", "legBackShin"];
+      const donorChoices = donorPool.filter((id) => donorManifest.parts[id]);
+      if (donorChoices.length) {
+        replacement = {
+          targetPartIds: [targetPartId],
+          sourcePartIds: [donorChoices[getStableGraftChoiceIndex(graft, donorChoices.length, 4)]],
+        };
+      }
+    }
+  }
+
+  graft.rigReplacement = replacement;
+  return replacement;
+}
+
+function buildGraverobberRigPartOverrides(unit, color, targetSource) {
+  if (!targetSource?.manifest?.parts) return null;
+  const partOverrides = {};
+  getGraverobberGraftEntries(unit).forEach((graft) => {
+    const donorSource = getRiggedUnitSpriteSource(graft.donorType, { forceLoad: true });
+    if (donorSource?.status !== "loaded" || !donorSource.manifest?.parts || !donorSource.image?.complete) return;
+    const replacement = getGraverobberRigReplacement(graft, targetSource.manifest, donorSource.manifest);
+    if (!replacement) return;
+    const donorImage = getTintedUnitSprite(donorSource.image, `${donorSource.url}|rig`, color) || donorSource.image;
+    replacement.targetPartIds.forEach((targetPartId, index) => {
+      const sourcePartId = replacement.sourcePartIds[index] || replacement.sourcePartIds[0];
+      if (!sourcePartId) return;
+      partOverrides[targetPartId] = {
+        manifest: donorSource.manifest,
+        image: donorImage,
+        sourcePartId,
+        donorType: graft.donorType,
+      };
+    });
+  });
+  return Object.keys(partOverrides).length ? partOverrides : null;
+}
+
+function getRigManifestSourceHeight(manifest) {
+  if (!manifest) return DEFAULT_RIG_LAYOUT.height;
+  return Math.max(
+    1,
+    manifest.sourceSize?.height
+      || manifest.layout?.height
+      || UNIT_SPRITE_LAYOUTS[manifest.unitId]?.height
+      || DEFAULT_RIG_LAYOUT.height,
+  );
+}
+
+function getRigPartOverrideSourceScale(baseSourceScale, targetManifest, drawManifest, donorType = null) {
+  const targetSourceHeight = getRigManifestSourceHeight(targetManifest);
+  const donorSourceHeight = getRigManifestSourceHeight(drawManifest);
+  const donorRenderScale = donorType ? getUnitRenderScale({ type: donorType, veteran: false }) : 1;
+  return baseSourceScale
+    * (targetSourceHeight / Math.max(1, donorSourceHeight))
+    / Math.max(0.01, donorRenderScale || 1);
+}
+
 function getTargetSelectionPreference(unit, enemy, flavor = "default") {
   const rand = createSeededRandom(hashStringToSeed(`${unit.id}|${enemy.id}|${flavor}`));
   return rand();
@@ -11905,16 +12387,7 @@ function applyThrallLeash(unit, battle, dt) {
 }
 
 function modifyGraverobberStats(unit, stats) {
-  if (!unit) return stats;
-  const robbed = unit.gravesRobbed || 0;
-  return {
-    ...stats,
-    damage: stats.damage * (1 + robbed * 0.3),
-    speed: stats.speed * (1 + robbed * 0.2),
-    range: stats.range + robbed * 3.5,
-    graveRange: stats.graveRange + robbed * 2,
-    maxHealth: stats.maxHealth * (1 + robbed * 0.13),
-  };
+  return stats;
 }
 
 function selectDefaultTarget({ unit, enemies, allies }) {
@@ -12538,8 +13011,11 @@ function handleNecromancerDeath({ unit, battle }) {
   });
 }
 
-function updateGraverobberState({ unit, dt }) {
+function updateGraverobberState({ unit, dt, allies, battle }) {
   unit.graverobberNearbyGraveCheckCooldown = Math.max(0, (unit.graverobberNearbyGraveCheckCooldown || 0) - dt);
+  unit.cooldown = Math.max(0, (unit.cooldown || 0) - dt * getUnitCooldownTickRate(unit));
+  tickGraverobberGraftCooldowns(unit, dt);
+  updateGraverobberPassives({ unit, allies, battle, dt });
 }
 
 function selectGraverobberTarget({ unit, enemies, graves, battle, unitDef }) {
@@ -12569,12 +13045,13 @@ function selectGraverobberTarget({ unit, enemies, graves, battle, unitDef }) {
   unit.graverobberAttackTargetId = null;
 
   const grave = findNearestGrave(unit, graves);
+  const reach = getGraverobberCombatReach(unit);
   const enemyTarget = enemies.length ? selectDefaultTarget({ unit, enemies, allies: [] }) : null;
   const enemyDistance = enemyTarget ? Math.hypot(enemyTarget.x - unit.x, enemyTarget.y - unit.y) : Infinity;
   const shouldPickFight = Boolean(
     enemyTarget
     && (
-      enemyDistance <= Math.max(stats.range * 3.4, 92)
+      enemyDistance <= Math.max(reach * 1.15, 92)
       || (grave && enemyDistance <= Math.max(stats.graveRange * 0.7, 120) && Math.random() < 0.38)
       || (!grave && Math.random() < 0.75)
     )
@@ -12607,12 +13084,18 @@ function selectGraverobberTarget({ unit, enemies, graves, battle, unitDef }) {
 
 function getGraverobberAttackRange(unitDef, unit) {
   const stats = getUnitStats(unit, unitDef);
-  return Math.max(stats.range, stats.graveRange);
+  return Math.max(stats.graveRange, getGraverobberCombatReach(unit));
 }
 
 function getGraverobberDestination({ target, destination, unit }) {
   if (!target) return destination;
-  return unit.currentTargetKind === "grave" ? destination : getRetreatingDestination(16, 0.08)({ unit, target, distance: Math.hypot(target.x - unit.x, target.y - unit.y), destination });
+  if (unit.currentTargetKind === "grave") return destination;
+  return getRetreatingDestination(getGraverobberPreferredDistance(unit), 0.08)({
+    unit,
+    target,
+    distance: Math.hypot(target.x - unit.x, target.y - unit.y),
+    destination,
+  });
 }
 
 function performGraverobberAttack({ unit, target, battle, unitDef }) {
@@ -12622,25 +13105,41 @@ function performGraverobberAttack({ unit, target, battle, unitDef }) {
     const grave = findGraveById(battle, target.id || unit.currentGraveId);
     if (!grave || Math.hypot(grave.x - unit.x, grave.y - unit.y) > stats.graveRange + 4) return;
     removeGrave(battle, grave.id);
-    updateUnitActivity(unit, "Plundering a gravestone for strength.");
+    const slot = chooseRandomGraverobberSlot();
+    const newGraft = assignGraverobberGraft(unit, grave.unitType, slot);
+    updateUnitActivity(unit, `Grafting a ${getUnitDefinition(grave.unitType).name.toLowerCase()} limb onto its ${slot === "leftArm" ? "left arm" : slot === "rightArm" ? "right arm" : slot}.`);
     unit.gravesRobbed = (unit.gravesRobbed || 0) + 1;
     unit.graverobberNearbyGravesLooted = (unit.graverobberNearbyGravesLooted || 0) + 1;
     if ((unit.graverobberNearbyGravesLooted || 0) >= 3) {
       unit.graverobberNearbyGravesLooted = 0;
       unit.graverobberNearbyGraveCheckCooldown = 5;
     }
-    syncUnitMaxHealth(unit, true);
+    unit.cooldown = stats.cooldown * (0.86 + Math.random() * 0.24);
     spawnBurst(battle, grave.x, grave.y - 3, "#b59363", 16);
-    setHighlight(`${findFaction(battle, unit.factionId).title}'s graverobber plunders a grave and grows bolder`);
-    return;
+    battle.particles.push({ kind: "ring", x: grave.x, y: grave.y, vx: 0, vy: 0, life: 0.32, age: 0, color: hexToRgba(getGraverobberGraftDefinition(newGraft.donorType).accent, 0.74), size: 18, lineWidth: 3 });
+    setHighlight(`${findFaction(battle, unit.factionId).title}'s graverobber grafts a ${getUnitDefinition(grave.unitType).name.toLowerCase()} ${slot === "legs" ? "leg" : slot}`);
+    return true;
   }
-  if (Math.hypot(target.x - unit.x, target.y - unit.y) > stats.range + 4) return;
-  updateUnitActivity(unit, `Slashing at ${getUnitActivityTargetLabel(target, battle)}.`);
-  applyDamage(target, stats.damage * (0.92 + Math.random() * 0.36), battle, unit);
+  const chosenAttack = pickBestGraverobberAttack(unit, target, battle);
+  if (!chosenAttack) return false;
+  let attackPerformed = false;
+  if (chosenAttack.kind === "graft") {
+    const label = getGraverobberGraftDefinition(chosenAttack.graft.donorType).label.toLowerCase();
+    updateUnitActivity(unit, `Using its ${label} on ${getUnitActivityTargetLabel(target, battle)}.`);
+    attackPerformed = performGraverobberGraftAttack(unit, target, battle, chosenAttack.graft);
+  } else if (Math.hypot(target.x - unit.x, target.y - unit.y) <= stats.range + 4) {
+    updateUnitActivity(unit, `Slashing at ${getUnitActivityTargetLabel(target, battle)} with its shovel.`);
+    applyDamage(target, stats.damage * (0.92 + Math.random() * 0.36), battle, unit);
+    battle.swipes.push({ x: target.x, y: target.y - 11, angle: unit.facing, life: 0.2, maxLife: 0.2, color: "rgba(178, 146, 104, 0.86)" });
+    spawnBurst(battle, target.x, target.y - 1, "#e0c089", 8);
+    unit.graverobberLastAttackKind = "shovel";
+    attackPerformed = true;
+  }
+  if (!attackPerformed) return false;
+  unit.cooldown = stats.cooldown * (0.82 + Math.random() * 0.3);
   unit.graverobberAttackTargetId = target.id;
   unit.graverobberAttackSwingsRemaining = Math.max(0, (unit.graverobberAttackSwingsRemaining || 0) - 1);
-  battle.swipes.push({ x: target.x, y: target.y - 11, angle: unit.facing, life: 0.2, maxLife: 0.2, color: "rgba(178, 146, 104, 0.86)" });
-  spawnBurst(battle, target.x, target.y - 1, "#e0c089", 8);
+  return true;
 }
 
 function updateArachnomistState({ unit, dt }) {
@@ -14470,6 +14969,14 @@ function applyDamage(unit, amount, battle, attacker = null, options = {}) {
   return applyRawDamage(unit, amount, battle, attacker, options);
 }
 
+function shouldSpiderSwarmDodgeDamage(unit, attacker, battle, damageKind = "direct") {
+  if (!unit || unit.type !== "spiderswarm" || !attacker || attacker.dead || !battle) return false;
+  if (damageKind === "healing") return false;
+  const owner = unit.summonOwnerId ? findUnitById(battle, unit.summonOwnerId) : null;
+  const summonerFactionId = owner?.factionId || unit.factionId;
+  return attacker.factionId !== summonerFactionId && Math.random() < 0.5;
+}
+
 function applyRawDamage(unit, amount, battle, attacker = null, options = {}) {
   if (!unit || unit.dead || amount <= 0) return 0;
   const unitDef = getUnitDefinition(unit);
@@ -14487,6 +14994,32 @@ function applyRawDamage(unit, amount, battle, attacker = null, options = {}) {
       }
       return 0;
     }
+  }
+  if (shouldSpiderSwarmDodgeDamage(unit, attacker, battle, damageKind)) {
+    battle?.particles?.push({
+      kind: "ring",
+      x: unit.x,
+      y: unit.y - 2,
+      vx: 0,
+      vy: 0,
+      life: 0.22,
+      age: 0,
+      color: "rgba(186, 236, 144, 0.82)",
+      size: 10,
+      lineWidth: 2,
+    });
+    battle?.particles?.push({
+      kind: "blast-glow",
+      x: unit.x,
+      y: unit.y - 1,
+      vx: 0,
+      vy: 0,
+      life: 0.16,
+      age: 0,
+      color: "#c6ef8c",
+      size: 8,
+    });
+    return 0;
   }
   if (unit.type === "phantom" && damageKind === "direct" && Math.random() < 0.5) {
     battle?.particles?.push({
@@ -15785,6 +16318,7 @@ function render() {
   drawProjectileShadows(viewport, state.battle.projectiles);
   drawBodyguardAuras(viewport, state.battle.factions);
   drawBardAuras(viewport, state.battle.factions);
+  drawGraverobberGraftAuras(viewport, state.battle.factions);
   drawDepthSortedGroundEntities(viewport, state.battle);
   drawProjectiles(viewport, state.battle.projectiles);
   drawBossBubbles(viewport, state.battle);
@@ -17656,7 +18190,8 @@ function drawUnitRearOverlapShadow(unit, renderEntry) {
 
 function drawUnitBodyVisual(unit, renderScale, scale, main, dark, light) {
   const unitDef = getUnitDefinition(unit);
-  if (!drawUnitSprite(unit, main, scale)) {
+  const shouldForceGraverobberRig = unit.type === "graverobber" && getGraverobberGraftEntries(unit).length > 0;
+  if (!drawUnitSprite(unit, main, scale, { forceLoad: shouldForceGraverobberRig })) {
     unitDef.render?.(main, dark, light, renderScale, unit);
   }
 }
@@ -18155,6 +18690,38 @@ function drawBardAuras(viewport, factions) {
         );
       }
       ctx.restore();
+    });
+  });
+}
+
+function drawGraverobberGraftAuras(viewport, factions) {
+  const battleTime = state.battle?.time || 0;
+  const pulse = Math.sin(2 * battleTime) ** 6;
+  factions.forEach((faction) => {
+    faction.units.forEach((unit) => {
+      if (unit.dead || unit.fled || unit.type !== "graverobber") return;
+      getGraverobberGraftEntries(unit).forEach((graft) => {
+        const def = getGraverobberGraftDefinition(graft.donorType);
+        if (!def.auraRadius) return;
+        const point = worldToScreen(unit.x, unit.y, viewport);
+        const radius = def.auraRadius * point.scale;
+        const auraColor = graft.donorType === "bard"
+          ? getBardSongVisuals(graft.songKind || "bardicvalor").color
+          : def.accent;
+        ctx.save();
+        ctx.setLineDash([7 * point.scale, 6 * point.scale]);
+        ctx.strokeStyle = hexToRgba(auraColor, pulse * 0.36);
+        ctx.lineWidth = Math.max(1.1, (pulse * 0.82) * point.scale);
+        ctx.beginPath();
+        traceBattlefieldEllipse(ctx, point.x, point.y, radius);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = hexToRgba(auraColor, pulse * 0.07);
+        ctx.beginPath();
+        traceBattlefieldEllipse(ctx, point.x, point.y, radius);
+        ctx.fill();
+        ctx.restore();
+      });
     });
   });
 }
@@ -19780,10 +20347,130 @@ function drawNecromancer(main, dark, light, scale, unit) {
   });
 }
 
+function getGraverobberSlotVisual(unit, slot, fallbackAccent, fallbackLight) {
+  const graft = ensureGraverobberGrafts(unit)[slot];
+  if (!graft) return { accent: fallbackAccent, light: fallbackLight, icon: null };
+  const def = getGraverobberGraftDefinition(graft.donorType);
+  return { accent: def.accent, light: def.light, icon: def.icon };
+}
+
+function drawGraverobberGlyph(icon, x, y, scale, color) {
+  const s = scale / 2.1;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  ctx.lineWidth = 1.2 * s;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  if (icon === "note") {
+    drawMusicNote(0, 0, scale * 0.36, color, -0.16);
+  } else if (icon === "flame") {
+    ctx.beginPath();
+    ctx.moveTo(0, -3.4 * s);
+    ctx.quadraticCurveTo(2.8 * s, -1.2 * s, 1.4 * s, 2.8 * s);
+    ctx.quadraticCurveTo(0.2 * s, 5.1 * s, -1.5 * s, 2.6 * s);
+    ctx.quadraticCurveTo(-3 * s, -0.8 * s, 0, -3.4 * s);
+    ctx.fill();
+  } else if (icon === "snow") {
+    ctx.beginPath();
+    ctx.moveTo(-3 * s, 0); ctx.lineTo(3 * s, 0);
+    ctx.moveTo(0, -3 * s); ctx.lineTo(0, 3 * s);
+    ctx.moveTo(-2.2 * s, -2.2 * s); ctx.lineTo(2.2 * s, 2.2 * s);
+    ctx.moveTo(-2.2 * s, 2.2 * s); ctx.lineTo(2.2 * s, -2.2 * s);
+    ctx.stroke();
+  } else if (icon === "shield") {
+    ctx.beginPath();
+    ctx.moveTo(0, -4 * s); ctx.lineTo(3 * s, -2.5 * s); ctx.lineTo(2.4 * s, 2.5 * s);
+    ctx.lineTo(0, 4.6 * s); ctx.lineTo(-2.4 * s, 2.5 * s); ctx.lineTo(-3 * s, -2.5 * s);
+    ctx.closePath();
+    ctx.stroke();
+  } else if (icon === "cross") {
+    ctx.beginPath();
+    ctx.moveTo(-3 * s, 0); ctx.lineTo(3 * s, 0);
+    ctx.moveTo(0, -3 * s); ctx.lineTo(0, 3 * s);
+    ctx.stroke();
+  } else if (icon === "arrow") {
+    ctx.beginPath();
+    ctx.moveTo(-4 * s, 2 * s); ctx.lineTo(3 * s, -2 * s);
+    ctx.moveTo(3 * s, -2 * s); ctx.lineTo(1 * s, -3.3 * s);
+    ctx.moveTo(3 * s, -2 * s); ctx.lineTo(1.5 * s, 0.5 * s);
+    ctx.stroke();
+  } else if (icon === "orb" || icon === "stone" || icon === "bomb") {
+    ctx.beginPath();
+    ctx.arc(0, 0, 2.5 * s, 0, Math.PI * 2);
+    ctx.stroke();
+    if (icon === "bomb") {
+      ctx.beginPath();
+      ctx.moveTo(0.7 * s, -2.7 * s);
+      ctx.lineTo(3.1 * s, -4.4 * s);
+      ctx.stroke();
+    }
+  } else if (icon === "vial") {
+    ctx.beginPath();
+    ctx.moveTo(-2 * s, -3 * s); ctx.lineTo(2 * s, -3 * s); ctx.lineTo(1 * s, 3.5 * s); ctx.lineTo(-1 * s, 3.5 * s);
+    ctx.closePath();
+    ctx.stroke();
+  } else if (icon === "blade" || icon === "fang" || icon === "claw") {
+    ctx.beginPath();
+    ctx.moveTo(-2.5 * s, 3.2 * s); ctx.lineTo(0.4 * s, -3.8 * s); ctx.lineTo(2.5 * s, 2.8 * s);
+    ctx.stroke();
+  } else if (icon === "sun") {
+    ctx.beginPath();
+    ctx.arc(0, 0, 2.4 * s, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(-4 * s, 0); ctx.lineTo(-2.8 * s, 0);
+    ctx.moveTo(4 * s, 0); ctx.lineTo(2.8 * s, 0);
+    ctx.moveTo(0, -4 * s); ctx.lineTo(0, -2.8 * s);
+    ctx.moveTo(0, 4 * s); ctx.lineTo(0, 2.8 * s);
+    ctx.stroke();
+  } else if (icon === "spark" || icon === "gear") {
+    ctx.beginPath();
+    ctx.moveTo(0, -4 * s); ctx.lineTo(1.5 * s, -1 * s); ctx.lineTo(4 * s, 0); ctx.lineTo(1.5 * s, 1 * s);
+    ctx.lineTo(0, 4 * s); ctx.lineTo(-1.5 * s, 1 * s); ctx.lineTo(-4 * s, 0); ctx.lineTo(-1.5 * s, -1 * s);
+    ctx.closePath();
+    ctx.stroke();
+  } else if (icon === "net") {
+    ctx.beginPath();
+    ctx.rect(-3 * s, -3 * s, 6 * s, 6 * s);
+    ctx.moveTo(-1 * s, -3 * s); ctx.lineTo(-1 * s, 3 * s);
+    ctx.moveTo(1 * s, -3 * s); ctx.lineTo(1 * s, 3 * s);
+    ctx.moveTo(-3 * s, -1 * s); ctx.lineTo(3 * s, -1 * s);
+    ctx.moveTo(-3 * s, 1 * s); ctx.lineTo(3 * s, 1 * s);
+    ctx.stroke();
+  } else if (icon === "skull" || icon === "ghost") {
+    ctx.beginPath();
+    ctx.arc(0, -0.5 * s, 2.5 * s, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(-1.7 * s, 2.4 * s); ctx.lineTo(-0.6 * s, 4 * s); ctx.lineTo(0.6 * s, 2.4 * s); ctx.lineTo(1.7 * s, 4 * s);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
 function drawGraverobber(main, dark, light, scale, unit) {
   const attack = getUnitAttackSwing(unit, 1.08);
-  drawStepLegs(dark, scale, unit, 6.1, 10.2);
-  ctx.fillStyle = main;
+  const head = getGraverobberSlotVisual(unit, "head", light, shadeColor(light, 0.14));
+  const torso = getGraverobberSlotVisual(unit, "torso", main, shadeColor(main, 0.14));
+  const leftArm = getGraverobberSlotVisual(unit, "leftArm", "#6b4c2b", "#bbb7af");
+  const rightArm = getGraverobberSlotVisual(unit, "rightArm", "#6b4c2b", "#bbb7af");
+  const legs = getGraverobberSlotVisual(unit, "legs", dark, shadeColor(dark, 0.24));
+  const stride = (unit?.stride || 0) * scale / 2.1;
+  const lift = Math.abs(unit?.stride || 0) * 1.4 * scale / 2.1;
+
+  ctx.strokeStyle = legs.accent;
+  ctx.lineWidth = 2 * scale / 2.1;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(-4 * scale / 2.1, 10.2 * scale / 2.1);
+  ctx.lineTo((-6.1 - stride) * scale / 2.1, 17.2 * scale / 2.1 - lift);
+  ctx.moveTo(4 * scale / 2.1, 10.2 * scale / 2.1);
+  ctx.lineTo((6.1 - stride) * scale / 2.1, 17.2 * scale / 2.1 + lift * 0.45);
+  ctx.stroke();
+
+  ctx.fillStyle = torso.accent;
   ctx.beginPath();
   ctx.moveTo(0, -13 * scale / 2.1);
   ctx.lineTo(9 * scale / 2.1, -4 * scale / 2.1);
@@ -19792,18 +20479,40 @@ function drawGraverobber(main, dark, light, scale, unit) {
   ctx.lineTo(-10 * scale / 2.1, -3 * scale / 2.1);
   ctx.closePath();
   ctx.fill();
-  ctx.fillStyle = light;
+  ctx.fillStyle = torso.light;
+  ctx.beginPath();
+  ctx.moveTo(-3.6 * scale / 2.1, -5 * scale / 2.1);
+  ctx.lineTo(4.4 * scale / 2.1, -3 * scale / 2.1);
+  ctx.lineTo(2.8 * scale / 2.1, 6.4 * scale / 2.1);
+  ctx.lineTo(-4.8 * scale / 2.1, 4.6 * scale / 2.1);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = head.accent;
   ctx.beginPath();
   ctx.arc(-1 * scale / 2.1, -13 * scale / 2.1, 4.7 * scale / 2.1, 0, Math.PI * 2);
   ctx.fill();
-  ctx.strokeStyle = "#6b4c2b";
+  ctx.fillStyle = head.light;
+  ctx.beginPath();
+  ctx.arc(-1 * scale / 2.1, -14 * scale / 2.1, 2.4 * scale / 2.1, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = leftArm.accent;
+  ctx.lineWidth = 2 * scale / 2.1;
+  ctx.beginPath();
+  ctx.moveTo(-8 * scale / 2.1, -4 * scale / 2.1);
+  ctx.lineTo(-13 * scale / 2.1, 2 * scale / 2.1);
+  ctx.lineTo(-10.5 * scale / 2.1, 10.2 * scale / 2.1);
+  ctx.stroke();
+
+  ctx.strokeStyle = rightArm.accent;
   ctx.lineWidth = 2.2 * scale / 2.1;
   drawSwingArm(scale, 8, -4, 16, -14, attack, -1.15, ({ scaled, length }) => {
     ctx.beginPath();
     ctx.moveTo(0, 0);
     ctx.lineTo(length, 0);
     ctx.stroke();
-    ctx.fillStyle = "#bbb7af";
+    ctx.fillStyle = rightArm.light;
     ctx.beginPath();
     ctx.moveTo(length - 4 * scaled, -2 * scaled);
     ctx.quadraticCurveTo(length + 2 * scaled, 0, length, 6 * scaled);
@@ -19811,6 +20520,12 @@ function drawGraverobber(main, dark, light, scale, unit) {
     ctx.quadraticCurveTo(length - 4 * scaled, 0, length - 4 * scaled, -2 * scaled);
     ctx.fill();
   });
+
+  if (head.icon) drawGraverobberGlyph(head.icon, -1 * scale / 2.1, -13 * scale / 2.1, scale * 0.34, "#1f1812");
+  if (torso.icon) drawGraverobberGlyph(torso.icon, -0.5 * scale / 2.1, -0.5 * scale / 2.1, scale * 0.34, "#1f1812");
+  if (leftArm.icon) drawGraverobberGlyph(leftArm.icon, -13 * scale / 2.1, 6 * scale / 2.1, scale * 0.28, "#1f1812");
+  if (rightArm.icon) drawGraverobberGlyph(rightArm.icon, 14 * scale / 2.1, -7 * scale / 2.1, scale * 0.28, "#1f1812");
+  if (legs.icon) drawGraverobberGlyph(legs.icon, 0, 15.2 * scale / 2.1, scale * 0.28, "#1f1812");
 }
 
 function drawArachnomist(main, dark, light, scale, unit) {
