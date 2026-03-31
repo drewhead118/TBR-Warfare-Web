@@ -1,0 +1,227 @@
+[
+    {
+        "id":  "01-sunlit-vale",
+        "arenaName":  "Sunlit Vale",
+        "path":  "assets/prebuilt-terrain/01-sunlit-vale.png",
+        "profile":  {
+                        "key":  "meadow",
+                        "baseTexture":  "grass",
+                        "tileSize":  [
+                                         132,
+                                         186
+                                     ],
+                        "softLightAlpha":  0.5,
+                        "multiplyAlpha":  0.18
+                    }
+    },
+    {
+        "id":  "02-moss-march",
+        "arenaName":  "Moss March",
+        "path":  "assets/prebuilt-terrain/02-moss-march.png",
+        "profile":  {
+                        "key":  "wetland",
+                        "baseTexture":  "dirt",
+                        "tileSize":  [
+                                         104,
+                                         150
+                                     ],
+                        "softLightAlpha":  0.46,
+                        "multiplyAlpha":  0.22
+                    }
+    },
+    {
+        "id":  "03-copper-plain",
+        "arenaName":  "Copper Plain",
+        "path":  "assets/prebuilt-terrain/03-copper-plain.png",
+        "profile":  {
+                        "key":  "rocky",
+                        "baseTexture":  "stone",
+                        "tileSize":  [
+                                         118,
+                                         166
+                                     ],
+                        "softLightAlpha":  0.38,
+                        "multiplyAlpha":  0.26
+                    }
+    },
+    {
+        "id":  "04-blue-fen",
+        "arenaName":  "Blue Fen",
+        "path":  "assets/prebuilt-terrain/04-blue-fen.png",
+        "profile":  {
+                        "key":  "wetland",
+                        "baseTexture":  "dirt",
+                        "tileSize":  [
+                                         110,
+                                         158
+                                     ],
+                        "softLightAlpha":  0.46,
+                        "multiplyAlpha":  0.22
+                    }
+    },
+    {
+        "id":  "05-rose-dunes",
+        "arenaName":  "Rose Dunes",
+        "path":  "assets/prebuilt-terrain/05-rose-dunes.png",
+        "profile":  {
+                        "key":  "dunes",
+                        "baseTexture":  "sand",
+                        "tileSize":  [
+                                         146,
+                                         218
+                                     ],
+                        "softLightAlpha":  0.42,
+                        "multiplyAlpha":  0.14
+                    }
+    },
+    {
+        "id":  "06-jade-steppe",
+        "arenaName":  "Jade Steppe",
+        "path":  "assets/prebuilt-terrain/06-jade-steppe.png",
+        "profile":  {
+                        "key":  "meadow",
+                        "baseTexture":  "grass",
+                        "tileSize":  [
+                                         136,
+                                         194
+                                     ],
+                        "softLightAlpha":  0.5,
+                        "multiplyAlpha":  0.18
+                    }
+    },
+    {
+        "id":  "07-violet-moor",
+        "arenaName":  "Violet Moor",
+        "path":  "assets/prebuilt-terrain/07-violet-moor.png",
+        "profile":  {
+                        "key":  "moor",
+                        "baseTexture":  "dirt",
+                        "tileSize":  [
+                                         104,
+                                         154
+                                     ],
+                        "softLightAlpha":  0.44,
+                        "multiplyAlpha":  0.2
+                    }
+    },
+    {
+        "id":  "08-ashen-reach",
+        "arenaName":  "Ashen Reach",
+        "path":  "assets/prebuilt-terrain/08-ashen-reach.png",
+        "profile":  {
+                        "key":  "rocky",
+                        "baseTexture":  "stone",
+                        "tileSize":  [
+                                         112,
+                                         160
+                                     ],
+                        "softLightAlpha":  0.38,
+                        "multiplyAlpha":  0.26
+                    }
+    },
+    {
+        "id":  "09-auric-flats",
+        "arenaName":  "Auric Flats",
+        "path":  "assets/prebuilt-terrain/09-auric-flats.png",
+        "profile":  {
+                        "key":  "dunes",
+                        "baseTexture":  "sand",
+                        "tileSize":  [
+                                         150,
+                                         224
+                                     ],
+                        "softLightAlpha":  0.42,
+                        "multiplyAlpha":  0.14
+                    }
+    },
+    {
+        "id":  "10-nightglass-basin",
+        "arenaName":  "Nightglass Basin",
+        "path":  "assets/prebuilt-terrain/10-nightglass-basin.png",
+        "profile":  {
+                        "key":  "rocky",
+                        "baseTexture":  "stone",
+                        "tileSize":  [
+                                         100,
+                                         148
+                                     ],
+                        "softLightAlpha":  0.38,
+                        "multiplyAlpha":  0.26
+                    }
+    },
+    {
+        "id":  "11-cinder-scar",
+        "arenaName":  "Cinder Scar",
+        "path":  "assets/prebuilt-terrain/11-cinder-scar.png",
+        "profile":  {
+                        "key":  "rocky",
+                        "baseTexture":  "stone",
+                        "tileSize":  [
+                                         108,
+                                         152
+                                     ],
+                        "softLightAlpha":  0.38,
+                        "multiplyAlpha":  0.26
+                    }
+    },
+    {
+        "id":  "12-thornwild-verge",
+        "arenaName":  "Thornwild Verge",
+        "path":  "assets/prebuilt-terrain/12-thornwild-verge.png",
+        "profile":  {
+                        "key":  "meadow",
+                        "baseTexture":  "grass",
+                        "tileSize":  [
+                                         124,
+                                         176
+                                     ],
+                        "softLightAlpha":  0.5,
+                        "multiplyAlpha":  0.18
+                    }
+    },
+    {
+        "id":  "13-ivory-saltpan",
+        "arenaName":  "Ivory Saltpan",
+        "path":  "assets/prebuilt-terrain/13-ivory-saltpan.png",
+        "profile":  {
+                        "key":  "dunes",
+                        "baseTexture":  "sand",
+                        "tileSize":  [
+                                         154,
+                                         232
+                                     ],
+                        "softLightAlpha":  0.42,
+                        "multiplyAlpha":  0.14
+                    }
+    },
+    {
+        "id":  "14-saffron-breakers",
+        "arenaName":  "Saffron Breakers",
+        "path":  "assets/prebuilt-terrain/14-saffron-breakers.png",
+        "profile":  {
+                        "key":  "dunes",
+                        "baseTexture":  "sand",
+                        "tileSize":  [
+                                         142,
+                                         210
+                                     ],
+                        "softLightAlpha":  0.42,
+                        "multiplyAlpha":  0.14
+                    }
+    },
+    {
+        "id":  "15-moonroot-hollow",
+        "arenaName":  "Moonroot Hollow",
+        "path":  "assets/prebuilt-terrain/15-moonroot-hollow.png",
+        "profile":  {
+                        "key":  "wetland",
+                        "baseTexture":  "dirt",
+                        "tileSize":  [
+                                         102,
+                                         146
+                                     ],
+                        "softLightAlpha":  0.46,
+                        "multiplyAlpha":  0.22
+                    }
+    }
+]

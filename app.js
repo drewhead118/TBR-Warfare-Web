@@ -135,6 +135,23 @@ const GROUND_TEXTURE_SOURCES = {
   sand: "assets/textures/sand.png",
   stone: "assets/textures/stone.png",
 };
+const PREBUILT_TERRAIN_LIBRARY = [
+  { id: "01-sunlit-vale", arenaName: "Sunlit Vale", url: "assets/prebuilt-terrain/01-sunlit-vale.png" },
+  { id: "02-moss-march", arenaName: "Moss March", url: "assets/prebuilt-terrain/02-moss-march.png" },
+  { id: "03-copper-plain", arenaName: "Copper Plain", url: "assets/prebuilt-terrain/03-copper-plain.png" },
+  { id: "04-blue-fen", arenaName: "Blue Fen", url: "assets/prebuilt-terrain/04-blue-fen.png" },
+  { id: "05-rose-dunes", arenaName: "Rose Dunes", url: "assets/prebuilt-terrain/05-rose-dunes.png" },
+  { id: "06-jade-steppe", arenaName: "Jade Steppe", url: "assets/prebuilt-terrain/06-jade-steppe.png" },
+  { id: "07-violet-moor", arenaName: "Violet Moor", url: "assets/prebuilt-terrain/07-violet-moor.png" },
+  { id: "08-ashen-reach", arenaName: "Ashen Reach", url: "assets/prebuilt-terrain/08-ashen-reach.png" },
+  { id: "09-auric-flats", arenaName: "Auric Flats", url: "assets/prebuilt-terrain/09-auric-flats.png" },
+  { id: "10-nightglass-basin", arenaName: "Nightglass Basin", url: "assets/prebuilt-terrain/10-nightglass-basin.png" },
+  { id: "11-cinder-scar", arenaName: "Cinder Scar", url: "assets/prebuilt-terrain/11-cinder-scar.png" },
+  { id: "12-thornwild-verge", arenaName: "Thornwild Verge", url: "assets/prebuilt-terrain/12-thornwild-verge.png" },
+  { id: "13-ivory-saltpan", arenaName: "Ivory Saltpan", url: "assets/prebuilt-terrain/13-ivory-saltpan.png" },
+  { id: "14-saffron-breakers", arenaName: "Saffron Breakers", url: "assets/prebuilt-terrain/14-saffron-breakers.png" },
+  { id: "15-moonroot-hollow", arenaName: "Moonroot Hollow", url: "assets/prebuilt-terrain/15-moonroot-hollow.png" },
+];
 const TERRAIN_TEXTURE_RESOLUTION_SCALE = 3;
 const GROUND_TEXTURE_PROFILE_PRESETS = {
   meadow: {
@@ -1772,6 +1789,7 @@ async function bootstrap() {
   if (HAS_BATTLE_PAGE) {
     getFactionImage(WEATHER_RAIN_LIGHT_ASSET);
     getFactionImage(WEATHER_RAIN_HEAVY_ASSET);
+
     await loadGroundPropScaleOverrides();
     if (!state.factions.length) {
       state.factions = cloneData(SAMPLE_BOOKS).map(withFactionDefaults);
@@ -5768,7 +5786,7 @@ function setUseTerrainTexturing(enabled) {
     invalidateBattleTerrainTexture();
   } else if (state.battle) {
     state.battle.terrainTexture = createBattleTerrainTextureState(state.battle.field, state.battle.arena);
-    queueBattleTerrainTextureGeneration(state.battle, 40);
+    if (!state.battle.terrainTexture.ready) queueBattleTerrainTextureGeneration(state.battle, 40);
   }
   saveState();
 }
@@ -6524,7 +6542,7 @@ function resetBattle(options = {}) {
   const tournamentEntrants = getTournamentEligibleFactions(state.factions);
   state.tournament = shouldUseTournament(tournamentEntrants) ? createTournament(tournamentEntrants) : null;
   state.battle = buildActiveBattle({ preserveArenaVisuals, regenerateTerrain, terrainMirrorKey });
-  queueBattleTerrainTextureGeneration(state.battle);
+  if (!state.battle.terrainTexture?.ready) queueBattleTerrainTextureGeneration(state.battle);
   clearKnockoutAnnouncement();
   clearBossAnnouncement();
   resetCamera();
@@ -6961,7 +6979,7 @@ function startPerformanceCalibration() {
     arena: createRandomArenaVariant(0, 0, 2),
   };
   state.battle = createPerformanceCalibrationBattle(PERFORMANCE_CALIBRATION_STARTING_UNITS, state.performanceCalibration.arena);
-  queueBattleTerrainTextureGeneration(state.battle);
+  if (!state.battle.terrainTexture?.ready) queueBattleTerrainTextureGeneration(state.battle);
   resetCamera();
   els.battleState.textContent = "Calibrating Performance";
   els.winnerLabel.textContent = "Benchmarking";
@@ -6985,7 +7003,7 @@ function updatePerformanceCalibration(timestamp) {
   if (!calibration.active || !state.battle) return;
   if (state.battle.completed) {
     state.battle = createPerformanceCalibrationBattle(calibration.currentUnits, calibration.arena);
-    queueBattleTerrainTextureGeneration(state.battle);
+    if (!state.battle.terrainTexture?.ready) queueBattleTerrainTextureGeneration(state.battle);
     calibration.samples = [];
     calibration.sampleStartedAt = timestamp;
     calibration.evaluateAt = timestamp + PERFORMANCE_CALIBRATION_SAMPLE_MS;
@@ -7027,7 +7045,7 @@ function updatePerformanceCalibration(timestamp) {
   calibration.sampleStartedAt = timestamp;
   calibration.evaluateAt = timestamp + PERFORMANCE_CALIBRATION_SAMPLE_MS;
   state.battle = createPerformanceCalibrationBattle(calibration.currentUnits, calibration.arena);
-  queueBattleTerrainTextureGeneration(state.battle);
+  if (!state.battle.terrainTexture?.ready) queueBattleTerrainTextureGeneration(state.battle);
   els.battleState.textContent = `Calibrating Performance (${calibration.currentUnits} units)`;
   renderTournamentConfigPanel();
   setTicker(`Calibration probing ${calibration.currentUnits} units at about ${averageFps.toFixed(1)} FPS.`);
@@ -8469,6 +8487,31 @@ function getGroundTextureImage(textureId) {
   return source ? getFactionImage(source) : null;
 }
 
+async function preloadPrebuiltTerrainTextures() {
+  const results = await Promise.all(PREBUILT_TERRAIN_LIBRARY.map(async (entry) => {
+    if (state.images.has(entry.url)) return true;
+    try {
+      const image = await loadImageAsset(entry.url);
+      state.images.set(entry.url, image);
+      return true;
+    } catch (error) {
+      console.warn("Failed to preload prebuilt terrain texture:", entry.url, error);
+      return false;
+    }
+  }));
+  return results.some(Boolean);
+}
+
+function getRandomPrebuiltTerrainDefinition() {
+  if (!PREBUILT_TERRAIN_LIBRARY.length) return null;
+  return PREBUILT_TERRAIN_LIBRARY[Math.floor(Math.random() * PREBUILT_TERRAIN_LIBRARY.length)] || null;
+}
+
+function getPrebuiltTerrainImage(url) {
+  if (!url) return null;
+  return state.images.get(url) || getFactionImage(url);
+}
+
 function hashStringToSeed(input) {
   let hash = 2166136261;
   for (let index = 0; index < input.length; index += 1) {
@@ -8563,7 +8606,7 @@ function createTerrainMaterialMaskConfigs(name, tileSize, replacementWeights, ov
   });
 }
 
-function createBattleTerrainTextureState(field, arena) {
+function createProceduralBattleTerrainTextureState(field, arena) {
   const profile = arena?.textureProfile ? cloneData(arena.textureProfile) : createArenaTextureProfile(arena?.name || "");
   const cacheKey = buildTerrainTextureCacheKey(field, arena, profile);
   const seed = hashStringToSeed(cacheKey);
@@ -8584,6 +8627,42 @@ function createBattleTerrainTextureState(field, arena) {
     queueHandle: null,
     progress: 0,
     statusLabel: "Preparing terrain texture...",
+    mirrorX: mirror.x,
+    mirrorY: mirror.y,
+  };
+}
+
+function createBattleTerrainTextureState(field, arena) {
+  const selection = getRandomPrebuiltTerrainDefinition();
+  if (!selection) return createProceduralBattleTerrainTextureState(field, arena);
+  const image = getPrebuiltTerrainImage(selection.url);
+  const profile = createArenaTextureProfile(selection.arenaName);
+  const cacheKey = JSON.stringify({
+    source: "prebuilt",
+    id: selection.id,
+    worldWidth: field?.width || FIELD.width,
+    worldHeight: field?.height || FIELD.height,
+  });
+  const seed = hashStringToSeed(cacheKey);
+  const mirror = getTerrainMirrorFlags(seed);
+  return {
+    width: Math.max(1, Math.round(field.width * TERRAIN_TEXTURE_RESOLUTION_SCALE)),
+    height: Math.max(1, Math.round(field.height * TERRAIN_TEXTURE_RESOLUTION_SCALE)),
+    worldWidth: field.width,
+    worldHeight: field.height,
+    resolutionScale: TERRAIN_TEXTURE_RESOLUTION_SCALE,
+    cacheKey,
+    seed,
+    profile,
+    sourceId: selection.id,
+    sourceUrl: selection.url,
+    canvas: image?.complete && image.naturalWidth > 0 ? image : null,
+    pending: false,
+    ready: Boolean(image?.complete && image.naturalWidth > 0),
+    queued: false,
+    queueHandle: null,
+    progress: image?.complete ? 1 : 0,
+    statusLabel: image?.complete ? "Terrain texture ready." : "Loading prebuilt terrain...",
     mirrorX: mirror.x,
     mirrorY: mirror.y,
   };
@@ -8716,6 +8795,17 @@ function getTerrainMirrorFlags(seed) {
 async function ensureBattleTerrainTexture(battle) {
   if (!state.useTerrainTexturing) return false;
   if (!battle?.terrainTexture || battle.terrainTexture.ready || battle.terrainTexture.pending) return Boolean(battle?.terrainTexture?.ready);
+  if (battle.terrainTexture.sourceUrl) {
+    const image = getPrebuiltTerrainImage(battle.terrainTexture.sourceUrl);
+    if (!image || !image.complete || image.naturalWidth <= 0) return false;
+    battle.terrainTexture.canvas = image;
+    battle.terrainTexture.ready = true;
+    battle.terrainTexture.pending = false;
+    battle.terrainTexture.progress = 1;
+    battle.terrainTexture.statusLabel = "Terrain texture ready.";
+    hideTerrainBuildStatus();
+    return true;
+  }
   updateTerrainBuildStatus(0.08, "Loading terrain source textures...");
   const requiredTextureIds = new Set(Object.keys(battle.terrainTexture.profile?.weights || {}));
   if (battle.terrainTexture.profile?.baseTexture) requiredTextureIds.add(battle.terrainTexture.profile.baseTexture);
@@ -19843,5 +19933,16 @@ function shadeColor(hex, amount) {
   const b = clamp(Math.round((num & 255) * (1 + amount)), 0, 255);
   return `rgb(${r}, ${g}, ${b})`;
 }
+
+
+
+
+
+
+
+
+
+
+
 
 
