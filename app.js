@@ -110,6 +110,7 @@ const STATUS_BADGE_CANDIDATE_PATHS = [
 const GROUND_PROP_ASSET_BASE_URL = "assets/Props/";
 const GRAVE_ASSET_BASE_URL = "assets/Props/graves/";
 const GROUND_PROP_SCALE_OVERRIDES_FILE = "prop-scales.json";
+const GROUND_PROP_CATEGORY_FOLDERS = ["trees", "shrubbery", "structures", "debris", "misc"];
 const GROUND_PROP_FILENAME_DIGITS = 4;
 const GROUND_PROP_MAX_SCAN_INDEX = 9999;
 const GROUND_PROP_SCAN_MISS_LIMIT = 60;
@@ -1499,6 +1500,7 @@ const state = {
   groundPropCatalog: {
     status: "idle",
     items: [],
+    byCategory: {},
     promise: null,
   },
   graveCatalog: {
@@ -5894,7 +5896,8 @@ function buildGroundProp(point, index, arena, themeWeights, count, availableGrou
     scaleKey,
     spawnScaleVariance,
     scale: spawnScaleVariance * getPropScalePreference(scaleKey),
-    rotation: (Math.random() - 0.5) * 0.35,
+    rotation: typeof options.rotation === "number" ? options.rotation : (Math.random() - 0.5) * 0.35,
+    flipX: Boolean(options.flipX),
     tintColor: arena?.ground || arena?.top || "#8fa27f",
     tintAlpha: GROUND_PROP_TINT_ALPHA,
   };
@@ -10865,6 +10868,9 @@ function updateUnit(unit, faction, battle, dt) {
   const forcedPossessedFlee = possessed && isFinalLivingUnitForFaction(unit, battle);
   unitDef.beforeStep?.({ unit, faction, battle, allies, enemies, graves, unitDef, dt });
   if (unit.dead || unit.fled) return;
+  if (!unitDef.managesOwnCooldown) {
+    unit.cooldown = Math.max(0, (unit.cooldown || 0) - dt * getUnitCooldownTickRate(unit));
+  }
   if (!enemies.length && !graves.length && !unitDef.canActWithoutEnemies && !forcedPossessedFlee) {
     updateUnitActivity(unit, battle.completed ? "Holding position in the aftermath." : "Holding position and awaiting a new opening.");
     return;
@@ -10916,9 +10922,6 @@ function updateUnit(unit, faction, battle, dt) {
     if (shouldSlowForAttack) {
       unit.vx *= 0.84;
       unit.vy *= 0.84;
-    }
-    if (!unitDef.managesOwnCooldown) {
-      unit.cooldown -= dt * getUnitCooldownTickRate(unit);
     }
     if (unitDef.managesOwnCooldown || unit.cooldown <= 0) {
       const attackPerformed = unitDef.performAttack?.({ unit, target, battle, unitDef }) !== false;
@@ -15848,13 +15851,244 @@ function drawGroundDecor(viewport, battle) {
 }
 
 function buildFieldProps(field, arena) {
-  const count = 34 + Math.floor(Math.random() * 15);
-  const themeWeights = arena?.propWeights || { common: DEFAULT_PROP_WEIGHTS, rare: {} };
-  const availableGroundProps = getAvailableGroundPropAssets();
-  const points = sampleBlueNoisePropPoints(field, count);
-  return points
-    .map((point, index) => buildGroundProp(point, index, arena, themeWeights, count, availableGroundProps))
-    .sort((a, b) => a.y - b.y);
+  const categorizedGroundProps = GROUND_PROP_CATEGORY_FOLDERS.reduce((result, category) => {
+    result[category] = getAvailableGroundPropAssets(category);
+    return result;
+  }, {});
+  const hasCategorizedProps = GROUND_PROP_CATEGORY_FOLDERS.some((category) => categorizedGroundProps[category].length);
+  if (!hasCategorizedProps) {
+    const count = 34 + Math.floor(Math.random() * 15);
+    const themeWeights = arena?.propWeights || { common: DEFAULT_PROP_WEIGHTS, rare: {} };
+    const availableGroundProps = getAvailableGroundPropAssets();
+    const points = sampleBlueNoisePropPoints(field, count);
+    return points
+      .map((point, index) => buildGroundProp(point, index, arena, themeWeights, count, availableGroundProps))
+      .sort((a, b) => a.y - b.y);
+  }
+
+  const props = [];
+  let nextIndex = 0;
+  const occupiedPoints = [];
+  const structures = [];
+  const routingEscapeRadius = (field?.radius || 0) + ROUTING_ESCAPE_DISTANCE;
+  const clearingCenter = { x: field.centerX, y: field.centerY };
+  const addImageProp = (point, asset, options = {}) => {
+    if (!point || !asset) return null;
+    const prop = buildGroundProp(point, nextIndex, arena, { common: DEFAULT_PROP_WEIGHTS, rare: {} }, 1, [], {
+      asset,
+      flipX: options.flipX,
+      rotation: options.rotation,
+    });
+    if (typeof options.scaleMultiplier === "number" && Number.isFinite(options.scaleMultiplier)) {
+      prop.scale = clamp(prop.scale * options.scaleMultiplier, 0.18, 6);
+    }
+    props.push(prop);
+    occupiedPoints.push({ x: prop.x, y: prop.y, radius: options.occupancyRadius || 28 });
+    nextIndex += 1;
+    return prop;
+  };
+
+  const treeAssets = chooseGroundPropVariety(categorizedGroundProps.trees, 3, 4);
+  const rareTreeAsset = categorizedGroundProps.trees.length > treeAssets.length && Math.random() < 0.4
+    ? shuffleArray(categorizedGroundProps.trees.filter((asset) => !treeAssets.includes(asset))).slice(0, randomIntInclusive(1, Math.min(2, categorizedGroundProps.trees.length - treeAssets.length)))
+    : [];
+  const edgeTreeAssets = treeAssets.concat(rareTreeAsset);
+  const treeClusterCount = treeAssets.length ? randomIntInclusive(3, 5) : 0;
+  const treeClusters = sampleGroundPropClusterCenters(field, treeClusterCount, occupiedPoints, { minDistance: 120 });
+  treeClusters.forEach((center) => {
+    const clusterPoints = sampleGroundPropClusterPoints(field, center, randomIntInclusive(4, 8), occupiedPoints, {
+      radiusX: 72,
+      radiusY: 54,
+      minDistance: 20,
+    });
+    clusterPoints.forEach((point) => {
+      const asset = treeAssets[Math.floor(Math.random() * treeAssets.length)];
+      addImageProp(point, asset, {
+        flipX: Math.random() < 0.5,
+        rotation: (Math.random() - 0.5) * 0.14,
+        scaleMultiplier: 0.96 + Math.random() * 0.28,
+        occupancyRadius: 26,
+      });
+    });
+  });
+  const edgeTreeClusterCount = edgeTreeAssets.length ? randomIntInclusive(7, 11) : 0;
+  const edgeTreeClusters = sampleGroundPropClusterCenters(field, edgeTreeClusterCount, occupiedPoints, {
+    minDistance: 84,
+    predicate: (point) => Math.hypot(point.x - clearingCenter.x, point.y - clearingCenter.y) >= routingEscapeRadius + 26,
+  });
+  edgeTreeClusters.forEach((center) => {
+    const clusterPoints = sampleGroundPropClusterPoints(field, center, randomIntInclusive(4, 9), occupiedPoints, {
+      radiusX: 82,
+      radiusY: 60,
+      minDistance: 18,
+      predicate: (point) => Math.hypot(point.x - clearingCenter.x, point.y - clearingCenter.y) >= routingEscapeRadius + 10,
+    });
+    clusterPoints.forEach((point) => {
+      const asset = edgeTreeAssets[Math.floor(Math.random() * edgeTreeAssets.length)];
+      addImageProp(point, asset, {
+        flipX: Math.random() < 0.5,
+        rotation: (Math.random() - 0.5) * 0.16,
+        scaleMultiplier: 0.94 + Math.random() * 0.34,
+        occupancyRadius: 24,
+      });
+    });
+  });
+
+  const shrubAssets = chooseGroundPropVariety(categorizedGroundProps.shrubbery, 3, 4);
+  const shrubClusterCount = shrubAssets.length ? randomIntInclusive(6, 9) : 0;
+  const shrubClusters = sampleGroundPropClusterCenters(field, shrubClusterCount, occupiedPoints, { minDistance: 96 });
+  shrubClusters.forEach((center) => {
+    const clusterPoints = sampleGroundPropClusterPoints(field, center, randomIntInclusive(5, 10), occupiedPoints, {
+      radiusX: 56,
+      radiusY: 38,
+      minDistance: 14,
+    });
+    clusterPoints.forEach((point) => {
+      const asset = shrubAssets[Math.floor(Math.random() * shrubAssets.length)];
+      addImageProp(point, asset, {
+        flipX: Math.random() < 0.35,
+        rotation: (Math.random() - 0.5) * 0.22,
+        scaleMultiplier: 0.82 + Math.random() * 0.32,
+        occupancyRadius: 18,
+      });
+    });
+  });
+
+  const structureAssets = chooseGroundPropVariety(categorizedGroundProps.structures, 2, 2);
+  const structureCount = structureAssets.length ? randomIntInclusive(3, 5) : 0;
+  const structurePoints = sampleScatteredGroundPropPoints(field, structureCount, occupiedPoints, { minDistance: 110 });
+  structurePoints.forEach((point, index) => {
+    const asset = structureAssets[index % structureAssets.length];
+    const structure = addImageProp(point, asset, {
+      rotation: (Math.random() - 0.5) * 0.08,
+      scaleMultiplier: 0.98 + Math.random() * 0.24,
+      occupancyRadius: 42,
+    });
+    if (structure) structures.push(structure);
+  });
+
+  const debrisAssets = categorizedGroundProps.debris || [];
+  if (debrisAssets.length) {
+    structures.forEach((structure) => {
+      const debrisCount = randomIntInclusive(2, 5);
+      const occupancyWithoutStructure = occupiedPoints.filter((point) => Math.hypot(point.x - structure.x, point.y - structure.y) > 1);
+      const debrisPoints = sampleGroundPropClusterPoints(field, structure, debrisCount, occupancyWithoutStructure, {
+        radiusX: 40,
+        radiusY: 28,
+        minDistance: 10,
+      });
+      debrisPoints.forEach((point) => {
+        const asset = debrisAssets[Math.floor(Math.random() * debrisAssets.length)];
+        addImageProp(point, asset, {
+          flipX: Math.random() < 0.4,
+          rotation: (Math.random() - 0.5) * 0.45,
+          scaleMultiplier: 0.72 + Math.random() * 0.34,
+          occupancyRadius: 12,
+        });
+      });
+    });
+  }
+
+  const miscAssets = categorizedGroundProps.misc || [];
+  const miscCount = miscAssets.length ? randomIntInclusive(8, 14) : 0;
+  const miscPoints = sampleScatteredGroundPropPoints(field, miscCount, occupiedPoints, { minDistance: 26 });
+  miscPoints.forEach((point) => {
+    const asset = miscAssets[Math.floor(Math.random() * miscAssets.length)];
+    addImageProp(point, asset, {
+      flipX: Math.random() < 0.3,
+      rotation: (Math.random() - 0.5) * 0.35,
+      scaleMultiplier: 0.78 + Math.random() * 0.36,
+      occupancyRadius: 16,
+    });
+  });
+
+  return props.sort((a, b) => a.y - b.y);
+}
+
+function chooseGroundPropVariety(assets, minCount, maxCount) {
+  if (!assets?.length) return [];
+  const maxAllowed = clamp(maxCount, 0, assets.length);
+  const minAllowed = clamp(minCount, 0, maxAllowed);
+  const targetCount = Math.max(minAllowed, randomIntInclusive(minAllowed, maxAllowed));
+  return shuffleArray(assets).slice(0, targetCount);
+}
+
+function randomIntInclusive(min, max) {
+  const start = Math.ceil(Math.min(min, max));
+  const end = Math.floor(Math.max(min, max));
+  return start + Math.floor(Math.random() * (end - start + 1));
+}
+
+function getRandomGroundPropPoint(field) {
+  return {
+    x: clamp(
+      GROUND_PROP_PADDING_X + Math.random() * Math.max(1, field.width - GROUND_PROP_PADDING_X * 2),
+      GROUND_PROP_PADDING_X,
+      field.width - GROUND_PROP_PADDING_X,
+    ),
+    y: clamp(
+      GROUND_PROP_PADDING_Y + Math.random() * Math.max(1, field.height - GROUND_PROP_PADDING_Y * 2),
+      GROUND_PROP_PADDING_Y,
+      field.height - GROUND_PROP_PADDING_Y,
+    ),
+  };
+}
+
+function isGroundPropPointOpen(point, occupiedPoints, minDistance) {
+  if (!occupiedPoints?.length) return true;
+  const requiredDistance = Math.max(0, minDistance || 0);
+  for (let i = 0; i < occupiedPoints.length; i += 1) {
+    const other = occupiedPoints[i];
+    const radius = Math.max(requiredDistance, other.radius || 0);
+    if (Math.hypot(point.x - other.x, point.y - other.y) < radius) return false;
+  }
+  return true;
+}
+
+function sampleScatteredGroundPropPoints(field, count, occupiedPoints = [], options = {}) {
+  const points = [];
+  const minDistance = options.minDistance ?? 24;
+  const predicate = typeof options.predicate === "function" ? options.predicate : null;
+  let attempts = 0;
+  while (points.length < count && attempts < count * 40 + 40) {
+    attempts += 1;
+    const point = getRandomGroundPropPoint(field);
+    if (predicate && !predicate(point)) continue;
+    if (!isGroundPropPointOpen(point, occupiedPoints, minDistance)) continue;
+    if (!isGroundPropPointOpen(point, points, minDistance)) continue;
+    points.push(point);
+  }
+  return points;
+}
+
+function sampleGroundPropClusterCenters(field, count, occupiedPoints = [], options = {}) {
+  return sampleScatteredGroundPropPoints(field, count, occupiedPoints, {
+    minDistance: options.minDistance ?? 96,
+    predicate: options.predicate,
+  });
+}
+
+function sampleGroundPropClusterPoints(field, center, count, occupiedPoints = [], options = {}) {
+  const points = [];
+  const radiusX = Math.max(8, options.radiusX || 48);
+  const radiusY = Math.max(8, options.radiusY || radiusX * 0.7);
+  const minDistance = options.minDistance ?? 12;
+  const predicate = typeof options.predicate === "function" ? options.predicate : null;
+  let attempts = 0;
+  while (points.length < count && attempts < count * 28 + 28) {
+    attempts += 1;
+    const angle = Math.random() * Math.PI * 2;
+    const spread = Math.sqrt(Math.random());
+    const point = {
+      x: clamp(center.x + Math.cos(angle) * radiusX * spread, GROUND_PROP_PADDING_X, field.width - GROUND_PROP_PADDING_X),
+      y: clamp(center.y + Math.sin(angle) * radiusY * spread, GROUND_PROP_PADDING_Y, field.height - GROUND_PROP_PADDING_Y),
+    };
+    if (predicate && !predicate(point)) continue;
+    if (!isGroundPropPointOpen(point, occupiedPoints, minDistance)) continue;
+    if (!isGroundPropPointOpen(point, points, minDistance)) continue;
+    points.push(point);
+  }
+  return points;
 }
 
 function sampleBlueNoisePropPoints(field, targetCount) {
@@ -16138,6 +16372,7 @@ function drawSingleGroundProp(viewport, prop) {
   ctx.rotate(prop.rotation);
   if (imageProp?.image?.complete) {
     const image = getTintedGroundPropImage(imageProp.image, imageProp.url, prop.tintColor, prop.tintAlpha);
+    if (prop.flipX) ctx.scale(-1, 1);
     ctx.drawImage(image || imageProp.image, -drawWidth / 2, -drawHeight, drawWidth, drawHeight);
   } else {
     PROP_RENDERERS[prop.type]?.(scale, prop.tint);
@@ -16212,7 +16447,11 @@ function getTintedBannerImage(image, url, color, alpha = 0.78) {
   return state.tintedBanners.get(cacheKey);
 }
 
-function getAvailableGroundPropAssets() {
+function getAvailableGroundPropAssets(category = null) {
+  if (category) {
+    const items = state.groundPropCatalog.byCategory?.[category];
+    return Array.isArray(items) ? items : [];
+  }
   return Array.isArray(state.groundPropCatalog.items) ? state.groundPropCatalog.items : [];
 }
 
@@ -16254,30 +16493,39 @@ async function preloadGroundPropAssets() {
   state.groundPropCatalog.status = "loading";
   state.groundPropCatalog.promise = (async () => {
     try {
-      const items = [];
-      let consecutiveMisses = 0;
-      for (let index = 1; index <= GROUND_PROP_MAX_SCAN_INDEX; index += 1) {
-        const file = `${String(index).padStart(GROUND_PROP_FILENAME_DIGITS, "0")}.png`;
-        const url = resolveGroundPropAssetUrl(file);
-        try {
-          const image = await loadImageAsset(url);
-          items.push({
-            file,
-            width: image.naturalWidth || image.width || 1,
-            height: image.naturalHeight || image.height || 1,
-            image,
-            url,
-          });
-          consecutiveMisses = 0;
-        } catch (error) {
-          consecutiveMisses += 1;
-          if (items.length && consecutiveMisses >= GROUND_PROP_SCAN_MISS_LIMIT) break;
+      const byCategory = {};
+      for (let categoryIndex = 0; categoryIndex < GROUND_PROP_CATEGORY_FOLDERS.length; categoryIndex += 1) {
+        const category = GROUND_PROP_CATEGORY_FOLDERS[categoryIndex];
+        const items = [];
+        let consecutiveMisses = 0;
+        for (let index = 1; index <= GROUND_PROP_MAX_SCAN_INDEX; index += 1) {
+          const fileName = `${String(index).padStart(GROUND_PROP_FILENAME_DIGITS, "0")}.png`;
+          const file = `${category}/${fileName}`;
+          const url = resolveGroundPropAssetUrl(file);
+          try {
+            const image = await loadImageAsset(url);
+            items.push({
+              file,
+              category,
+              width: image.naturalWidth || image.width || 1,
+              height: image.naturalHeight || image.height || 1,
+              image,
+              url,
+            });
+            consecutiveMisses = 0;
+          } catch (error) {
+            consecutiveMisses += 1;
+            if (items.length && consecutiveMisses >= GROUND_PROP_SCAN_MISS_LIMIT) break;
+          }
         }
+        byCategory[category] = items;
       }
-      state.groundPropCatalog.items = items;
+      state.groundPropCatalog.byCategory = byCategory;
+      state.groundPropCatalog.items = GROUND_PROP_CATEGORY_FOLDERS.flatMap((category) => byCategory[category] || []);
       state.groundPropCatalog.status = state.groundPropCatalog.items.length ? "loaded" : "missing";
     } catch (error) {
       state.groundPropCatalog.items = [];
+      state.groundPropCatalog.byCategory = {};
       state.groundPropCatalog.status = "missing";
     } finally {
       state.groundPropCatalog.promise = null;
