@@ -1520,6 +1520,7 @@ const state = {
   },
   tintedUnitSprites: new Map(),
   tintedGroundProps: new Map(),
+  shadowGroundProps: new Map(),
   tintedBanners: new Map(),
   running: false,
   roundsApplied: 0,
@@ -5364,6 +5365,7 @@ function buildHeadlessBalanceBattle(factionPool, arena) {
     stuckArrows: [],
     bombs: [],
     arena,
+    propShadowAngle: degToRad((Math.random() * 60) - 30),
     weatherField: [],
     terrainTexture: null,
     props: [],
@@ -6797,6 +6799,9 @@ function buildBattle(factionPool = state.factions, arena = createArenaVariant(0,
     stuckArrows: [],
     bombs: [],
     arena,
+    propShadowAngle: canReuseScene && typeof sceneSnapshot?.propShadowAngle === "number"
+      ? sceneSnapshot.propShadowAngle
+      : degToRad((Math.random() * 60) - 30),
     weatherField: canReuseScene && sceneSnapshot?.weatherField
       ? sceneSnapshot.weatherField
       : createWeatherField(arena.weather),
@@ -16321,6 +16326,44 @@ function drawGroundProps(viewport, props) {
   props.forEach((prop) => drawSingleGroundProp(viewport, prop));
 }
 
+function drawGroundPropShadows(viewport, battle, props) {
+  if (!props?.length) return;
+  const shear = Math.tan(battle?.propShadowAngle || 0);
+  props.forEach((prop) => {
+    if (prop.asset?.category === "shrubbery") return;
+    drawSingleGroundPropShadow(viewport, prop, shear);
+  });
+}
+
+function drawSingleGroundPropShadow(viewport, prop, shear) {
+  const point = worldToScreen(prop.x, prop.y, viewport);
+  const scale = point.scale * prop.scale;
+  const imageProp = prop.renderMode === "image" ? prop.asset : null;
+  let drawHeight = null;
+  let drawWidth = null;
+  if (imageProp) {
+    const imageWidth = Math.max(1, imageProp.width || 1);
+    const imageHeight = Math.max(1, imageProp.height || 1);
+    const renderScale = Math.min(1, prop.imageScale || GROUND_PROP_IMAGE_SCALE) * point.scale * prop.scale;
+    drawWidth = imageWidth * renderScale;
+    drawHeight = imageHeight * renderScale;
+  }
+  ctx.save();
+  ctx.globalAlpha = 0.24;
+  ctx.translate(point.x, point.y);
+  ctx.rotate(prop.rotation);
+  ctx.transform(1, 0, shear, 0.5, 0, 0);
+  if (imageProp?.image?.complete) {
+    const image = getShadowGroundPropImage(imageProp.image, imageProp.url);
+    if (prop.flipX) ctx.scale(-1, 1);
+    ctx.drawImage(image || imageProp.image, -drawWidth / 2, -drawHeight, drawWidth, drawHeight);
+  } else {
+    ctx.fillStyle = "rgba(0, 0, 0, 0.92)";
+    PROP_RENDERERS[prop.type]?.(scale, prop.tint);
+  }
+  ctx.restore();
+}
+
 function drawSingleGrave(viewport, grave) {
   const point = worldToScreen(grave.x, grave.y, viewport);
   const imageGrave = grave.renderMode === "image" ? grave.asset : null;
@@ -16423,6 +16466,23 @@ function getTintedGroundPropImage(image, url, color, alpha = GROUND_PROP_TINT_AL
     state.tintedGroundProps.set(cacheKey, canvas);
   }
   return state.tintedGroundProps.get(cacheKey);
+}
+
+function getShadowGroundPropImage(image, url) {
+  if (!image || !image.complete || !url) return image;
+  if (!state.shadowGroundProps.has(url)) {
+    const canvas = document.createElement("canvas");
+    canvas.width = image.naturalWidth || image.width;
+    canvas.height = image.naturalHeight || image.height;
+    const shadowCtx = canvas.getContext("2d");
+    shadowCtx.drawImage(image, 0, 0);
+    shadowCtx.globalCompositeOperation = "source-in";
+    shadowCtx.fillStyle = "#000000";
+    shadowCtx.fillRect(0, 0, canvas.width, canvas.height);
+    shadowCtx.globalCompositeOperation = "source-over";
+    state.shadowGroundProps.set(url, canvas);
+  }
+  return state.shadowGroundProps.get(url);
 }
 
 function getTintedBannerImage(image, url, color, alpha = 0.78) {
@@ -17310,6 +17370,7 @@ function drawDepthSortedGroundEntities(viewport, battle) {
     && grave.x <= cullBounds.maxX + 60
     && grave.y >= cullBounds.minY - 60
     && grave.y <= cullBounds.maxY + 60);
+  drawGroundPropShadows(viewport, battle, visibleProps.slice().sort((a, b) => getGroundPropSortDepth(viewport, a) - getGroundPropSortDepth(viewport, b)));
   state.renderDebug.totalUnits = livingUnits.length;
   state.renderDebug.visibleUnits = visibleUnits.length;
   state.renderDebug.culledUnits = Math.max(0, livingUnits.length - visibleUnits.length);
