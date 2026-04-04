@@ -17511,7 +17511,12 @@ function getTintedBannerImage(image, url, color, alpha = 0.78) {
 }
 
 function isDrawableImage(image) {
-  return Boolean(image && image.complete && image.naturalWidth > 0 && image.naturalHeight > 0);
+  if (!image) return false;
+  if (typeof image.complete === "boolean") {
+    return image.complete && image.naturalWidth > 0 && image.naturalHeight > 0;
+  }
+  return typeof image.width === "number" && image.width > 0
+    && typeof image.height === "number" && image.height > 0;
 }
 
 function getAvailableGroundPropAssets(category = null) {
