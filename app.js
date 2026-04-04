@@ -669,7 +669,7 @@ const UNIT_DEFINITIONS = {
     name: "Mage",
     keywords: ["magic", "orb", "beam", "wizard"],
     description: "Mages fight like battlefield controllers rather than simple artillery. Their attacks can reach beyond normal spell range to abduct targets, letting them disrupt enemy positioning and punish units that thought they were safe.",
-    stats: { maxHealth: 52, speed: 44, range: 180, abductRange: 310, damage: 16, cooldown: 2.05 },
+    stats: { maxHealth: 48, speed: 44, range: 180, abductRange: 310, damage: 18, cooldown: 2.05 },
     healthBarWidth: 20,
     iconPaths: getMageIconSvgPaths,
     getAttackRange: (unitDef, unit) => {
@@ -687,7 +687,7 @@ const UNIT_DEFINITIONS = {
     keywords: ["melee", "sword", "tank"],
     description: "Knights are the anvil of most formations: slow, durable, and brutally efficient once they make contact. Their high health and heavy melee hits let them absorb pressure while opening space for fragile ranged units behind them.",
     routingImmune: true,
-    stats: { maxHealth: 210, speed: 28, range: 26, damage: 38, cooldown: 1.05 },
+    stats: { maxHealth: 220, speed: 28, range: 26, damage: 35, cooldown: 1.05 },
     healthBarWidth: 30,
     iconPaths: getKnightIconSvgPaths,
     getMoveSpeed: (unit, unitDef) => getUnitStats(unit, unitDef).speed,
@@ -728,7 +728,7 @@ const UNIT_DEFINITIONS = {
     name: "Medic",
     keywords: ["heal", "support", "frail"],
     description: "Medics contribute little direct offense, but they can swing long fights by repeatedly restoring allies on the front line. They are fragile and need protection, yet a well-screened medic can make an entire formation much harder to grind down.",
-    stats: { maxHealth: 45, speed: 56, range: 22, heal: 20, cooldown: 1, healingBuffDuration: 4, healingBuffPerSecond: 5, personalSpaceRadius: 18, meleeDamage: 20, meleeRange: 18 },
+    stats: { maxHealth: 45, speed: 56, range: 22, heal: 15, cooldown: 1, healingBuffDuration: 4, healingBuffPerSecond: 4, personalSpaceRadius: 18, meleeDamage: 16, meleeRange: 18 },
     healthBarWidth: 20,
     iconPaths: getMedicIconSvgPaths,
     canActWithoutEnemies: true,
@@ -775,7 +775,7 @@ const UNIT_DEFINITIONS = {
     name: "Assassin",
     keywords: ["stealth", "rogue", "backstab", "dagger"],
     description: "Assassins are burst killers that rely on stealth, speed, and precision instead of endurance. They slip through openings, vanish from enemy targeting, and can erase vulnerable backliners with devastating backstab damage before resetting for another strike.",
-    stats: { maxHealth: 44, speed: 66, range: 18, backstabDamage: 126, slashDamage: 21, cooldown: 1.2, resetRadius: 34 },
+    stats: { maxHealth: 40, speed: 66, range: 18, backstabDamage: 126, slashDamage: 15, cooldown: 1.2, resetRadius: 34, incidentalUncloakChance: 0.28, alertDuration: 0.8 },
     healthBarWidth: 18,
     iconPaths: getAssassinIconSvgPaths,
     canActWithoutEnemies: true,
@@ -813,7 +813,7 @@ const UNIT_DEFINITIONS = {
     keywords: ["siege", "stone", "artillery", "boulder"],
     description: "Catapults are siege engines with the longest reach in the roster. They fire slowly and are vulnerable if pressured, but their arcing stones can hammer enemy groups from extreme range and force the battle to revolve around protecting or diving them.",
     leavesGrave: false,
-    stats: { maxHealth: 35, speed: 10, range: 440, damage: 44, splash: 20, cooldown: 4, variance: 43 },
+    stats: { maxHealth: 35, speed: 10, range: 440, damage: 48, splash: 20, impactKnockdownRadius: 8, impactKnockdownDuration: 0.65, cooldown: 4, variance: 43 },
     healthBarWidth: 26,
     iconPaths: getCatapultIconSvgPaths,
     selectTarget: selectCatapultTarget,
@@ -1019,7 +1019,7 @@ const UNIT_DEFINITIONS = {
     draftable: false,
     keywords: ["construct", "stationary", "rapid fire", "anti-swarm"],
     description: "A compact deployable turret that cannot move, ignores damage from poison and other status effects, and sprays weak shots into a tight area.",
-    stats: { maxHealth: 56, speed: 0, range: 120, damage: 3, splash: 5, cooldown: 0.5, lifetime: 15, riseDuration: 0.7, sinkDuration: 0.8 },
+    stats: { maxHealth: 56, speed: 0, range: 120, damage: 2.5, splash: 5, cooldown: 0.5, lifetime: 15, riseDuration: 0.7, sinkDuration: 0.8 },
     healthBarWidth: 16,
     iconPaths: getTurretIconSvgPaths,
     leavesGrave: false,
@@ -1040,7 +1040,7 @@ const UNIT_DEFINITIONS = {
     draftable: false,
     keywords: ["spider", "swarm", "poison", "bite"],
     description: "Spider swarms are short-lived summoned hazards. They skitter quickly, bite lightly, and spread poison over anything living that strays too close.",
-    stats: { maxHealth: 14, speed: 78, range: 17, seekRadius: 140, wanderStep: 34, biteDamage: 3.2, cooldown: 1.08, poisonStacks: 1, poisonDuration: 5.5, poisonDamage: 2.1, lifetime: 20 },
+    stats: { maxHealth: 14, speed: 78, range: 17, seekRadius: 140, wanderStep: 34, biteDamage: 3.2, cooldown: 1.08, poisonStacks: 1, poisonDuration: 6, poisonDamage: 3, lifetime: 20 },
     healthBarWidth: 12,
     iconPaths: getSpiderSwarmIconSvgPaths,
     leavesGrave: false,
@@ -1575,6 +1575,7 @@ const state = {
   running: false,
   roundsApplied: 0,
   tournamentConfig: normalizeTournamentConfig(),
+  bracketPanelCollapsed: false,
   speedIndex: 2,
   useRiggedSprites: true,
   useTerrainTexturing: true,
@@ -1660,6 +1661,8 @@ const els = {
   arenaLabel: document.getElementById("arenaLabel"),
   bracketSummary: document.getElementById("bracketSummary"),
   bracketTracker: document.getElementById("bracketTracker"),
+  toggleBracketPanelBtn: document.getElementById("toggleBracketPanelBtn"),
+  bracketPanelBody: document.getElementById("bracketPanelBody"),
   toggleTournamentConfigBtn: document.getElementById("toggleTournamentConfigBtn"),
   tournamentConfigBody: document.getElementById("tournamentConfigBody"),
   tournamentMinFactionsInput: document.getElementById("tournamentMinFactionsInput"),
@@ -1863,6 +1866,7 @@ async function bootstrap() {
     renderSpeedControls();
     syncCsvInput();
     renderArmyEditors();
+    renderBracketPanel();
     renderTournamentConfigPanel();
     renderBalanceLabPanel();
     resetBattle();
@@ -1884,6 +1888,7 @@ function bindUi() {
   els.advanceQueueBtn.addEventListener("click", applyWinnerToQueue);
   els.randomizeArenaBtn.addEventListener("click", randomizeArenaAndWeather);
   els.viewTournamentStoryBtn.addEventListener("click", openTournamentPage);
+  els.toggleBracketPanelBtn?.addEventListener("click", toggleBracketPanel);
   els.toggleTournamentConfigBtn?.addEventListener("click", toggleTournamentConfigPanel);
   [els.tournamentMinFactionsInput, els.tournamentMaxFactionsInput, els.tournamentMaxUnitsInput, els.tournamentInkLordDelayInput, els.tournamentPaperbackOnlyInput]
     .filter(Boolean)
@@ -4578,6 +4583,7 @@ function loadState() {
     state.factions = (saved.factions || []).map(withFactionDefaults);
     state.roundsApplied = saved.roundsApplied || 0;
     state.tournamentConfig = normalizeTournamentConfig(saved.tournamentConfig);
+    state.bracketPanelCollapsed = saved.bracketPanelCollapsed === true;
     state.useRiggedSprites = saved.useRiggedSprites !== false;
     state.useTerrainTexturing = saved.useTerrainTexturing !== false;
     state.useUnitOverlapShadows = saved.useUnitOverlapShadows !== false;
@@ -4599,6 +4605,7 @@ function saveState() {
     factions: state.factions,
     roundsApplied: state.roundsApplied,
     tournamentConfig: state.tournamentConfig,
+    bracketPanelCollapsed: state.bracketPanelCollapsed,
     useRiggedSprites: state.useRiggedSprites,
     useTerrainTexturing: state.useTerrainTexturing,
     useUnitOverlapShadows: state.useUnitOverlapShadows,
@@ -4619,6 +4626,19 @@ function toggleTournamentConfigPanel() {
   });
   renderTournamentConfigPanel();
   saveState();
+}
+
+function toggleBracketPanel() {
+  state.bracketPanelCollapsed = !state.bracketPanelCollapsed;
+  renderBracketPanel();
+  saveState();
+}
+
+function renderBracketPanel() {
+  if (!els.toggleBracketPanelBtn) return;
+  els.toggleBracketPanelBtn.textContent = state.bracketPanelCollapsed ? "Expand" : "Collapse";
+  els.toggleBracketPanelBtn.setAttribute("aria-expanded", String(!state.bracketPanelCollapsed));
+  els.bracketPanelBody?.classList.toggle("hidden", state.bracketPanelCollapsed);
 }
 
 function commitTournamentConfigFromInputs() {
@@ -6434,7 +6454,7 @@ function renderCompositionModal() {
     return unit.name.toLowerCase().includes(term)
       || unit.keywords.some((word) => word.includes(term))
       || unit.description.toLowerCase().includes(term);
-  });
+  }).sort((a, b) => a.name.localeCompare(b.name));
 
   els.compositionResultsCount.textContent = `${available.length} available`;
   els.compositionSelectedCount.textContent = `${activeUnits.length} of ${MAX_COMPOSITION_UNIT_TYPES} selected`;
@@ -8388,6 +8408,9 @@ function applyStatus(unit, kind, stacks = 1, duration = null, source = null, bat
     status.cooldownRate = typeof status.cooldownRate === "number"
       ? Math.min(status.cooldownRate, statusCooldownRate)
       : statusCooldownRate;
+  }
+  if (kind === "ignite") {
+    breakAssassinStealth(unit, battle, { dueToFire: true });
   }
   status.stacks = statusDef.stackable ? status.stacks + stacks : Math.max(status.stacks, stacks);
   if (kind === "zombie") syncUnitMaxHealth(unit, false);
@@ -11714,16 +11737,15 @@ function getBodyguardDestination({ unit, target, destination, battle, unitDef, a
 
 function updateAssassinState({ unit, faction, battle, enemies }) {
   const stats = getUnitStats(unit);
-  if (unit.behaviorState !== "retreat") {
-    unit.invisible = true;
-  }
+  const igniteStatus = getUnitStatus(unit, "ignite");
+  const revealLockUntil = Math.max(unit.assassinForcedRevealUntil || 0, unit.assassinFireExposeUntil || 0);
+  unit.invisible = unit.behaviorState !== "retreat" && !igniteStatus && revealLockUntil <= (battle.time || 0);
   if (unit.behaviorState === "retreat") {
-    unit.invisible = false;
     updateUnitActivity(unit, "Retreating to vanish and reset.");
     const homeBase = findFaction(battle, faction.id)?.homeBase || { x: unit.x, y: unit.y };
     if (Math.hypot(unit.x - homeBase.x, unit.y - homeBase.y) <= stats.resetRadius) {
       unit.behaviorState = "stalking";
-      unit.invisible = true;
+      unit.invisible = !igniteStatus && revealLockUntil <= (battle.time || 0);
       unit.assassinStealthRecoverySlow = false;
       unit.focusTargetId = null;
       unit.slashCooldown = 0;
@@ -12881,7 +12903,7 @@ function performTurretAttack({ unit, target, battle, unitDef }) {
       if (!areUnitsHostile(unit, enemy, battle)) return;
       const distance = getBattlefieldEllipseDistance(enemy.x - target.x, enemy.y - target.y);
       if (distance > stats.splash) return;
-      applyDamage(enemy, stats.damage * Math.max(0.45, 1 - distance / stats.splash), battle, unit);
+      applyDamage(enemy, stats.damage * Math.max(0.45, 1 - distance / stats.splash), battle, unit, { incidentalAoE: true });
     });
   });
   battle.traces.push({
@@ -13948,7 +13970,7 @@ function launchUnitByInkLord(source, target, battle, options = {}) {
 function launchUnitsAroundPoint(battle, source, x, y, radius, damage, throwDistance, falloff = 1) {
   getEnemiesWithinRadius(battle, source, x, y, radius).forEach((enemy) => {
     const distance = getBattlefieldEllipseDistance(enemy.x - x, enemy.y - y);
-    applyDamage(enemy, damage * clamp(1 - distance / radius, 0.45, 1) * falloff, battle, source);
+    applyDamage(enemy, damage * clamp(1 - distance / radius, 0.45, 1) * falloff, battle, source, { incidentalAoE: true });
     launchUnitByInkLord(source, enemy, battle, {
       distance: throwDistance * clamp(1 - distance / radius, 0.55, 1),
       duration: 0.64 + Math.random() * 0.16,
@@ -14342,6 +14364,8 @@ function performCatapultAttack({ unit, target, battle, unitDef }) {
       endY,
       damage: stats.damage,
       radius: stats.splash,
+      knockdownRadius: stats.impactKnockdownRadius,
+      knockdownDuration: stats.impactKnockdownDuration,
       impactAngle: Math.atan2(endY - unit.y, endX - unit.x),
       spin: (Math.random() > 0.5 ? 1 : -1) * (4.5 + Math.random() * 2.5),
     });
@@ -14567,7 +14591,7 @@ function resolvePoisonBottleProjectile(projectile, battle) {
       if (source && !areUnitsHostile(source, unit, battle)) return;
       const dist = getBattlefieldEllipseDistance(unit.x - projectile.endX, unit.y - projectile.endY);
       if (dist > projectile.radius) return;
-      applyDamage(unit, projectile.damage * Math.max(0.25, 1 - dist / projectile.radius), battle, source);
+      applyDamage(unit, projectile.damage * Math.max(0.25, 1 - dist / projectile.radius), battle, source, { incidentalAoE: true });
       applyStatus(unit, "poison", projectile.poisonStacks, projectile.poisonDuration, source, battle);
     });
   });
@@ -14611,6 +14635,16 @@ function resolveHuntingKnifeProjectile(projectile, battle) {
 function resolveCatapultProjectile(projectile, battle) {
   const source = findUnitById(battle, projectile.sourceId);
   explodeAt(battle, projectile.endX, projectile.endY, projectile.radius, projectile.damage, source, "#c69a62", 24);
+  const knockdownRadius = Math.min(projectile.knockdownRadius || 0, Math.max(0, projectile.radius - 4));
+  if (knockdownRadius > 0) {
+    getNearbyLivingUnits(battle, projectile.endX, projectile.endY, knockdownRadius).forEach((unit) => {
+      if (unit.dead || unit.fled) return;
+      if (source && !areUnitsHostile(source, unit, battle)) return;
+      const dist = getBattlefieldEllipseDistance(unit.x - projectile.endX, unit.y - projectile.endY);
+      if (dist > knockdownRadius) return;
+      applyStatus(unit, "knockdown", 1, projectile.knockdownDuration ?? 0.65, source, battle);
+    });
+  }
   playRandomExplosionAudioAt(projectile.endX, projectile.endY);
   spawnCatapultImpactDebris(battle, projectile.endX, projectile.endY, projectile.radius);
   battle.particles.push({ kind: "blast-glow", x: projectile.endX, y: projectile.endY, vx: 0, vy: 0, life: 0.34, age: 0, color: "#ffd2a1", size: projectile.radius * 1.06 });
@@ -14625,7 +14659,7 @@ function resolveOrbProjectile(projectile, battle) {
       if (unit.dead || unit.fled) return;
       if (source && !areUnitsHostile(source, unit, battle)) return;
       const dist = getBattlefieldEllipseDistance(unit.x - projectile.endX, unit.y - projectile.endY);
-      if (dist <= projectile.radius) applyDamage(unit, projectile.damage * Math.max(0.3, 1 - dist / projectile.radius), battle, source);
+      if (dist <= projectile.radius) applyDamage(unit, projectile.damage * Math.max(0.3, 1 - dist / projectile.radius), battle, source, { incidentalAoE: true });
     });
   });
   spawnBurst(battle, projectile.endX, projectile.endY, "#7ce7ff", 18);
@@ -14775,7 +14809,7 @@ function updateFireBreathSpell(spell, battle, source, target, dt) {
     const angleDiff = Math.abs(normalizeAngle(Math.atan2(dy, dx) - breathAngle));
     if (angleDiff > spell.coneAngle * 0.5) return;
     const distanceScale = clamp(1 - distance / spell.range, 0.35, 1);
-    applyDamage(other, spell.dps * distanceScale * dt, battle, source);
+    applyDamage(other, spell.dps * distanceScale * dt, battle, source, { isFireDamage: true });
     if (areUnitsHostile(source, other, battle)) {
       trackFlameExposure(other, source, spell, dt, battle);
     }
@@ -14941,7 +14975,7 @@ function explodeAt(battle, x, y, radius, damage, attacker, color, burstCount, sh
     getNearbyLivingUnits(battle, x, y, readableRadius).forEach((unit) => {
       const dist = getBattlefieldEllipseDistance(unit.x - x, unit.y - y);
       if (dist <= readableRadius) {
-        applyDamage(unit, damage * Math.max(0.70, 1 - dist / readableRadius), battle, attacker);
+        applyDamage(unit, damage * Math.max(0.70, 1 - dist / readableRadius), battle, attacker, { incidentalAoE: true });
       }
     });
   }
@@ -14967,6 +15001,31 @@ function applyDamage(unit, amount, battle, attacker = null, options = {}) {
     return totalApplied;
   }
   return applyRawDamage(unit, amount, battle, attacker, options);
+}
+
+function breakAssassinStealth(unit, battle, options = {}) {
+  if (!unit || unit.dead || unit.type !== "assassin") return false;
+  const wasInvisible = Boolean(unit.invisible);
+  unit.invisible = false;
+  if (options.dueToFire && battle) {
+    unit.assassinFireExposeUntil = Math.max(unit.assassinFireExposeUntil || 0, (battle.time || 0) + 0.24);
+  }
+  if (!wasInvisible) return false;
+  if (options.showAlert && battle) {
+    const stats = getUnitStats(unit);
+    const alertDuration = stats.alertDuration || 0.8;
+    unit.assassinAlertUntil = Math.max(unit.assassinAlertUntil || 0, (battle.time || 0) + alertDuration);
+    unit.assassinForcedRevealUntil = Math.max(unit.assassinForcedRevealUntil || 0, (battle.time || 0) + alertDuration);
+    spawnBurst(battle, unit.x, unit.y - 14, "#fff4c7", 4);
+  }
+  return true;
+}
+
+function maybeTriggerAssassinIncidentalUncloak(unit, battle, options = {}) {
+  if (!unit || unit.dead || unit.type !== "assassin" || !unit.invisible || !options.incidentalAoE) return false;
+  const stats = getUnitStats(unit);
+  if (Math.random() >= (stats.incidentalUncloakChance || 0)) return false;
+  return breakAssassinStealth(unit, battle, { showAlert: true });
 }
 
 function shouldSpiderSwarmDodgeDamage(unit, attacker, battle, damageKind = "direct") {
@@ -15053,6 +15112,10 @@ function applyRawDamage(unit, amount, battle, attacker = null, options = {}) {
   const previousHealth = unit.health;
   unit.health -= resolvedAmount;
   const actualDamage = Math.max(0, Math.min(previousHealth, resolvedAmount));
+  if (actualDamage > 0) {
+    if (options.isFireDamage) breakAssassinStealth(unit, battle, { dueToFire: true });
+    maybeTriggerAssassinIncidentalUncloak(unit, battle, options);
+  }
   if (actualDamage > 0 && unit.health > 0) {
     maybeTriggerFleeFromDamage(unit, battle, previousHealth, damageKind);
   }
@@ -18803,6 +18866,24 @@ function drawNecromancerLinks(viewport, battle) {
 
 function drawUnitStatusOverlay(unit, scale) {
   const battleTime = state.battle?.time || 0;
+  if ((unit.assassinAlertUntil || 0) > battleTime) {
+    const alertDuration = getUnitStats(unit).alertDuration || 0.8;
+    const remaining = clamp(((unit.assassinAlertUntil || 0) - battleTime) / alertDuration, 0, 1);
+    const pulse = 0.55 + Math.max(0, Math.sin(battleTime * 16 + unit.statusVisualSeed * 3)) * 0.45;
+    ctx.save();
+    ctx.translate(0, -28 * scale / 2.1);
+    ctx.globalAlpha = remaining;
+    ctx.fillStyle = `rgba(255, 247, 212, ${0.8 + pulse * 0.2})`;
+    ctx.strokeStyle = `rgba(78, 46, 22, ${0.86 + pulse * 0.08})`;
+    ctx.lineWidth = 2.2 * scale / 2.1;
+    ctx.lineJoin = "round";
+    ctx.font = `${11 * scale / 2.1}px Georgia`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.strokeText("!", 0, 0);
+    ctx.fillText("!", 0, 0);
+    ctx.restore();
+  }
   const poisonStacks = getStatusStacks(unit, "poison");
   if (poisonStacks > 0) {
     const poisonPulse = Math.max(0, Math.sin(battleTime * 8 + unit.statusVisualSeed));

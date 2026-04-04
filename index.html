@@ -87,13 +87,18 @@
         <div class="panel-section bracket-panel">
           <div class="section-heading">
             <h2>War Bracket</h2>
-            <span id="arenaLabel">Single arena</span>
+            <div class="section-heading-actions">
+              <span id="arenaLabel">Single arena</span>
+              <button id="toggleBracketPanelBtn" class="ghost small" type="button" aria-expanded="true">Collapse</button>
+            </div>
           </div>
-          <div class="button-row bracket-actions">
-            <button id="viewTournamentStoryBtn" class="ghost small" type="button" disabled>View Tournament Story</button>
+          <div id="bracketPanelBody" class="bracket-panel-body">
+            <div class="button-row bracket-actions">
+              <button id="viewTournamentStoryBtn" class="ghost small" type="button" disabled>View Tournament Story</button>
+            </div>
+            <p id="bracketSummary" class="hint">One battle decides the next read.</p>
+            <div id="bracketTracker" class="bracket-tracker"></div>
           </div>
-          <p id="bracketSummary" class="hint">One battle decides the next read.</p>
-          <div id="bracketTracker" class="bracket-tracker"></div>
         </div>
 
         <div class="panel-section tournament-config-panel">
