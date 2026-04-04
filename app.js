@@ -2,6 +2,14 @@
 const STORAGE_KEY = "tbr-warfare-state-v1";
 const TOURNAMENT_VIEW_STORAGE_KEY = "tbr-warfare-tournament-view-v1";
 const TOURNAMENT_VIEW_COMMAND_KEY = "tbr-warfare-tournament-command-v1";
+const PERSISTENT_CACHE_ROOT_DIR = "tbr-warfare-cache";
+const PERSISTENT_COVER_CACHE_DIR = "covers";
+const PERSISTENT_ASSET_ATLAS_FILE = "asset-atlas.json";
+const STATIC_ASSET_ATLAS_URL = "assets/Props/atlas.json";
+const COVER_REQUEST_CONCURRENCY = 1;
+const COVER_REQUEST_DELAY_MS = 550;
+const COVER_REQUEST_JITTER_MS = 450;
+const COVER_INTERSECTION_ROOT_MARGIN = "240px 0px";
 const FIELD = { width: 1180, height: 760 };
 const SPEED_OPTIONS = [0.35, 0.65, 1, 1.4, 1.85];
 const SHIFT_INSPECT_SPEED = 0.12;
@@ -1547,9 +1555,25 @@ const state = {
   sessionTerrainTexture: null,
   terrainReflectionIndex: 0,
   images: new Map(),
+  coverImages: new Map(),
   unitSpriteSources: new Map(),
   riggedUnitSpriteSources: new Map(),
   statusBadgeSources: new Map(),
+  coverCache: {
+    queue: [],
+    activeCount: 0,
+    scheduled: false,
+    rootPromise: null,
+    intersectionObserver: null,
+  },
+  assetAtlas: {
+    status: "idle",
+    source: "none",
+    data: null,
+    loadingPromise: null,
+    buildPromise: null,
+    lastError: "",
+  },
   groundPropCatalog: {
     status: "idle",
     items: [],
@@ -1686,6 +1710,8 @@ const els = {
   terrainBuildFill: document.getElementById("terrainBuildFill"),
   terrainBuildPercent: document.getElementById("terrainBuildPercent"),
   devPanel: document.getElementById("devPanel"),
+  buildAssetAtlasBtn: document.getElementById("buildAssetAtlasBtn"),
+  assetAtlasStatus: document.getElementById("assetAtlasStatus"),
   balanceLabStatus: document.getElementById("balanceLabStatus"),
   balanceLabArmySizeInput: document.getElementById("balanceLabArmySizeInput"),
   balanceLabMaxBattleSecondsInput: document.getElementById("balanceLabMaxBattleSecondsInput"),
@@ -1854,6 +1880,7 @@ async function bootstrap() {
     getFactionImage(WEATHER_RAIN_LIGHT_ASSET);
     getFactionImage(WEATHER_RAIN_HEAVY_ASSET);
 
+    await loadAssetAtlas();
     await loadGroundPropScaleOverrides();
     if (!state.factions.length) {
       state.factions = cloneData(SAMPLE_BOOKS).map(withFactionDefaults);
@@ -1904,6 +1931,7 @@ function bindUi() {
     .filter(Boolean)
     .forEach((input) => input.addEventListener("change", commitTournamentConfigFromInputs));
   els.autoCalibratePerformanceBtn?.addEventListener("click", startPerformanceCalibration);
+  els.buildAssetAtlasBtn?.addEventListener("click", rebuildAssetAtlas);
   [els.balanceLabArmySizeInput, els.balanceLabMaxBattleSecondsInput, els.balanceLabVaryArenaToggle]
     .filter(Boolean)
     .forEach((input) => input.addEventListener("change", commitBalanceLabConfigFromInputs));
@@ -6382,8 +6410,8 @@ function renderArmyEditors() {
     fragment.querySelector(".army-title").textContent = faction.title;
     fragment.querySelector(".army-meta").textContent = `${faction.armySize} troops - ${faction.submissionType}`;
     const thumb = fragment.querySelector(".cover-thumb");
-    thumb.src = faction.coverUrl;
     thumb.alt = `${faction.title} cover`;
+    attachDeferredCoverImage(thumb, faction.coverUrl, faction.title);
     bindArmyEditor(fragment, faction);
     els.armyList.appendChild(fragment);
   });
@@ -6992,7 +7020,7 @@ function buildBattle(factionPool = state.factions, arena = createArenaVariant(0,
       bannerPos: { x: baseX, y: baseY - BANNER_FLOAT_OFFSET },
       homeBase: { x: baseX, y: baseY },
       alive: true,
-      image: getFactionImage(faction.coverUrl),
+      image: getFactionImage(faction.coverUrl, { title: faction.title, priority: true }),
     };
   });
   const maxUnitsOnBattlefield = options.maxUnitsOnBattlefieldOverride ?? state.tournamentConfig.maxUnitsOnBattlefield;
@@ -8842,8 +8870,249 @@ function makeUnit(factionId, type, x, y) {
   };
 }
 
-function getFactionImage(url) {
+function isExternalHttpUrl(url) {
+  if (!url || typeof url !== "string") return false;
+  try {
+    const parsed = new URL(url, window.location.href);
+    return /^https?:$/i.test(parsed.protocol) && parsed.origin !== window.location.origin;
+  } catch (error) {
+    return false;
+  }
+}
+
+function normalizeStorageSlug(value, fallback = "asset") {
+  const normalized = `${value || ""}`
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 72);
+  return normalized || fallback;
+}
+
+function buildPersistentCoverCacheFileName(title, remoteUrl) {
+  return `${normalizeStorageSlug(title, "cover")}-${hashStringToSeed(title || remoteUrl || "cover").toString(16)}.bin`;
+}
+
+function escapeSvgText(value) {
+  return `${value ?? ""}`
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function buildCoverPlaceholderUrl(title) {
+  const mark = getFallbackCoverMark(title || "?");
+  const safeMark = escapeSvgText(mark);
+  const safeTitle = escapeSvgText(title || "Cover");
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(`
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 240" role="img" aria-label="${safeTitle}">
+      <defs>
+        <linearGradient id="g" x1="0" x2="1" y1="0" y2="1">
+          <stop offset="0%" stop-color="#f5e4bf"/>
+          <stop offset="100%" stop-color="#b78945"/>
+        </linearGradient>
+      </defs>
+      <rect width="160" height="240" rx="16" fill="url(#g)"/>
+      <rect x="10" y="10" width="140" height="220" rx="12" fill="rgba(44,24,10,0.18)" stroke="rgba(255,245,227,0.36)" stroke-width="2"/>
+      <text x="80" y="132" text-anchor="middle" font-family="Georgia, serif" font-size="76" font-weight="700" fill="#fff7e8">${safeMark}</text>
+    </svg>
+  `)}`;
+}
+
+async function getPersistentCacheRootHandle() {
+  if (!navigator.storage?.getDirectory) return null;
+  if (!state.coverCache.rootPromise) {
+    state.coverCache.rootPromise = (async () => {
+      const root = await navigator.storage.getDirectory();
+      return root.getDirectoryHandle(PERSISTENT_CACHE_ROOT_DIR, { create: true });
+    })().catch(() => null);
+  }
+  return state.coverCache.rootPromise;
+}
+
+async function getPersistentCoverDirectoryHandle() {
+  const root = await getPersistentCacheRootHandle();
+  if (!root) return null;
+  try {
+    return await root.getDirectoryHandle(PERSISTENT_COVER_CACHE_DIR, { create: true });
+  } catch (error) {
+    return null;
+  }
+}
+
+async function readPersistentTextFile(fileName) {
+  const root = await getPersistentCacheRootHandle();
+  if (!root) return null;
+  try {
+    const handle = await root.getFileHandle(fileName);
+    const file = await handle.getFile();
+    return file.text();
+  } catch (error) {
+    return null;
+  }
+}
+
+async function writePersistentTextFile(fileName, value) {
+  const root = await getPersistentCacheRootHandle();
+  if (!root) return false;
+  try {
+    const handle = await root.getFileHandle(fileName, { create: true });
+    const writable = await handle.createWritable();
+    await writable.write(value);
+    await writable.close();
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
+async function readPersistentCoverBlob(fileName) {
+  const directory = await getPersistentCoverDirectoryHandle();
+  if (!directory) return null;
+  try {
+    const handle = await directory.getFileHandle(fileName);
+    const file = await handle.getFile();
+    return file.size > 0 ? file : null;
+  } catch (error) {
+    return null;
+  }
+}
+
+async function writePersistentCoverBlob(fileName, blob) {
+  const directory = await getPersistentCoverDirectoryHandle();
+  if (!directory || !blob) return false;
+  try {
+    const handle = await directory.getFileHandle(fileName, { create: true });
+    const writable = await handle.createWritable();
+    await writable.write(blob);
+    await writable.close();
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
+function setImageSource(image, src, options = {}) {
+  return new Promise((resolve, reject) => {
+    image.onload = () => resolve(image);
+    image.onerror = (error) => reject(error);
+    if (options.crossOrigin) {
+      image.crossOrigin = options.crossOrigin;
+    }
+    image.src = src;
+  });
+}
+
+function updateCoverSubscribers(record, src) {
+  record.subscribers.forEach((element) => {
+    if (!element?.isConnected) {
+      record.subscribers.delete(element);
+      return;
+    }
+    element.src = src;
+    element.classList.toggle("cover-thumb-placeholder", src === record.placeholderUrl);
+  });
+}
+
+async function resolveCoverRecord(record) {
+  record.status = "loading";
+  const fileName = buildPersistentCoverCacheFileName(record.title, record.remoteUrl);
+  const cachedBlob = await readPersistentCoverBlob(fileName);
+  if (cachedBlob) {
+    const objectUrl = URL.createObjectURL(cachedBlob);
+    await setImageSource(record.image, objectUrl);
+    record.status = "loaded";
+    record.currentUrl = objectUrl;
+    updateCoverSubscribers(record, objectUrl);
+    return;
+  }
+
+  try {
+    const response = await fetch(record.remoteUrl, { cache: "force-cache", mode: "cors" });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const blob = await response.blob();
+    await writePersistentCoverBlob(fileName, blob);
+    const objectUrl = URL.createObjectURL(blob);
+    await setImageSource(record.image, objectUrl);
+    record.status = "loaded";
+    record.currentUrl = objectUrl;
+    updateCoverSubscribers(record, objectUrl);
+    return;
+  } catch (error) {
+    try {
+      await setImageSource(record.image, record.remoteUrl, { crossOrigin: "anonymous" });
+      record.status = "loaded";
+      record.currentUrl = record.remoteUrl;
+      updateCoverSubscribers(record, record.remoteUrl);
+      return;
+    } catch (fallbackError) {
+      record.status = "failed";
+      record.currentUrl = record.placeholderUrl;
+      updateCoverSubscribers(record, record.placeholderUrl);
+    }
+  }
+}
+
+function scheduleCoverQueuePump() {
+  if (state.coverCache.scheduled || state.coverCache.activeCount >= COVER_REQUEST_CONCURRENCY || !state.coverCache.queue.length) return;
+  state.coverCache.scheduled = true;
+  const delay = COVER_REQUEST_DELAY_MS + Math.round(Math.random() * COVER_REQUEST_JITTER_MS);
+  window.setTimeout(async () => {
+    state.coverCache.scheduled = false;
+    const record = state.coverCache.queue.shift();
+    if (!record) return;
+    record.queued = false;
+    state.coverCache.activeCount += 1;
+    try {
+      await resolveCoverRecord(record);
+    } finally {
+      state.coverCache.activeCount = Math.max(0, state.coverCache.activeCount - 1);
+      scheduleCoverQueuePump();
+    }
+  }, delay);
+}
+
+function enqueueCoverRecord(record, priority = false) {
+  if (!record || record.status === "loaded" || record.status === "loading" || record.queued) return;
+  record.queued = true;
+  if (priority) {
+    state.coverCache.queue.unshift(record);
+  } else {
+    state.coverCache.queue.push(record);
+  }
+  scheduleCoverQueuePump();
+}
+
+function getDeferredCoverRecord(url, title = "") {
   if (!url) return null;
+  const recordKey = `${normalizeStorageSlug(title, "cover")}::${url}`;
+  if (!state.coverImages.has(recordKey)) {
+    const image = new Image();
+    const placeholderUrl = buildCoverPlaceholderUrl(title);
+    image.src = placeholderUrl;
+    state.coverImages.set(recordKey, {
+      key: recordKey,
+      title,
+      remoteUrl: url,
+      image,
+      status: "idle",
+      queued: false,
+      placeholderUrl,
+      currentUrl: placeholderUrl,
+      subscribers: new Set(),
+    });
+  }
+  return state.coverImages.get(recordKey);
+}
+
+function getFactionImage(url, options = {}) {
+  if (!url) return null;
+  if (isExternalHttpUrl(url) && options.title) {
+    const record = getDeferredCoverRecord(url, options.title);
+    enqueueCoverRecord(record, options.priority === true);
+    return record?.image || null;
+  }
   if (!state.images.has(url)) {
     const image = new Image();
     image.crossOrigin = "anonymous";
@@ -8851,6 +9120,61 @@ function getFactionImage(url) {
     state.images.set(url, image);
   }
   return state.images.get(url);
+}
+
+function getDeferredCoverObserver() {
+  if (state.coverCache.intersectionObserver || !("IntersectionObserver" in window)) return state.coverCache.intersectionObserver;
+  state.coverCache.intersectionObserver = new IntersectionObserver((entries) => {
+    entries.forEach((entry) => {
+      if (!entry.isIntersecting) return;
+      const element = entry.target;
+      state.coverCache.intersectionObserver?.unobserve(element);
+      const record = getDeferredCoverRecord(element.dataset.coverUrl || "", element.dataset.coverTitle || "");
+      if (record) {
+        record.subscribers.add(element);
+        element.src = record.currentUrl;
+        enqueueCoverRecord(record);
+      }
+    });
+  }, { rootMargin: COVER_INTERSECTION_ROOT_MARGIN });
+  return state.coverCache.intersectionObserver;
+}
+
+function attachDeferredCoverImage(element, coverUrl, title, options = {}) {
+  if (!element) return;
+  if (!coverUrl) {
+    element.src = buildCoverPlaceholderUrl(title);
+    element.classList.add("cover-thumb-placeholder");
+    return;
+  }
+  if (!isExternalHttpUrl(coverUrl)) {
+    element.src = coverUrl;
+    element.classList.remove("cover-thumb-placeholder");
+    return;
+  }
+  const record = getDeferredCoverRecord(coverUrl, title);
+  if (!record) return;
+  record.subscribers.add(element);
+  element.dataset.coverUrl = coverUrl;
+  element.dataset.coverTitle = title || "";
+  element.src = record.currentUrl;
+  element.classList.add("cover-thumb-placeholder");
+  if (options.priority) {
+    enqueueCoverRecord(record, true);
+    return;
+  }
+  const observer = getDeferredCoverObserver();
+  if (observer) {
+    observer.observe(element);
+  } else {
+    enqueueCoverRecord(record);
+  }
+}
+
+function hydrateDeferredCoverImages(container, options = {}) {
+  container?.querySelectorAll?.("[data-cover-url]").forEach((element) => {
+    attachDeferredCoverImage(element, element.dataset.coverUrl || "", element.dataset.coverTitle || "", options);
+  });
 }
 
 function getGroundTextureImage(textureId) {
@@ -9461,6 +9785,10 @@ function drawTerrainTextureMaterialMask(textureCtx, texturePlanes, profile, mate
 
 function getUnitSpriteSource(unitId) {
   if (!unitId) return null;
+  const rigSource = getRiggedUnitSpriteSource(unitId, { forceLoad: true });
+  if (rigSource && rigSource.status !== "missing") {
+    return null;
+  }
   if (!state.unitSpriteSources.has(unitId)) {
     const entry = {
       unitId,
@@ -9601,9 +9929,10 @@ function resolveRigImageUrl(manifestUrl, imageName) {
   }
 }
 
-function loadImageAsset(url) {
+function loadImageAsset(url, options = {}) {
   return new Promise((resolve, reject) => {
     const image = new Image();
+    if (options.crossOrigin) image.crossOrigin = options.crossOrigin;
     image.onload = () => resolve(image);
     image.onerror = reject;
     image.src = url;
@@ -15473,7 +15802,9 @@ function showWinnerCard(winner, battle) {
     })
     .sort((a, b) => b.current - a.current);
 
-  const winnerCover = winner?.coverUrl ? `<img class="winner-card-cover" src="${winner.coverUrl}" alt="${winner.title} cover">` : "";
+  const winnerCover = winner?.coverUrl
+    ? `<img class="winner-card-cover" data-cover-url="${escapeHtml(winner.coverUrl)}" data-cover-title="${escapeHtml(winner.title)}" alt="${escapeHtml(winner.title)} cover">`
+    : "";
 
   els.winnerCard.innerHTML = winner ? `
     <div class="winner-header">
@@ -15507,6 +15838,7 @@ function showWinnerCard(winner, battle) {
       </div>
     </div>
   `;
+  hydrateDeferredCoverImages(els.winnerCard, { priority: true });
   els.winnerModal.classList.remove("hidden");
   renderArmyEditors();
 }
@@ -15514,7 +15846,10 @@ function showWinnerCard(winner, battle) {
 function showTournamentVictoryCard(result) {
   const champion = result?.championId ? getTournamentFactionRecord(result.tournament, result.championId) : null;
   const coverUrl = result?.championCoverUrl || champion?.coverUrl || "";
-  const cover = coverUrl ? `<img class="winner-card-cover" src="${coverUrl}" alt="${escapeHtml(result?.championTitle || champion?.title || "Champion")} cover">` : "";
+  const coverTitle = escapeHtml(result?.championTitle || champion?.title || "Champion");
+  const cover = coverUrl
+    ? `<img class="winner-card-cover" data-cover-url="${escapeHtml(coverUrl)}" data-cover-title="${coverTitle}" alt="${coverTitle} cover">`
+    : "";
   const stats = result?.stats || {};
   const fallenArmies = result?.championId
     ? Math.max(0, (stats.totalEntrants || 0) - 1)
@@ -15586,6 +15921,7 @@ function showTournamentVictoryCard(result) {
       </div>
     </section>
   `;
+  hydrateDeferredCoverImages(els.winnerCard, { priority: true });
   els.winnerModal.classList.remove("hidden");
 }
 
@@ -15767,6 +16103,7 @@ function showNextKnockoutAnnouncement(battle) {
 
   playOneShotAudio("deathBell");
   els.knockoutAnnouncement.innerHTML = buildKnockoutAnnouncementMarkup(next);
+  hydrateDeferredCoverImages(els.knockoutAnnouncement, { priority: true });
   els.knockoutAnnouncement.classList.remove("exiting");
   requestAnimationFrame(() => {
     els.knockoutAnnouncement.classList.add("active");
@@ -15828,7 +16165,7 @@ function clearBossAnnouncement() {
 function buildKnockoutAnnouncementMarkup(entry) {
   const safeTitle = escapeHtml(entry.title);
   const cover = entry.coverUrl
-    ? `<img class="knockout-cover" src="${escapeHtml(entry.coverUrl)}" alt="${safeTitle} cover">`
+    ? `<img class="knockout-cover" data-cover-url="${escapeHtml(entry.coverUrl)}" data-cover-title="${safeTitle}" alt="${safeTitle} cover">`
     : `<div class="knockout-cover-fallback" aria-hidden="true">${escapeHtml(getFallbackCoverMark(entry.title))}</div>`;
   return `
     <article class="knockout-card">
@@ -17555,6 +17892,148 @@ function getImageLowestOpaquePixel(image) {
   return height - 1;
 }
 
+function normalizeAssetAtlasEntry(entry, category = null) {
+  if (typeof entry === "string" && entry.trim()) {
+    return { file: entry.trim(), category };
+  }
+  if (!entry || typeof entry !== "object" || typeof entry.file !== "string" || !entry.file.trim()) return null;
+  return {
+    file: entry.file.trim(),
+    category: entry.category || category || null,
+  };
+}
+
+function normalizeAssetAtlas(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const groundProps = {};
+  GROUND_PROP_CATEGORY_FOLDERS.forEach((category) => {
+    const entries = Array.isArray(raw.groundProps?.[category]) ? raw.groundProps[category] : [];
+    groundProps[category] = entries
+      .map((entry) => normalizeAssetAtlasEntry(entry, category))
+      .filter(Boolean);
+  });
+  const graves = (Array.isArray(raw.graves) ? raw.graves : [])
+    .map((entry) => normalizeAssetAtlasEntry(entry, "graves"))
+    .filter(Boolean);
+  return {
+    version: Number(raw.version) || 1,
+    generatedAt: raw.generatedAt || "",
+    groundProps,
+    graves,
+  };
+}
+
+function renderAssetAtlasStatus() {
+  if (els.assetAtlasStatus) {
+    if (state.assetAtlas.status === "building") {
+      els.assetAtlasStatus.textContent = "Building sprite atlas...";
+    } else if (state.assetAtlas.status === "loaded") {
+      const sourceLabel = state.assetAtlas.source === "persistent" ? "local cache" : "bundled atlas";
+      els.assetAtlasStatus.textContent = `Sprite atlas ready from ${sourceLabel}.`;
+    } else if (state.assetAtlas.status === "missing") {
+      els.assetAtlasStatus.textContent = "No sprite atlas yet. Build one to avoid path probing.";
+    } else if (state.assetAtlas.status === "error") {
+      els.assetAtlasStatus.textContent = state.assetAtlas.lastError || "Sprite atlas failed to load.";
+    } else if (state.assetAtlas.status === "loading") {
+      els.assetAtlasStatus.textContent = "Loading sprite atlas...";
+    } else {
+      els.assetAtlasStatus.textContent = "Sprite atlas idle.";
+    }
+  }
+  if (els.buildAssetAtlasBtn) {
+    els.buildAssetAtlasBtn.disabled = state.assetAtlas.status === "building";
+    els.buildAssetAtlasBtn.textContent = state.assetAtlas.status === "building" ? "Building Atlas..." : "Build Sprite Atlas";
+  }
+}
+
+async function fetchAssetAtlasFromUrl(url) {
+  try {
+    const response = await fetch(url, { cache: "no-store" });
+    if (!response.ok) return null;
+    const atlas = normalizeAssetAtlas(await response.json());
+    return atlas || null;
+  } catch (error) {
+    return null;
+  }
+}
+
+async function loadAssetAtlas() {
+  if (state.assetAtlas.status === "loaded") return state.assetAtlas.data;
+  if (state.assetAtlas.loadingPromise) return state.assetAtlas.loadingPromise;
+  state.assetAtlas.status = "loading";
+  state.assetAtlas.lastError = "";
+  renderAssetAtlasStatus();
+  state.assetAtlas.loadingPromise = (async () => {
+    const persistedText = await readPersistentTextFile(PERSISTENT_ASSET_ATLAS_FILE);
+    if (persistedText) {
+      try {
+        const persistedAtlas = normalizeAssetAtlas(JSON.parse(persistedText));
+        if (persistedAtlas) {
+          state.assetAtlas.data = persistedAtlas;
+          state.assetAtlas.source = "persistent";
+          state.assetAtlas.status = "loaded";
+          renderAssetAtlasStatus();
+          return persistedAtlas;
+        }
+      } catch (error) {
+        state.assetAtlas.lastError = "Saved sprite atlas was unreadable; falling back to bundled atlas.";
+      }
+    }
+    const bundledAtlas = await fetchAssetAtlasFromUrl(STATIC_ASSET_ATLAS_URL);
+    if (bundledAtlas) {
+      state.assetAtlas.data = bundledAtlas;
+      state.assetAtlas.source = "bundled";
+      state.assetAtlas.status = "loaded";
+      state.assetAtlas.lastError = "";
+      renderAssetAtlasStatus();
+      return bundledAtlas;
+    }
+    state.assetAtlas.data = null;
+    state.assetAtlas.source = "none";
+    state.assetAtlas.status = "missing";
+    renderAssetAtlasStatus();
+    return null;
+  })().finally(() => {
+    state.assetAtlas.loadingPromise = null;
+  });
+  return state.assetAtlas.loadingPromise;
+}
+
+async function loadGroundPropCatalogEntry(entry) {
+  const url = resolveGroundPropAssetUrl(entry.file);
+  try {
+    const image = await loadImageAsset(url);
+    return {
+      file: entry.file,
+      category: entry.category || null,
+      width: image.naturalWidth || image.width || 1,
+      height: image.naturalHeight || image.height || 1,
+      image,
+      url,
+    };
+  } catch (error) {
+    return null;
+  }
+}
+
+async function loadGraveCatalogEntry(entry) {
+  const fileName = entry.file.startsWith("graves/") ? entry.file.slice("graves/".length) : entry.file;
+  const url = resolveGraveAssetUrl(fileName);
+  try {
+    const image = await loadImageAsset(url);
+    return {
+      file: fileName,
+      width: image.naturalWidth || image.width || 1,
+      height: image.naturalHeight || image.height || 1,
+      image,
+      url,
+      lowestOpaquePixel: getImageLowestOpaquePixel(image),
+    };
+  } catch (error) {
+    return null;
+  }
+}
+
 async function preloadGroundPropAssets() {
   if (!HAS_BATTLE_PAGE) return [];
   if (state.groundPropCatalog.status === "loaded" || state.groundPropCatalog.status === "missing") {
@@ -17565,32 +18044,18 @@ async function preloadGroundPropAssets() {
   state.groundPropCatalog.status = "loading";
   state.groundPropCatalog.promise = (async () => {
     try {
+      const atlas = state.assetAtlas.data || await loadAssetAtlas();
+      if (!atlas?.groundProps) {
+        state.groundPropCatalog.items = [];
+        state.groundPropCatalog.byCategory = {};
+        state.groundPropCatalog.status = "missing";
+        return [];
+      }
       const byCategory = {};
       for (let categoryIndex = 0; categoryIndex < GROUND_PROP_CATEGORY_FOLDERS.length; categoryIndex += 1) {
         const category = GROUND_PROP_CATEGORY_FOLDERS[categoryIndex];
-        const items = [];
-        let consecutiveMisses = 0;
-        for (let index = 1; index <= GROUND_PROP_MAX_SCAN_INDEX; index += 1) {
-          const fileName = `${String(index).padStart(GROUND_PROP_FILENAME_DIGITS, "0")}.png`;
-          const file = `${category}/${fileName}`;
-          const url = resolveGroundPropAssetUrl(file);
-          try {
-            const image = await loadImageAsset(url);
-            items.push({
-              file,
-              category,
-              width: image.naturalWidth || image.width || 1,
-              height: image.naturalHeight || image.height || 1,
-              image,
-              url,
-            });
-            consecutiveMisses = 0;
-          } catch (error) {
-            consecutiveMisses += 1;
-            if (items.length && consecutiveMisses >= GROUND_PROP_SCAN_MISS_LIMIT) break;
-          }
-        }
-        byCategory[category] = items;
+        const entries = Array.isArray(atlas.groundProps[category]) ? atlas.groundProps[category] : [];
+        byCategory[category] = (await Promise.all(entries.map((entry) => loadGroundPropCatalogEntry(entry)))).filter(Boolean);
       }
       state.groundPropCatalog.byCategory = byCategory;
       state.groundPropCatalog.items = GROUND_PROP_CATEGORY_FOLDERS.flatMap((category) => byCategory[category] || []);
@@ -17618,27 +18083,9 @@ async function preloadGraveAssets() {
   state.graveCatalog.status = "loading";
   state.graveCatalog.promise = (async () => {
     try {
-      const items = [];
-      let consecutiveMisses = 0;
-      for (let index = 1; index <= GROUND_PROP_MAX_SCAN_INDEX; index += 1) {
-        const file = `${String(index).padStart(GROUND_PROP_FILENAME_DIGITS, "0")}.png`;
-        const url = resolveGraveAssetUrl(file);
-        try {
-          const image = await loadImageAsset(url);
-          items.push({
-            file,
-            width: image.naturalWidth || image.width || 1,
-            height: image.naturalHeight || image.height || 1,
-            image,
-            url,
-            lowestOpaquePixel: getImageLowestOpaquePixel(image),
-          });
-          consecutiveMisses = 0;
-        } catch (error) {
-          consecutiveMisses += 1;
-          if (items.length && consecutiveMisses >= GROUND_PROP_SCAN_MISS_LIMIT) break;
-        }
-      }
+      const atlas = state.assetAtlas.data || await loadAssetAtlas();
+      const entries = Array.isArray(atlas?.graves) ? atlas.graves : [];
+      const items = (await Promise.all(entries.map((entry) => loadGraveCatalogEntry(entry)))).filter(Boolean);
       state.graveCatalog.items = items;
       state.graveCatalog.status = state.graveCatalog.items.length ? "loaded" : "missing";
     } catch (error) {
@@ -17651,6 +18098,114 @@ async function preloadGraveAssets() {
   })();
 
   return state.graveCatalog.promise;
+}
+
+async function probeAssetUrlExists(url) {
+  try {
+    const response = await fetch(url, { method: "HEAD", cache: "no-store" });
+    if (response.ok) return true;
+    if (response.status !== 405) return false;
+  } catch (error) {
+    // Fall back to GET when HEAD is unsupported by the local server.
+  }
+  try {
+    const response = await fetch(url, { cache: "no-store" });
+    return response.ok;
+  } catch (error) {
+    return false;
+  }
+}
+
+async function scanAssetAtlasCategory(category) {
+  const files = [];
+  let consecutiveMisses = 0;
+  for (let index = 1; index <= GROUND_PROP_MAX_SCAN_INDEX; index += 1) {
+    const fileName = `${String(index).padStart(GROUND_PROP_FILENAME_DIGITS, "0")}.png`;
+    const file = `${category}/${fileName}`;
+    const exists = await probeAssetUrlExists(resolveGroundPropAssetUrl(file));
+    if (exists) {
+      files.push(file);
+      consecutiveMisses = 0;
+    } else {
+      consecutiveMisses += 1;
+      if (files.length && consecutiveMisses >= GROUND_PROP_SCAN_MISS_LIMIT) break;
+    }
+  }
+  return files;
+}
+
+async function scanAssetAtlasGraves() {
+  const files = [];
+  let consecutiveMisses = 0;
+  for (let index = 1; index <= GROUND_PROP_MAX_SCAN_INDEX; index += 1) {
+    const file = `${String(index).padStart(GROUND_PROP_FILENAME_DIGITS, "0")}.png`;
+    const exists = await probeAssetUrlExists(resolveGraveAssetUrl(file));
+    if (exists) {
+      files.push(file);
+      consecutiveMisses = 0;
+    } else {
+      consecutiveMisses += 1;
+      if (files.length && consecutiveMisses >= GROUND_PROP_SCAN_MISS_LIMIT) break;
+    }
+  }
+  return files;
+}
+
+async function rebuildAssetAtlas() {
+  if (state.assetAtlas.buildPromise) return state.assetAtlas.buildPromise;
+  state.assetAtlas.status = "building";
+  state.assetAtlas.lastError = "";
+  renderAssetAtlasStatus();
+  setTicker("Building sprite atlas from asset folders...");
+  state.assetAtlas.buildPromise = (async () => {
+    const atlas = {
+      version: 1,
+      generatedAt: new Date().toISOString(),
+      groundProps: {},
+      graves: [],
+    };
+    for (let index = 0; index < GROUND_PROP_CATEGORY_FOLDERS.length; index += 1) {
+      const category = GROUND_PROP_CATEGORY_FOLDERS[index];
+      if (els.assetAtlasStatus) {
+        els.assetAtlasStatus.textContent = `Building sprite atlas: scanning ${category}...`;
+      }
+      atlas.groundProps[category] = await scanAssetAtlasCategory(category);
+    }
+    if (els.assetAtlasStatus) {
+      els.assetAtlasStatus.textContent = "Building sprite atlas: scanning graves...";
+    }
+    atlas.graves = await scanAssetAtlasGraves();
+    await writePersistentTextFile(PERSISTENT_ASSET_ATLAS_FILE, JSON.stringify(atlas, null, 2));
+    state.assetAtlas.data = normalizeAssetAtlas(atlas);
+    state.assetAtlas.source = "persistent";
+    state.assetAtlas.status = "loaded";
+    state.groundPropCatalog.status = "idle";
+    state.groundPropCatalog.items = [];
+    state.groundPropCatalog.byCategory = {};
+    state.groundPropCatalog.promise = null;
+    state.graveCatalog.status = "idle";
+    state.graveCatalog.items = [];
+    state.graveCatalog.promise = null;
+    await preloadGroundPropAssets();
+    await preloadGraveAssets();
+    if (state.battle) {
+      state.battle.props = state.propResizeMode
+        ? buildPropScaleWorkshopProps(state.battle.field, state.battle.arena)
+        : buildFieldProps(state.battle.field, state.battle.arena);
+    }
+    renderAssetAtlasStatus();
+    setTicker(`Sprite atlas rebuilt: ${getAvailableGroundPropAssets().length} props and ${getAvailableGraveAssets().length} graves indexed.`);
+    return state.assetAtlas.data;
+  })().catch((error) => {
+    state.assetAtlas.status = "error";
+    state.assetAtlas.lastError = `Sprite atlas build failed: ${error?.message || error}`;
+    renderAssetAtlasStatus();
+    setTicker(state.assetAtlas.lastError);
+    return null;
+  }).finally(() => {
+    state.assetAtlas.buildPromise = null;
+  });
+  return state.assetAtlas.buildPromise;
 }
 
 function resolveGroundPropAssetUrl(fileName) {

@@ -107,6 +107,17 @@ button, input, select, textarea { font: inherit; }
   gap: 10px;
 }
 
+.dev-panel-status {
+  color: rgba(248, 235, 208, 0.82);
+  font-size: 0.8rem;
+}
+
+.cover-thumb-placeholder,
+.winner-card-cover.cover-thumb-placeholder,
+.knockout-cover.cover-thumb-placeholder {
+  filter: saturate(0.72) brightness(1.02);
+}
+
 .balance-lab {
   display: grid;
   gap: 14px;
