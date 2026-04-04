@@ -9,6 +9,7 @@ const CHIP_HEIGHT = 92;
 const CHIP_GAP = 10;
 const NODE_GAP = 56;
 const COLUMN_GAP = 196;
+const ROUND_LANE_GAP = 52;
 const BRACKET_PADDING_X = 72;
 const BRACKET_PADDING_Y = 54;
 const MINOR_WORDS = new Set(["a", "an", "and", "at", "for", "from", "in", "of", "on", "or", "the", "to"]);
@@ -301,15 +302,13 @@ function drawConnectors(viewport, connectors) {
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
   connectors.forEach((connector) => {
-    const start = worldToScreen(connector.startX, connector.startY, viewport);
-    const mid = worldToScreen(connector.midX, connector.startY, viewport);
-    const bend = worldToScreen(connector.midX, connector.endY, viewport);
-    const end = worldToScreen(connector.endX, connector.endY, viewport);
+    const points = (connector.points || []).map((point) => worldToScreen(point.x, point.y, viewport));
+    if (points.length < 2) return;
     ctx.beginPath();
-    ctx.moveTo(start.x, start.y);
-    ctx.lineTo(mid.x, mid.y);
-    ctx.lineTo(bend.x, bend.y);
-    ctx.lineTo(end.x, end.y);
+    ctx.moveTo(points[0].x, points[0].y);
+    for (let index = 1; index < points.length; index += 1) {
+      ctx.lineTo(points[index].x, points[index].y);
+    }
     ctx.stroke();
   });
 }
@@ -454,6 +453,7 @@ function buildBracketLayout(snapshot) {
   const tournament = snapshot.tournament;
   const factionMap = new Map((snapshot.factions || []).map((faction) => [faction.id, faction]));
   const rounds = projectTournamentRounds(snapshot);
+  const roundMetrics = getRoundLayoutMetrics(rounds);
   const nodes = [];
   const byMatchId = new Map();
   const roundHeaders = [];
@@ -461,20 +461,33 @@ function buildBracketLayout(snapshot) {
   const startY = BRACKET_PADDING_Y + ROUND_HEADER_HEIGHT + 18;
 
   rounds.forEach((round, roundIndex) => {
-    const x = BRACKET_PADDING_X + roundIndex * (NODE_WIDTH + COLUMN_GAP);
+    const metric = roundMetrics[roundIndex];
+    const x = metric.x;
     roundHeaders.push({
       x,
       y: BRACKET_PADDING_Y,
-      width: NODE_WIDTH,
+      width: metric.width,
       height: ROUND_HEADER_HEIGHT,
       label: round.label,
       active: !snapshot.completedTournament && roundIndex === tournament.currentRoundIndex,
     });
     if (roundIndex === 0) {
+      const feederGroups = rounds[1]?.matches?.length
+        ? chunkEvenly(round.matches.map((match) => match.id), rounds[1].matches.length)
+        : [round.matches.map((match) => match.id)];
+      const placementByMatchId = getGroupedRoundPlacements(feederGroups, metric.laneCount);
       round.matches.forEach((match, matchIndex) => {
-        const y = startY + matchIndex * (getNodeHeight(match) + NODE_GAP);
+        const placement = placementByMatchId.get(match.id) || {
+          laneIndex: getRoundLaneIndex(matchIndex, metric.laneCount),
+          rowIndex: Math.floor(matchIndex / metric.laneCount),
+        };
+        const laneIndex = placement.laneIndex;
+        const rowIndex = placement.rowIndex;
+        const nodeX = x + laneIndex * (NODE_WIDTH + ROUND_LANE_GAP);
+        const y = startY + rowIndex * (getNodeHeight(match) + NODE_GAP);
         matchOrdinal += 1;
-        const node = makeNode(match, round, roundIndex, matchIndex, matchOrdinal, x, y, factionMap, snapshot);
+        const node = makeNode(match, round, roundIndex, matchIndex, matchOrdinal, nodeX, y, factionMap, snapshot);
+        node.laneIndex = laneIndex;
         nodes.push(node);
         byMatchId.set(match.id, node);
       });
@@ -486,11 +499,14 @@ function buildBracketLayout(snapshot) {
     round.matches.forEach((match, matchIndex) => {
       const sourceNodes = (groups[matchIndex] || []).map((id) => byMatchId.get(id)).filter(Boolean);
       const height = getNodeHeight(match);
+      const laneIndex = getRoundLaneIndex(matchIndex, metric.laneCount);
+      const nodeX = x + laneIndex * (NODE_WIDTH + ROUND_LANE_GAP);
       const centerY = sourceNodes.length
         ? sourceNodes.reduce((sum, node) => sum + (node.y + node.height / 2), 0) / sourceNodes.length
         : startY + matchIndex * (height + NODE_GAP) + height / 2;
       matchOrdinal += 1;
-      const node = makeNode(match, round, roundIndex, matchIndex, matchOrdinal, x, centerY - height / 2, factionMap, snapshot);
+      const node = makeNode(match, round, roundIndex, matchIndex, matchOrdinal, nodeX, centerY - height / 2, factionMap, snapshot);
+      node.laneIndex = laneIndex;
       node.sourceIds = sourceNodes.map((entry) => entry.id);
       nodes.push(node);
       byMatchId.set(match.id, node);
@@ -498,28 +514,90 @@ function buildBracketLayout(snapshot) {
   });
 
   rounds.forEach((round, roundIndex) => {
-    const roundNodes = nodes.filter((node) => node.roundIndex === roundIndex).sort((a, b) => a.y - b.y);
-    let cursor = startY;
-    roundNodes.forEach((node) => {
-      node.y = Math.max(node.y, cursor);
-      cursor = node.y + node.height + NODE_GAP;
-    });
+    const metric = roundMetrics[roundIndex];
+    for (let laneIndex = 0; laneIndex < metric.laneCount; laneIndex += 1) {
+      const laneNodes = nodes
+        .filter((node) => node.roundIndex === roundIndex && (node.laneIndex || 0) === laneIndex)
+        .sort((a, b) => a.y - b.y);
+      let cursor = startY;
+      laneNodes.forEach((node) => {
+        node.y = Math.max(node.y, cursor);
+        cursor = node.y + node.height + NODE_GAP;
+      });
+    }
   });
 
   const connectors = nodes.flatMap((node) => (node.sourceIds || []).map((sourceId) => {
     const source = byMatchId.get(sourceId);
+    const sourceMetric = roundMetrics[source.roundIndex];
+    const sourceExitX = source.x + source.width;
+    const targetEntryX = node.x;
+    const columnChannelX = sourceMetric.x + sourceMetric.width + Math.max(44, COLUMN_GAP * 0.34);
+    const targetApproachX = Math.max(sourceExitX + 28, targetEntryX - 34);
+    const routeX = Math.min(columnChannelX, targetApproachX);
     return {
-      startX: source.x + source.width,
-      startY: source.y + source.height / 2,
-      midX: source.x + source.width + COLUMN_GAP / 2,
-      endX: node.x,
-      endY: node.y + node.height / 2,
+      points: [
+        { x: sourceExitX, y: source.y + source.height / 2 },
+        { x: sourceExitX + 18, y: source.y + source.height / 2 },
+        { x: routeX, y: source.y + source.height / 2 },
+        { x: routeX, y: node.y + node.height / 2 },
+        { x: targetEntryX - 18, y: node.y + node.height / 2 },
+        { x: targetEntryX, y: node.y + node.height / 2 },
+      ],
     };
   }));
 
-  const width = BRACKET_PADDING_X * 2 + rounds.length * NODE_WIDTH + Math.max(0, rounds.length - 1) * COLUMN_GAP;
+  const width = Math.max(
+    BRACKET_PADDING_X * 2 + NODE_WIDTH,
+    ...roundMetrics.map((metric) => metric.x + metric.width + BRACKET_PADDING_X),
+  );
   const height = Math.max(BRACKET_PADDING_Y * 2 + 200, ...nodes.map((node) => node.y + node.height + BRACKET_PADDING_Y));
   return { nodes, connectors, roundHeaders, width, height, totalHeats: matchOrdinal };
+}
+
+function getRoundLayoutMetrics(rounds) {
+  const metrics = [];
+  let cursorX = BRACKET_PADDING_X;
+  rounds.forEach((round, roundIndex) => {
+    const laneCount = getRoundLaneCount(roundIndex, round.matches?.length || 0);
+    const width = (laneCount * NODE_WIDTH) + Math.max(0, laneCount - 1) * ROUND_LANE_GAP;
+    metrics.push({ x: cursorX, width, laneCount });
+    cursorX += width + COLUMN_GAP;
+  });
+  return metrics;
+}
+
+function getRoundLaneCount(roundIndex, matchCount) {
+  if (matchCount <= 1) return 1;
+  if (roundIndex === 0) return Math.min(3, Math.max(1, Math.ceil(matchCount / 4)));
+  if (roundIndex === 1) return Math.min(2, Math.max(1, Math.ceil(matchCount / 4)));
+  return 1;
+}
+
+function getRoundLaneIndex(matchIndex, laneCount) {
+  if (laneCount <= 1) return 0;
+  return matchIndex % laneCount;
+}
+
+function getGroupedRoundPlacements(groups, laneCount) {
+  const placements = new Map();
+  let laneIndex = 0;
+  let rowIndex = 0;
+  groups.forEach((group) => {
+    group.forEach((matchId) => {
+      placements.set(matchId, { laneIndex, rowIndex });
+      laneIndex += 1;
+      if (laneIndex >= laneCount) {
+        laneIndex = 0;
+        rowIndex += 1;
+      }
+    });
+    if (laneIndex !== 0) {
+      laneIndex = 0;
+      rowIndex += 1;
+    }
+  });
+  return placements;
 }
 
 function makeNode(match, round, roundIndex, matchIndex, matchOrdinal, x, y, factionMap, snapshot) {
