@@ -1,6 +1,8 @@
 const TOURNAMENT_VIEW_STORAGE_KEY = "tbr-warfare-tournament-view-v1";
+const TOURNAMENT_VIEW_COMMAND_KEY = "tbr-warfare-tournament-command-v1";
 const VIEW_POLL_INTERVAL_MS = 500;
 const NODE_WIDTH = 560;
+const ROUND_HEADER_HEIGHT = 52;
 const HEADER_HEIGHT = 88;
 const NODE_PADDING = 18;
 const CHIP_HEIGHT = 92;
@@ -15,6 +17,10 @@ const els = {
   canvas: document.getElementById("tournamentCanvas"),
   status: document.getElementById("tournamentStatus"),
   updatedAt: document.getElementById("tournamentUpdatedAt"),
+  fastForwardStatus: document.getElementById("tournamentFastForwardStatus"),
+  fastForwardLabel: document.getElementById("tournamentFastForwardLabel"),
+  fastForwardMeta: document.getElementById("tournamentFastForwardMeta"),
+  fastForwardFill: document.getElementById("tournamentFastForwardFill"),
   returnToBattleBtn: document.getElementById("returnToBattleBtn"),
 };
 
@@ -31,6 +37,13 @@ const state = {
     lastX: 0,
     lastY: 0,
   },
+  pointer: {
+    downX: 0,
+    downY: 0,
+    moved: false,
+  },
+  buttonTargets: [],
+  hoveredButtonId: null,
   needsFit: true,
 };
 
@@ -40,6 +53,8 @@ function bootstrapTournamentView() {
   window.addEventListener("resize", sizeCanvas);
   window.addEventListener("storage", onStorageUpdate);
   els.canvas.addEventListener("pointerdown", onPointerDown);
+  els.canvas.addEventListener("pointerup", onPointerUpCanvas);
+  els.canvas.addEventListener("pointerleave", onPointerLeaveCanvas);
   els.returnToBattleBtn?.addEventListener("click", returnToBattle);
   window.addEventListener("pointermove", onPointerMove);
   window.addEventListener("pointerup", onPointerUp);
@@ -84,6 +99,7 @@ function refreshSnapshot() {
   }
   state.layout = state.snapshot?.tournament ? buildBracketLayout(state.snapshot) : null;
   updateHeader();
+  updateFastForwardStatus();
   state.needsFit = shouldFit;
 }
 
@@ -102,11 +118,37 @@ function updateHeader() {
       ? `${completedTournament.championTitle} won the tournament. ${stats.armiesOutlasted || 0} armies fell across ${stats.completedHeats || completed} heats.`
       : `The tournament ended without a champion after ${stats.completedHeats || completed} heats.`;
   } else {
+    const activeRoundLabel = tournament.rounds?.[tournament.currentRoundIndex]?.label || "Current round";
     els.status.textContent = state.snapshot.battleStateLabel
-      ? `${state.snapshot.battleStateLabel}. ${completed} heats resolved so far.`
-      : `${completed} heats resolved so far.`;
+      ? `${state.snapshot.battleStateLabel}. ${completed} heats resolved so far. ${activeRoundLabel} is active.`
+      : `${completed} heats resolved so far. ${activeRoundLabel} is active.`;
   }
   els.updatedAt.textContent = `Updated ${new Date(state.snapshot.updatedAt || Date.now()).toLocaleTimeString()}`;
+}
+
+function updateFastForwardStatus() {
+  const fastForward = state.snapshot?.fastForward;
+  if (!fastForward) {
+    els.fastForwardStatus?.classList.add("hidden");
+    return;
+  }
+  const targetResolvedHeats = Math.max(0, fastForward.targetResolvedHeats || 0);
+  const completedHeats = Math.max(0, fastForward.completedHeats || 0);
+  const pct = targetResolvedHeats > 0 ? Math.min(100, (completedHeats / targetResolvedHeats) * 100) : 100;
+  els.fastForwardStatus?.classList.remove("hidden");
+  if (els.fastForwardLabel) {
+    els.fastForwardLabel.textContent = fastForward.active
+      ? `Fast forwarding to ${fastForward.targetLabel || "selected heat"}`
+      : `${fastForward.targetLabel || "Selected heat"} ready`;
+  }
+  if (els.fastForwardMeta) {
+    els.fastForwardMeta.textContent = fastForward.active
+      ? `${completedHeats} of ${targetResolvedHeats} heats cleared${fastForward.currentLabel ? ` | ${fastForward.currentLabel}` : ""}`
+      : `${completedHeats} heats cleared${fastForward.currentLabel ? ` | ${fastForward.currentLabel}` : ""}`;
+  }
+  if (els.fastForwardFill) {
+    els.fastForwardFill.style.width = `${pct}%`;
+  }
 }
 
 function loop() {
@@ -130,10 +172,17 @@ function onPointerDown(event) {
   state.camera.dragging = true;
   state.camera.lastX = event.clientX;
   state.camera.lastY = event.clientY;
+  state.pointer.downX = event.clientX;
+  state.pointer.downY = event.clientY;
+  state.pointer.moved = false;
   els.canvas.classList.add("is-dragging");
 }
 
 function onPointerMove(event) {
+  updateHoveredButton(event);
+  if (state.camera.dragging && (Math.abs(event.clientX - state.pointer.downX) > 4 || Math.abs(event.clientY - state.pointer.downY) > 4)) {
+    state.pointer.moved = true;
+  }
   if (!state.camera.dragging) return;
   const dx = event.clientX - state.camera.lastX;
   const dy = event.clientY - state.camera.lastY;
@@ -146,6 +195,35 @@ function onPointerMove(event) {
 function onPointerUp() {
   state.camera.dragging = false;
   els.canvas.classList.remove("is-dragging");
+}
+
+function onPointerUpCanvas(event) {
+  const buttonTarget = findButtonTargetAt(event);
+  if (!state.pointer.moved && buttonTarget?.enabled) {
+    requestTournamentFastForward(buttonTarget.node);
+  }
+}
+
+function onPointerLeaveCanvas() {
+  state.hoveredButtonId = null;
+  els.canvas.style.cursor = state.camera.dragging ? "grabbing" : "grab";
+}
+
+function updateHoveredButton(event) {
+  const buttonTarget = findButtonTargetAt(event);
+  state.hoveredButtonId = buttonTarget?.id || null;
+  els.canvas.style.cursor = buttonTarget?.enabled
+    ? "pointer"
+    : state.camera.dragging
+      ? "grabbing"
+      : "grab";
+}
+
+function findButtonTargetAt(event) {
+  const rect = els.canvas.getBoundingClientRect();
+  const x = (event.clientX - rect.left) * (window.devicePixelRatio || 1);
+  const y = (event.clientY - rect.top) * (window.devicePixelRatio || 1);
+  return state.buttonTargets.find((target) => x >= target.x && x <= (target.x + target.width) && y >= target.y && y <= (target.y + target.height)) || null;
 }
 
 function onWheel(event) {
@@ -172,7 +250,9 @@ function render() {
   }
 
   const viewport = { width: els.canvas.width, height: els.canvas.height, dpr };
+  state.buttonTargets = [];
   drawGrid(viewport);
+  drawRoundHeaders(viewport, state.layout.roundHeaders || []);
   drawConnectors(viewport, state.layout.connectors);
   state.layout.nodes.forEach((node) => drawNode(viewport, node));
 }
@@ -234,6 +314,22 @@ function drawConnectors(viewport, connectors) {
   });
 }
 
+function drawRoundHeaders(viewport, headers) {
+  headers.forEach((header) => {
+    const topLeft = worldToScreen(header.x, header.y, viewport);
+    const width = header.width * state.camera.zoom * viewport.dpr;
+    const height = header.height * state.camera.zoom * viewport.dpr;
+    fillRoundedRect(topLeft.x, topLeft.y, width, height, 22 * state.camera.zoom * viewport.dpr, header.active ? "rgba(100, 67, 34, 0.9)" : "rgba(39, 24, 16, 0.88)");
+    strokeRoundedRect(topLeft.x, topLeft.y, width, height, 22 * state.camera.zoom * viewport.dpr, header.active ? "rgba(255, 222, 127, 0.92)" : "rgba(255, 229, 188, 0.18)", Math.max(1.2, 1.8 * state.camera.zoom * viewport.dpr));
+    drawText(header.label.toUpperCase(), topLeft.x + 18 * state.camera.zoom * viewport.dpr, topLeft.y + 25 * state.camera.zoom * viewport.dpr, 12, header.active ? "#ffe4a1" : "rgba(243,230,210,0.8)", "800");
+    if (header.active) {
+      const pillWidth = 116 * state.camera.zoom * viewport.dpr;
+      const pillHeight = 28 * state.camera.zoom * viewport.dpr;
+      drawPill("Current Round", topLeft.x + width - pillWidth - 14 * state.camera.zoom * viewport.dpr, topLeft.y + 12 * state.camera.zoom * viewport.dpr, pillWidth, pillHeight, "#f2d172", "#3a250f");
+    }
+  });
+}
+
 function drawNode(viewport, node) {
   const topLeft = worldToScreen(node.x, node.y, viewport);
   const width = node.width * state.camera.zoom * viewport.dpr;
@@ -255,7 +351,7 @@ function drawNode(viewport, node) {
   drawText(node.match.label, topLeft.x + pad, cursorY, 18, "#f7ead6", "800");
   drawPill(node.isChampionNode ? "Champion" : getMatchBadgeLabel(node.match), topLeft.x + width - pad - (90 * state.camera.zoom * viewport.dpr), topLeft.y + pad - 2, 90 * state.camera.zoom * viewport.dpr, 30 * state.camera.zoom * viewport.dpr, node.isChampionNode ? "#f3c956" : active ? "#e8dcc4" : "rgba(255,242,220,0.84)", "#443024");
   cursorY += 28 * state.camera.zoom * viewport.dpr;
-  drawText(`${node.match.arena.name} under ${node.match.arena.weather}`, topLeft.x + pad, cursorY, 11, "rgba(247,234,214,0.76)", "500");
+  drawText(node.match.projected ? "Waiting on earlier heats" : `${node.match.arena.name} under ${node.match.arena.weather}`, topLeft.x + pad, cursorY, 11, "rgba(247,234,214,0.76)", "500");
   cursorY += 22 * state.camera.zoom * viewport.dpr;
 
   const chipWidth = ((node.width - (NODE_PADDING * 2)) - ((node.columns - 1) * CHIP_GAP)) / node.columns;
@@ -266,6 +362,8 @@ function drawNode(viewport, node) {
     const chipY = node.y + HEADER_HEIGHT + NODE_PADDING + row * (CHIP_HEIGHT + CHIP_GAP);
     drawBannerChip(viewport, chipX, chipY, chipWidth, CHIP_HEIGHT, entry);
   });
+
+  drawFastForwardButton(viewport, node, topLeft, width, height, pad);
 }
 
 function drawBannerChip(viewport, x, y, width, height, entry) {
@@ -305,19 +403,78 @@ function drawBannerChip(viewport, x, y, width, height, entry) {
   drawPill(entry.statusLabel, topLeft.x + screenW - pad - 96 * state.camera.zoom * viewport.dpr, topLeft.y + screenH - 34 * state.camera.zoom * viewport.dpr, 96 * state.camera.zoom * viewport.dpr, 24 * state.camera.zoom * viewport.dpr, "rgba(17, 12, 9, 0.54)", "#f9ecd8");
 }
 
+function drawFastForwardButton(viewport, node, topLeft, width, height, pad) {
+  const button = node.fastForward;
+  if (!button) return;
+  const buttonWidth = 116 * state.camera.zoom * viewport.dpr;
+  const buttonHeight = 28 * state.camera.zoom * viewport.dpr;
+  const x = topLeft.x + width - pad - buttonWidth;
+  const y = topLeft.y + height - pad - buttonHeight;
+  const hovered = state.hoveredButtonId === button.id;
+  const fill = button.enabled
+    ? (hovered ? "rgba(255, 215, 133, 0.96)" : "rgba(255, 239, 211, 0.9)")
+    : "rgba(255, 242, 220, 0.12)";
+  const textColor = button.enabled ? "#342113" : "rgba(243,230,210,0.72)";
+  const border = button.enabled ? "rgba(97, 60, 27, 0.42)" : "rgba(255,229,188,0.16)";
+  fillRoundedRect(x, y, buttonWidth, buttonHeight, buttonHeight / 2, fill);
+  strokeRoundedRect(x, y, buttonWidth, buttonHeight, buttonHeight / 2, border, Math.max(1, 1.4 * state.camera.zoom * viewport.dpr));
+  ctx.fillStyle = textColor;
+  ctx.font = `700 ${Math.round(11 * (window.devicePixelRatio || 1) * state.camera.zoom)}px Manrope`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(button.label, x + buttonWidth / 2, y + buttonHeight / 2);
+  ctx.textAlign = "left";
+  ctx.textBaseline = "alphabetic";
+  state.buttonTargets.push({
+    id: button.id,
+    x,
+    y,
+    width: buttonWidth,
+    height: buttonHeight,
+    enabled: button.enabled,
+    node,
+  });
+}
+
+function requestTournamentFastForward(node) {
+  if (!node?.fastForward?.enabled) return;
+  const command = {
+    id: `ff-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    type: "fastForwardTournament",
+    targetRoundIndex: node.roundIndex,
+    targetMatchIndex: node.matchIndex,
+    targetResolvedHeats: Math.max(0, node.matchOrdinal - 1),
+    totalHeats: state.layout?.totalHeats || node.matchOrdinal,
+    targetLabel: `${node.roundLabel} - ${node.match.label}`,
+  };
+  localStorage.setItem(TOURNAMENT_VIEW_COMMAND_KEY, JSON.stringify(command));
+}
+
 function buildBracketLayout(snapshot) {
   const tournament = snapshot.tournament;
   const factionMap = new Map((snapshot.factions || []).map((faction) => [faction.id, faction]));
-  const rounds = tournament.rounds || [];
+  const rounds = projectTournamentRounds(snapshot);
   const nodes = [];
   const byMatchId = new Map();
+  const roundHeaders = [];
+  let matchOrdinal = 0;
+  const startY = BRACKET_PADDING_Y + ROUND_HEADER_HEIGHT + 18;
 
   rounds.forEach((round, roundIndex) => {
     const x = BRACKET_PADDING_X + roundIndex * (NODE_WIDTH + COLUMN_GAP);
+    roundHeaders.push({
+      x,
+      y: BRACKET_PADDING_Y,
+      width: NODE_WIDTH,
+      height: ROUND_HEADER_HEIGHT,
+      label: round.label,
+      active: !snapshot.completedTournament && roundIndex === tournament.currentRoundIndex,
+    });
     if (roundIndex === 0) {
       round.matches.forEach((match, matchIndex) => {
-        const y = BRACKET_PADDING_Y + matchIndex * (getNodeHeight(match) + NODE_GAP);
-        const node = makeNode(match, round, roundIndex, matchIndex, x, y, factionMap, snapshot);
+        const y = startY + matchIndex * (getNodeHeight(match) + NODE_GAP);
+        matchOrdinal += 1;
+        const node = makeNode(match, round, roundIndex, matchIndex, matchOrdinal, x, y, factionMap, snapshot);
         nodes.push(node);
         byMatchId.set(match.id, node);
       });
@@ -331,8 +488,9 @@ function buildBracketLayout(snapshot) {
       const height = getNodeHeight(match);
       const centerY = sourceNodes.length
         ? sourceNodes.reduce((sum, node) => sum + (node.y + node.height / 2), 0) / sourceNodes.length
-        : BRACKET_PADDING_Y + matchIndex * (height + NODE_GAP) + height / 2;
-      const node = makeNode(match, round, roundIndex, matchIndex, x, centerY - height / 2, factionMap, snapshot);
+        : startY + matchIndex * (height + NODE_GAP) + height / 2;
+      matchOrdinal += 1;
+      const node = makeNode(match, round, roundIndex, matchIndex, matchOrdinal, x, centerY - height / 2, factionMap, snapshot);
       node.sourceIds = sourceNodes.map((entry) => entry.id);
       nodes.push(node);
       byMatchId.set(match.id, node);
@@ -341,7 +499,7 @@ function buildBracketLayout(snapshot) {
 
   rounds.forEach((round, roundIndex) => {
     const roundNodes = nodes.filter((node) => node.roundIndex === roundIndex).sort((a, b) => a.y - b.y);
-    let cursor = BRACKET_PADDING_Y;
+    let cursor = startY;
     roundNodes.forEach((node) => {
       node.y = Math.max(node.y, cursor);
       cursor = node.y + node.height + NODE_GAP;
@@ -361,30 +519,33 @@ function buildBracketLayout(snapshot) {
 
   const width = BRACKET_PADDING_X * 2 + rounds.length * NODE_WIDTH + Math.max(0, rounds.length - 1) * COLUMN_GAP;
   const height = Math.max(BRACKET_PADDING_Y * 2 + 200, ...nodes.map((node) => node.y + node.height + BRACKET_PADDING_Y));
-  return { nodes, connectors, width, height };
+  return { nodes, connectors, roundHeaders, width, height, totalHeats: matchOrdinal };
 }
 
-function makeNode(match, round, roundIndex, matchIndex, x, y, factionMap, snapshot) {
+function makeNode(match, round, roundIndex, matchIndex, matchOrdinal, x, y, factionMap, snapshot) {
   const championId = snapshot.completedTournament?.championId || null;
   const entries = match.factionIds.map((factionId) => {
     const faction = factionMap.get(factionId);
-    const stateName = getEntryState(snapshot, roundIndex, matchIndex, match, factionId);
+    const placeholder = isProjectedPlaceholderId(factionId) || !faction;
+    const stateName = getEntryState(snapshot, roundIndex, matchIndex, match, factionId, placeholder);
     return {
       id: factionId,
-      title: faction?.title || "TBD",
+      title: placeholder ? "(?)" : faction.title,
       color: getFactionColor(snapshot, factionId),
-      meta: faction ? `${faction.armySize} troops` : "Unknown",
+      meta: placeholder ? "Undecided slot" : `${faction.armySize} troops`,
       statusLabel: getEntryLabel(stateName),
       state: stateName,
-      mark: getFallbackMark(faction?.title || "TBD"),
+      mark: placeholder ? "?" : getFallbackMark(faction.title),
     };
   });
+  const fastForward = getFastForwardButtonState(snapshot, roundIndex, matchIndex, matchOrdinal, match);
   return {
     id: match.id,
     match,
     roundLabel: round.label,
     roundIndex,
     matchIndex,
+    matchOrdinal,
     isChampionNode: Boolean(championId && match.winnerId === championId),
     x,
     y,
@@ -392,6 +553,7 @@ function makeNode(match, round, roundIndex, matchIndex, x, y, factionMap, snapsh
     height: getNodeHeight(match),
     columns: getNodeColumns(match),
     entries,
+    fastForward,
     sourceIds: [],
   };
 }
@@ -405,10 +567,16 @@ function getNodeHeight(match) {
   return HEADER_HEIGHT + NODE_PADDING * 2 + rows * CHIP_HEIGHT + Math.max(0, rows - 1) * CHIP_GAP;
 }
 
-function getEntryState(snapshot, roundIndex, matchIndex, match, factionId) {
+function getEntryState(snapshot, roundIndex, matchIndex, match, factionId, placeholder = false) {
   const championId = snapshot.completedTournament?.championId || null;
   if (championId && match.winnerId === championId && factionId === championId) return "champion";
   if (match.winnerId === factionId) return "advanced";
+  if (placeholder) {
+    const currentRound = snapshot.tournament?.currentRoundIndex;
+    const currentMatch = snapshot.tournament?.currentMatchIndex;
+    if (roundIndex === currentRound && matchIndex === currentMatch) return "active";
+    return "undecided";
+  }
   if (match.status === "complete") return "defeated";
   const currentRound = snapshot.tournament?.currentRoundIndex;
   const currentMatch = snapshot.tournament?.currentMatchIndex;
@@ -421,6 +589,7 @@ function getEntryLabel(stateName) {
   if (stateName === "advanced") return "Advances";
   if (stateName === "defeated") return "Defeated";
   if (stateName === "active") return "Fighting";
+  if (stateName === "undecided") return "Undecided";
   return "Queued";
 }
 
@@ -434,6 +603,130 @@ function getFactionColor(snapshot, factionId) {
   const palette = ["#db7d4a", "#5ca5cf", "#d2bf62", "#b375d7", "#c45c68", "#53b88a", "#d6809b", "#7498e5"];
   const index = (snapshot.tournament?.originalFactionIds || []).indexOf(factionId);
   return palette[(index >= 0 ? index : 0) % palette.length];
+}
+
+function getFastForwardButtonState(snapshot, roundIndex, matchIndex, matchOrdinal, match) {
+  const completedHeats = snapshot.tournament?.stats?.completedHeats || 0;
+  const activeFastForward = snapshot.fastForward?.active === true;
+  const isTarget = snapshot.fastForward
+    && snapshot.fastForward.targetRoundIndex === roundIndex
+    && snapshot.fastForward.targetMatchIndex === matchIndex;
+  if (snapshot.completedTournament) {
+    return { id: `ff-${roundIndex}-${matchIndex}`, label: "Done", enabled: false };
+  }
+  if (activeFastForward) {
+    return { id: `ff-${roundIndex}-${matchIndex}`, label: isTarget ? "Target" : "Locked", enabled: false };
+  }
+  if ((matchOrdinal - 1) <= completedHeats) {
+    return { id: `ff-${roundIndex}-${matchIndex}`, label: match.status === "complete" ? "Done" : "Ready", enabled: false };
+  }
+  return { id: `ff-${roundIndex}-${matchIndex}`, label: "Fast Forward", enabled: true };
+}
+
+function projectTournamentRounds(snapshot) {
+  const tournament = snapshot.tournament;
+  const existingRounds = tournament?.rounds || [];
+  const config = normalizeTournamentConfigView(snapshot.tournamentConfig || tournament?.config || {});
+  const projectedRounds = [];
+  let currentRoundMatches = null;
+  let roundIndex = 0;
+  while (true) {
+    const existingRound = existingRounds[roundIndex];
+    let roundRecord;
+    if (existingRound?.matches?.length) {
+      roundRecord = {
+        index: roundIndex,
+        label: existingRound.label,
+        matches: existingRound.matches.map((match) => ({ ...match, factionIds: match.factionIds.slice() })),
+      };
+    } else if (currentRoundMatches?.length) {
+      const projectedMatches = createProjectedRoundFromPreviousRound(currentRoundMatches, roundIndex, config);
+      if (!projectedMatches.length) break;
+      roundRecord = {
+        index: roundIndex,
+        label: getRoundLabelView(roundIndex, projectedMatches.length, currentRoundMatches.length),
+        matches: projectedMatches,
+      };
+    } else {
+      const openingFactionIds = (tournament?.originalFactionIds || []).slice();
+      if (!openingFactionIds.length) break;
+      const openingGroups = createProjectedHeatGroups(openingFactionIds, config);
+      roundRecord = {
+        index: roundIndex,
+        label: getRoundLabelView(roundIndex, openingGroups.length, openingFactionIds.length),
+        matches: openingGroups.map((group, matchIndex) => ({
+          id: `projected-round-${roundIndex}-match-${matchIndex}`,
+          label: getMatchLabelView(roundIndex, matchIndex),
+          factionIds: group,
+          winnerId: null,
+          status: "pending",
+          arena: { name: "Undecided Arena", weather: "(?)" },
+          projected: true,
+        })),
+      };
+    }
+    if (!roundRecord.matches.length) break;
+    projectedRounds.push({
+      index: roundRecord.index,
+      label: roundRecord.label,
+      matches: roundRecord.matches,
+    });
+    if (roundRecord.matches.length <= 1) break;
+    currentRoundMatches = roundRecord.matches;
+    roundIndex += 1;
+  }
+  return projectedRounds;
+}
+
+function createProjectedRoundFromPreviousRound(previousRoundMatches, roundIndex, config) {
+  const previousMatchIds = previousRoundMatches.map((match) => match.id);
+  const groupedSourceIds = createProjectedHeatGroups(previousMatchIds, config);
+  return groupedSourceIds.map((sourceIds, matchIndex) => {
+    const factionIds = sourceIds.map((sourceId, sourceIndex) => {
+      const sourceMatch = previousRoundMatches.find((match) => match.id === sourceId);
+      return sourceMatch?.winnerId || `projected-round-${roundIndex}-slot-${matchIndex}-${sourceIndex}`;
+    });
+    return {
+      id: `projected-round-${roundIndex}-match-${matchIndex}`,
+      label: getMatchLabelView(roundIndex, matchIndex),
+      factionIds,
+      winnerId: null,
+      status: "pending",
+      arena: { name: "Undecided Arena", weather: "(?)" },
+      projected: true,
+    };
+  });
+}
+
+function createProjectedHeatGroups(factionIds, config) {
+  const factionCount = factionIds.length;
+  if (factionCount <= 0) return [];
+  if (factionCount <= config.maxFactionsPerHeat && !config.maxUnitsOnBattlefield) return [factionIds.slice()];
+  const groupCount = Math.ceil(factionCount / config.maxFactionsPerHeat);
+  return chunkEvenly(factionIds, groupCount);
+}
+
+function normalizeTournamentConfigView(config = {}) {
+  const maxFactionsPerHeat = clampInt(config.maxFactionsPerHeat ?? 10, 2, 32);
+  return {
+    minFactionsPerHeat: clampInt(config.minFactionsPerHeat ?? 2, 2, maxFactionsPerHeat),
+    maxFactionsPerHeat,
+    maxUnitsOnBattlefield: clampInt(config.maxUnitsOnBattlefield ?? 0, 0, 5000),
+  };
+}
+
+function isProjectedPlaceholderId(factionId) {
+  return `${factionId || ""}`.startsWith("projected-round-");
+}
+
+function getRoundLabelView(roundIndex, matchCount, entrantCount) {
+  if (roundIndex === 0 && matchCount === 1) return "Grand Melee";
+  if (matchCount === 1) return roundIndex === 1 ? "Final Round" : `Final Round ${roundIndex}`;
+  return `Round ${roundIndex + 1}`;
+}
+
+function getMatchLabelView(roundIndex, matchIndex) {
+  return `Heat ${matchIndex + 1}`;
 }
 
 function getFallbackMark(title) {
@@ -585,4 +878,8 @@ function fitWrappedText(text, maxWidth, maxHeight, options = {}) {
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
+}
+
+function clampInt(value, min, max) {
+  return Math.round(clamp(Number.isFinite(Number(value)) ? Number(value) : min, min, max));
 }

@@ -1,10 +1,13 @@
 
 const STORAGE_KEY = "tbr-warfare-state-v1";
 const TOURNAMENT_VIEW_STORAGE_KEY = "tbr-warfare-tournament-view-v1";
+const TOURNAMENT_VIEW_COMMAND_KEY = "tbr-warfare-tournament-command-v1";
 const FIELD = { width: 1180, height: 760 };
 const SPEED_OPTIONS = [0.35, 0.65, 1, 1.4, 1.85];
 const SHIFT_INSPECT_SPEED = 0.12;
 const POST_BATTLE_REVIEW_SPEED = 0.5;
+const INSTANT_RESOLVE_MAX_BATTLE_SECONDS = 240;
+const TOURNAMENT_FAST_FORWARD_STEP_DELAY_MS = 16;
 const AUDIO_DEFAULT_FADE_SECONDS = 1.8;
 const AUDIO_END_FADE_SECONDS = 0.4;
 const AUDIO_PAUSE_DUCK_FACTOR = 0.24;
@@ -1576,6 +1579,8 @@ const state = {
   roundsApplied: 0,
   tournamentConfig: normalizeTournamentConfig(),
   bracketPanelCollapsed: false,
+  tournamentFastForward: null,
+  lastTournamentViewCommandId: "",
   speedIndex: 2,
   useRiggedSprites: true,
   useTerrainTexturing: true,
@@ -1646,6 +1651,7 @@ const els = {
   canvas: document.getElementById("battleCanvas"),
   runBattleBtn: document.getElementById("runBattleBtn"),
   resetBattleBtn: document.getElementById("resetBattleBtn"),
+  resetTournamentBtn: document.getElementById("resetTournamentBtn"),
   advanceQueueBtn: document.getElementById("advanceQueueBtn"),
   randomizeArenaBtn: document.getElementById("randomizeArenaBtn"),
   seedSampleBtn: document.getElementById("seedSampleBtn"),
@@ -1742,6 +1748,7 @@ const els = {
   spriteRigDeployableWorkshopTabBtn: document.getElementById("spriteRigDeployableWorkshopTabBtn"),
   spriteRigSaveProjectBtn: document.getElementById("spriteRigSaveProjectBtn"),
   spriteRigChooseExportDirBtn: document.getElementById("spriteRigChooseExportDirBtn"),
+  instantResolveBtn: document.getElementById("instantResolveBtn"),
   spriteRigUnitSelectLabel: document.getElementById("spriteRigUnitSelectLabel"),
   spriteRigUnitSelect: document.getElementById("spriteRigUnitSelect"),
   spriteRigRenderHeight: document.getElementById("spriteRigRenderHeight"),
@@ -1843,6 +1850,7 @@ async function bootstrap() {
     loadState();
   }
   if (HAS_BATTLE_PAGE) {
+    window.addEventListener("storage", onTournamentViewStorageEvent);
     getFactionImage(WEATHER_RAIN_LIGHT_ASSET);
     getFactionImage(WEATHER_RAIN_HEAVY_ASSET);
 
@@ -1885,9 +1893,11 @@ async function bootstrap() {
 function bindUi() {
   els.runBattleBtn.addEventListener("click", startBattle);
   els.resetBattleBtn.addEventListener("click", handleResetBattleClick);
+  els.resetTournamentBtn?.addEventListener("click", handleResetTournamentClick);
   els.advanceQueueBtn.addEventListener("click", applyWinnerToQueue);
   els.randomizeArenaBtn.addEventListener("click", randomizeArenaAndWeather);
   els.viewTournamentStoryBtn.addEventListener("click", openTournamentPage);
+  els.instantResolveBtn?.addEventListener("click", instantResolveBattle);
   els.toggleBracketPanelBtn?.addEventListener("click", toggleBracketPanel);
   els.toggleTournamentConfigBtn?.addEventListener("click", toggleTournamentConfigPanel);
   [els.tournamentMinFactionsInput, els.tournamentMaxFactionsInput, els.tournamentMaxUnitsInput, els.tournamentInkLordDelayInput, els.tournamentPaperbackOnlyInput]
@@ -4053,6 +4063,13 @@ function stripEditorFieldsFromManifest(manifest) {
 
 function renderSpeedControls() {
   els.speedControls.innerHTML = "";
+  const activeCombatants = getActiveBattleFactions();
+  const canInstantResolve = !state.performanceCalibration.active
+    && !state.tournamentFastForward?.active
+    && !state.tournamentResult
+    && Boolean(state.battle)
+    && !state.battle.completed
+    && activeCombatants.length >= 2;
   const pauseButton = document.createElement("button");
   const canResume = state.battle && state.battle.time > 0;
   pauseButton.className = `speed-btn${!state.running && canResume ? " active" : ""}`;
@@ -4087,6 +4104,21 @@ function renderSpeedControls() {
     renderSpeedControls();
   });
   els.speedControls.appendChild(cameraModeButton);
+
+  if (els.instantResolveBtn) {
+    els.instantResolveBtn.disabled = !canInstantResolve;
+    els.instantResolveBtn.title = canInstantResolve
+      ? "Finish this round immediately with a headless simulation"
+      : state.tournamentFastForward?.active
+        ? "Tournament fast forward is already running"
+      : state.tournamentResult
+        ? "Start the next tournament before resolving another battle"
+        : state.battle?.completed
+          ? "Apply the current result before resolving another battle"
+          : activeCombatants.length < 2
+            ? "At least two armies are required"
+            : "Instant resolve is unavailable right now";
+  }
 }
 
 function cloneData(value) {
@@ -6605,6 +6637,7 @@ function resetBattle(options = {}) {
   const preserveArenaVisuals = Boolean(options.preserveArenaVisuals);
   const regenerateTerrain = options.regenerateTerrain !== false;
   const terrainMirrorKey = options.terrainMirrorKey || "";
+  state.tournamentFastForward = null;
   state.running = false;
   state.lastBattleHighlightAt = -Infinity;
   state.tournamentResult = null;
@@ -6635,6 +6668,40 @@ function resetBattle(options = {}) {
   syncTournamentViewState(true);
 }
 
+function resetCurrentBattle(options = {}) {
+  cancelPerformanceCalibration({ silent: true });
+  const preserveArenaVisuals = Boolean(options.preserveArenaVisuals);
+  const regenerateTerrain = options.regenerateTerrain !== false;
+  const terrainMirrorKey = options.terrainMirrorKey || "";
+  state.tournamentFastForward = null;
+  state.running = false;
+  state.lastBattleHighlightAt = -Infinity;
+  endBattleAudio();
+  clearBattleHover();
+  closeResetTournamentModal();
+  closeTournamentStoryModal();
+  clearSelectedBattleProp();
+  if (regenerateTerrain) state.sessionTerrainTexture = null;
+  state.battle = buildActiveBattle({ preserveArenaVisuals, regenerateTerrain, terrainMirrorKey });
+  primeBattleWeatherAudioSelection();
+  syncBattleWeatherAudio(0.35);
+  if (!state.battle.terrainTexture?.ready) queueBattleTerrainTextureGeneration(state.battle);
+  clearKnockoutAnnouncement();
+  clearBossAnnouncement();
+  resetCamera();
+  els.battleState.textContent = state.tournament ? getCurrentMatchLabel(state.tournament) : "Ready";
+  els.winnerLabel.textContent = "None yet";
+  closeWinnerModal();
+  renderArmyEditors();
+  renderBracketTracker();
+  updateAdvanceButtonLabel();
+  renderSpeedControls();
+  setTicker(state.tournament
+    ? `${getCurrentMatchLabel(state.tournament)} has been reset and is ready to replay.`
+    : "The current battle has been reset.");
+  syncTournamentViewState(true);
+}
+
 function resetBattlePreservingArenaVisuals() {
   resetBattle({ preserveArenaVisuals: true, regenerateTerrain: false });
 }
@@ -6653,11 +6720,19 @@ function isTournamentViewAvailable() {
 }
 
 function handleResetBattleClick() {
-  if (isTournamentActive()) {
-    openResetTournamentModal();
+  if (state.tournamentResult) {
+    setTicker("The tournament is complete. Use Reset Tournament to restart the bracket.");
     return;
   }
-  resetBattle({ regenerateTerrain: false, terrainMirrorKey: nextTerrainReflectionKey("battle-reset") });
+  resetCurrentBattle({ regenerateTerrain: false, terrainMirrorKey: nextTerrainReflectionKey("battle-reset") });
+}
+
+function handleResetTournamentClick() {
+  if (!isTournamentViewAvailable()) {
+    setTicker("There is no tournament to reset.");
+    return;
+  }
+  openResetTournamentModal();
 }
 
 function openResetTournamentModal() {
@@ -6731,6 +6806,7 @@ function buildTournamentViewSnapshot() {
     } : null,
     running: Boolean(state.running),
     battleStateLabel: els.battleState?.textContent || "",
+    fastForward: state.tournamentFastForward ? cloneData(state.tournamentFastForward) : null,
   };
 }
 
@@ -6739,6 +6815,25 @@ function syncTournamentViewState(force = false) {
   if (!force && (now - state.lastTournamentViewSyncAt) < TOURNAMENT_VIEW_SYNC_INTERVAL_MS) return;
   state.lastTournamentViewSyncAt = now;
   localStorage.setItem(TOURNAMENT_VIEW_STORAGE_KEY, JSON.stringify(buildTournamentViewSnapshot()));
+}
+
+function onTournamentViewStorageEvent(event) {
+  if (event.key !== TOURNAMENT_VIEW_COMMAND_KEY || !event.newValue) return;
+  processTournamentViewCommand(event.newValue);
+}
+
+function processTournamentViewCommand(rawValue) {
+  let command;
+  try {
+    command = JSON.parse(rawValue);
+  } catch {
+    return;
+  }
+  if (!command?.id || command.id === state.lastTournamentViewCommandId) return;
+  state.lastTournamentViewCommandId = command.id;
+  if (command.type === "fastForwardTournament") {
+    void startTournamentFastForward(command);
+  }
 }
 
 function resetCamera() {
@@ -6784,6 +6879,56 @@ function startBattle() {
   renderBracketTracker();
   renderSpeedControls();
   syncTournamentViewState(true);
+}
+
+function instantResolveBattle(options = {}) {
+  const silent = options.silent === true;
+  if (state.performanceCalibration.active) {
+    setTicker("Performance calibration is already running.");
+    return;
+  }
+  if (state.tournamentFastForward?.active && !silent) {
+    setTicker("Tournament fast forward is already running.");
+    return;
+  }
+  if (state.tournamentResult) {
+    showTournamentVictoryCard(state.tournamentResult);
+    setTicker("The bracket is complete. Start the next tournament when you're ready.");
+    return;
+  }
+  if (!state.battle) {
+    setTicker("Set up a battle before using instant resolve.");
+    return;
+  }
+  if (state.battle.completed) {
+    setTicker("Apply the current result before resolving another battle.");
+    return;
+  }
+  if (getActiveBattleFactions().length < 2) {
+    setTicker("At least two armies are required.");
+    return;
+  }
+
+  closeWinnerModal();
+  clearBattleHover();
+  clearKnockoutAnnouncement();
+  clearBossAnnouncement();
+
+  let timedOut = false;
+  const maxSteps = Math.ceil(INSTANT_RESOLVE_MAX_BATTLE_SECONDS / BALANCE_LAB_HEADLESS_STEP_DT);
+  withHeadlessBattleContext(state.battle, () => {
+    for (let step = 0; step < maxSteps && !state.battle.completed; step += 1) {
+      stepBattle(state.battle, BALANCE_LAB_HEADLESS_STEP_DT);
+    }
+  });
+  if (!state.battle.completed) {
+    timedOut = true;
+    resolveHeadlessBattleTimeout(state.battle);
+    endBattleAudio();
+  }
+
+  state.running = !silent;
+  syncResolvedBattleUi(state.battle, { instantResolve: true, timedOut, showWinnerModal: !silent });
 }
 
 function getTournamentEligibleFactions(factions = state.factions, config = state.tournamentConfig) {
@@ -6905,6 +7050,44 @@ function buildBattle(factionPool = state.factions, arena = createArenaVariant(0,
   }
   initializeBattleHealthTimeline(battle);
   return battle;
+}
+
+function syncResolvedBattleUi(battle, options = {}) {
+  const instantResolve = options.instantResolve === true;
+  const timedOut = options.timedOut === true;
+  const showWinnerModal = options.showWinnerModal !== false;
+  const winner = battle?.pendingWinner
+    ? battle.factions.find((faction) => faction.id === battle.pendingWinner) || null
+    : null;
+  els.battleState.textContent = state.tournament ? `${getCurrentMatchLabel(state.tournament)} complete` : "Complete";
+  if (winner) {
+    els.winnerLabel.textContent = winner.title;
+    if (instantResolve) {
+      setTicker(timedOut
+        ? `${winner.title} claims the instant resolve on battlefield state.`
+        : `${winner.title} wins the instant resolve.`);
+    } else {
+      setTicker(`${winner.title} survives the melee.`);
+    }
+  } else {
+    els.winnerLabel.textContent = "Mutual destruction";
+    if (instantResolve) {
+      setTicker(timedOut
+        ? "Instant resolve hit its time limit and no army could be awarded the field."
+        : "Instant resolve ended with no army surviving the field.");
+    } else {
+      setTicker("No army survived the field.");
+    }
+  }
+  if (showWinnerModal) {
+    showWinnerCard(winner, battle);
+  } else {
+    closeWinnerModal();
+  }
+  renderBracketTracker();
+  updateAdvanceButtonLabel();
+  renderSpeedControls();
+  syncTournamentViewState(true);
 }
 
 function applyBattlefieldUnitCap(factions, maxUnitsOnBattlefield) {
@@ -7371,6 +7554,94 @@ function createTournamentRound(factionIds, roundIndex, config = state.tournament
   };
 }
 
+function getFastForwardTargetLabel(roundLabel, matchLabel) {
+  return `${roundLabel || "Round"} - ${matchLabel || "Heat"}`;
+}
+
+function waitForTournamentFastForwardStep() {
+  return new Promise((resolve) => window.setTimeout(resolve, TOURNAMENT_FAST_FORWARD_STEP_DELAY_MS));
+}
+
+function updateTournamentFastForwardProgress(partial = {}) {
+  if (!state.tournamentFastForward) return;
+  state.tournamentFastForward = {
+    ...state.tournamentFastForward,
+    ...partial,
+  };
+  renderSpeedControls();
+  syncTournamentViewState(true);
+}
+
+async function startTournamentFastForward(command) {
+  if (state.tournamentFastForward?.active) return;
+  if (!state.tournament || !state.battle) {
+    syncTournamentViewState(true);
+    return;
+  }
+  const targetResolvedHeats = Math.max(0, Number(command.targetResolvedHeats) || 0);
+  const completedHeats = state.tournament.stats?.completedHeats || 0;
+  if (completedHeats >= targetResolvedHeats) {
+    state.tournamentFastForward = null;
+    setTicker(command.targetLabel
+      ? `${command.targetLabel} is already ready.`
+      : "That heat is already ready.");
+    renderSpeedControls();
+    syncTournamentViewState(true);
+    return;
+  }
+
+  state.tournamentFastForward = {
+    active: true,
+    commandId: command.id,
+    targetRoundIndex: Number(command.targetRoundIndex) || 0,
+    targetMatchIndex: Number(command.targetMatchIndex) || 0,
+    targetResolvedHeats,
+    completedHeats,
+    totalHeats: Math.max(targetResolvedHeats, Number(command.totalHeats) || targetResolvedHeats),
+    targetLabel: command.targetLabel || getCurrentMatchLabel(state.tournament),
+    currentLabel: getCurrentMatchLabel(state.tournament),
+  };
+  state.running = false;
+  closeWinnerModal();
+  renderSpeedControls();
+  syncTournamentViewState(true);
+  setTicker(`Fast forwarding tournament toward ${state.tournamentFastForward.targetLabel}.`);
+
+  try {
+    while (state.tournament && (state.tournament.stats?.completedHeats || 0) < targetResolvedHeats) {
+      updateTournamentFastForwardProgress({
+        completedHeats: state.tournament.stats?.completedHeats || 0,
+        currentLabel: getCurrentMatchLabel(state.tournament),
+      });
+      if (!state.battle?.completed) {
+        instantResolveBattle({ silent: true });
+      } else {
+        advanceTournament();
+      }
+      await waitForTournamentFastForwardStep();
+    }
+    updateTournamentFastForwardProgress({
+      completedHeats: state.tournament?.stats?.completedHeats || targetResolvedHeats,
+      currentLabel: state.tournament ? getCurrentMatchLabel(state.tournament) : state.tournamentFastForward?.targetLabel || "",
+      active: false,
+    });
+    setTicker(state.tournament
+      ? `${state.tournamentFastForward?.targetLabel || "Selected heat"} is now ready.`
+      : "Tournament fast forward completed.");
+  } finally {
+    if (state.tournamentFastForward) {
+      state.tournamentFastForward = {
+        ...state.tournamentFastForward,
+        active: false,
+        completedHeats: state.tournament?.stats?.completedHeats || state.tournamentFastForward.targetResolvedHeats,
+        currentLabel: state.tournament ? getCurrentMatchLabel(state.tournament) : state.tournamentFastForward.currentLabel,
+      };
+    }
+    renderSpeedControls();
+    syncTournamentViewState(true);
+  }
+}
+
 function chunkEvenly(items, groupCount) {
   const count = Math.max(1, Math.min(groupCount, items.length));
   const baseSize = Math.floor(items.length / count);
@@ -7404,6 +7675,20 @@ function getCurrentMatchLabel(tournament) {
   const match = getCurrentTournamentMatch(tournament);
   if (!round || !match) return "Ready";
   return `${round.label} - ${match.label}`;
+}
+
+function getTournamentHeatOrdinal(tournament, roundIndex, matchIndex) {
+  const rounds = tournament?.rounds || [];
+  let ordinal = 0;
+  for (let index = 0; index < rounds.length; index += 1) {
+    const round = rounds[index];
+    if (index < roundIndex) {
+      ordinal += round.matches?.length || 0;
+      continue;
+    }
+    return ordinal + matchIndex + 1;
+  }
+  return ordinal;
 }
 
 function getTournamentFactionColor(tournament, factionId) {
@@ -10396,38 +10681,15 @@ function stepBattle(battle, dt) {
     battle.completed = true;
     stopInkLordEvent(battle);
     endBattleAudio();
-    if (!isHeadlessSimulationActive()) {
-      els.battleState.textContent = state.tournament ? `${getCurrentMatchLabel(state.tournament)} complete` : "Complete";
-      els.winnerLabel.textContent = winner.title;
-      setTicker(`${winner.title} survives the melee.`);
-      showWinnerCard(winner, battle);
-      renderBracketTracker();
-      updateAdvanceButtonLabel();
-      renderSpeedControls();
-    }
+    if (!isHeadlessSimulationActive()) syncResolvedBattleUi(battle);
     return;
   }
   if (!battle.completed && contenders.length === 0) {
-    const winner = contenders[0];
-    battle.pendingWinner = winner ? winner.id : null;
+    battle.pendingWinner = null;
     battle.completed = true;
     stopInkLordEvent(battle);
     endBattleAudio();
-    if (!isHeadlessSimulationActive()) {
-      els.battleState.textContent = state.tournament ? `${getCurrentMatchLabel(state.tournament)} complete` : "Complete";
-      if (winner) {
-        els.winnerLabel.textContent = winner.title;
-        setTicker(`${winner.title} survives the melee.`);
-        showWinnerCard(winner, battle);
-      } else {
-        els.winnerLabel.textContent = "Mutual destruction";
-        setTicker("No army survived the field.");
-        showWinnerCard(null, battle);
-      }
-      renderBracketTracker();
-      updateAdvanceButtonLabel();
-      renderSpeedControls();
-    }
+    if (!isHeadlessSimulationActive()) syncResolvedBattleUi(battle);
   }
 }
 
@@ -17248,6 +17510,10 @@ function getTintedBannerImage(image, url, color, alpha = 0.78) {
   return state.tintedBanners.get(cacheKey);
 }
 
+function isDrawableImage(image) {
+  return Boolean(image && image.complete && image.naturalWidth > 0 && image.naturalHeight > 0);
+}
+
 function getAvailableGroundPropAssets(category = null) {
   if (category) {
     const items = state.groundPropCatalog.byCategory?.[category];
@@ -17692,9 +17958,9 @@ function drawSingleBanner(viewport, faction) {
   const ribbonBaseTop = coverBottom + bannerHeight * 0.02;
   const ribbonCenterX = flagLeft + flagWidth / 2;
   const bannerAsset = getFactionImage(BANNER_BASE_ASSET);
-  const tintedBanner = bannerAsset?.complete ? getTintedBannerImage(bannerAsset, BANNER_BASE_ASSET, faction.color) : null;
+  const tintedBanner = isDrawableImage(bannerAsset) ? getTintedBannerImage(bannerAsset, BANNER_BASE_ASSET, faction.color) : null;
 
-  if (tintedBanner) {
+  if (isDrawableImage(tintedBanner)) {
     ctx.drawImage(tintedBanner, bannerLeft, bannerTop, bannerWidth, bannerHeight);
   } else {
     const bannerGradient = ctx.createLinearGradient(flagLeft, flagTop, flagLeft, bannerTop + bannerHeight * 0.84);
@@ -17708,7 +17974,7 @@ function drawSingleBanner(viewport, faction) {
   ctx.save();
   traceBannerFlagPath(ctx, bannerLeft, bannerTop, bannerWidth, bannerHeight);
   ctx.clip();
-  if (faction.image && faction.image.complete) {
+  if (isDrawableImage(faction.image)) {
     ctx.drawImage(faction.image, coverLeft, coverTop, coverWidth, coverHeight);
   } else {
     const coverGradient = ctx.createLinearGradient(coverLeft, coverTop, coverLeft, coverTop + coverHeight);

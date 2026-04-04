@@ -16,6 +16,15 @@
         <p class="eyebrow">Live Bracket View</p>
         <h1>Tournament Tree</h1>
         <p id="tournamentStatus" class="status-copy">Waiting for an active tournament.</p>
+        <div id="tournamentFastForwardStatus" class="tournament-fast-forward hidden" aria-live="polite">
+          <div class="tournament-fast-forward-copy">
+            <strong id="tournamentFastForwardLabel">Fast forwarding tournament...</strong>
+            <span id="tournamentFastForwardMeta">Preparing simulation</span>
+          </div>
+          <div class="tournament-fast-forward-bar">
+            <div id="tournamentFastForwardFill" class="tournament-fast-forward-fill"></div>
+          </div>
+        </div>
       </div>
       <div class="tournament-actions">
         <span id="tournamentUpdatedAt" class="updated-at">No sync yet</span>
