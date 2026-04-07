@@ -61,7 +61,7 @@ Do not run the app from `file://...`. The simulator loads assets with `fetch()`,
 
 ### Browser notes
 
-- Save data lives in your browser `localStorage`.
+- Save data lives in your browser `localStorage`, including in-progress tournament brackets so they can be resumed after closing and reopening the simulator.
 - Chromium-based browsers are recommended for creator workflows that need folder write access, such as sprite export and prop scale saving.
 - If you already use another static file server, that is fine. Anything that serves this folder on `localhost` or `127.0.0.1` should work.
 

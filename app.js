@@ -1605,6 +1605,7 @@ const state = {
   roundsApplied: 0,
   tournamentConfig: normalizeTournamentConfig(),
   bracketPanelCollapsed: false,
+  persistedBattleSnapshot: null,
   tournamentFastForward: null,
   lastTournamentViewCommandId: "",
   speedIndex: 2,
@@ -1909,7 +1910,11 @@ async function bootstrap() {
     renderBracketPanel();
     renderTournamentConfigPanel();
     renderBalanceLabPanel();
-    resetBattle();
+    if (state.tournament || state.tournamentResult) {
+      restorePersistedBattleState();
+    } else {
+      resetBattle();
+    }
   }
   if (HAS_BALANCE_LAB_PAGE) {
     bindBalanceLabPageUi();
@@ -4664,9 +4669,24 @@ function loadState() {
     state.propScaleOverrides = typeof saved.propScaleOverrides === "object" && saved.propScaleOverrides
       ? saved.propScaleOverrides
       : {};
+    state.tournament = saved.tournament ? cloneData(saved.tournament) : null;
+    state.tournamentResult = saved.tournamentResult ? cloneData(saved.tournamentResult) : null;
+    state.persistedBattleSnapshot = saved.persistedBattleSnapshot && typeof saved.persistedBattleSnapshot === "object"
+      ? cloneData(saved.persistedBattleSnapshot)
+      : null;
   } catch {
     state.factions = [];
   }
+}
+
+function createPersistedBattleSnapshot() {
+  if (!state.battle || (!state.tournament && !state.tournamentResult)) return null;
+  return {
+    arena: state.battle.arena ? cloneData(state.battle.arena) : null,
+    meta: state.battle.meta ? cloneData(state.battle.meta) : null,
+    completed: state.battle.completed === true,
+    pendingWinner: state.battle.pendingWinner || null,
+  };
 }
 
 function saveState() {
@@ -4685,7 +4705,59 @@ function saveState() {
     disableShiftInspectTooltipCooldown: state.disableShiftInspectTooltipCooldown,
     balanceLabConfig: state.balanceLab.config,
     propScaleOverrides: state.propScaleOverrides,
+    tournament: state.tournament ? cloneData(state.tournament) : null,
+    tournamentResult: state.tournamentResult ? cloneData(state.tournamentResult) : null,
+    persistedBattleSnapshot: createPersistedBattleSnapshot(),
   }));
+  syncTournamentViewState(true);
+}
+
+function restorePersistedBattleState() {
+  state.tournamentFastForward = null;
+  state.running = false;
+  state.lastBattleHighlightAt = -Infinity;
+  endBattleAudio();
+  clearBattleHover();
+  closeResetTournamentModal();
+  closeTournamentStoryModal();
+  clearSelectedBattleProp();
+  state.sessionTerrainTexture = null;
+
+  const persistedSnapshot = state.persistedBattleSnapshot;
+  const currentMatch = getCurrentTournamentMatch(state.tournament);
+  if (currentMatch?.arena && persistedSnapshot?.arena) {
+    currentMatch.arena = cloneData(persistedSnapshot.arena);
+  }
+
+  const terrainMirrorKey = currentMatch
+    ? `${state.tournament.currentRoundIndex}|${state.tournament.currentMatchIndex}`
+    : "";
+  state.battle = buildActiveBattle({ regenerateTerrain: false, terrainMirrorKey });
+  primeBattleWeatherAudioSelection();
+  syncBattleWeatherAudio(0.35);
+  if (!state.battle.terrainTexture?.ready) queueBattleTerrainTextureGeneration(state.battle);
+  clearKnockoutAnnouncement();
+  clearBossAnnouncement();
+  resetCamera();
+  renderTournamentConfigPanel();
+  renderArmyEditors();
+  renderBracketTracker();
+  updateAdvanceButtonLabel();
+  renderSpeedControls();
+
+  if (state.tournamentResult) {
+    els.battleState.textContent = "Ready";
+    els.winnerLabel.textContent = state.tournamentResult.championTitle || "No champion";
+    showTournamentVictoryCard(state.tournamentResult);
+    setTicker("The last completed tournament has been restored.");
+  } else {
+    els.battleState.textContent = state.tournament ? getCurrentMatchLabel(state.tournament) : "Ready";
+    els.winnerLabel.textContent = "None yet";
+    closeWinnerModal();
+    setTicker(state.tournament
+      ? `${getCurrentMatchLabel(state.tournament)} has been restored and is ready to replay.`
+      : "The saved battle has been restored.");
+  }
   syncTournamentViewState(true);
 }
 
@@ -6712,6 +6784,7 @@ function resetBattle(options = {}) {
   updateAdvanceButtonLabel();
   renderSpeedControls();
   setTicker(state.factions.length ? getReadyMessage() : "Add at least one army to begin.");
+  saveState();
   syncTournamentViewState(true);
 }
 
@@ -6746,6 +6819,7 @@ function resetCurrentBattle(options = {}) {
   setTicker(state.tournament
     ? `${getCurrentMatchLabel(state.tournament)} has been reset and is ready to replay.`
     : "The current battle has been reset.");
+  saveState();
   syncTournamentViewState(true);
 }
 
@@ -6925,6 +6999,7 @@ function startBattle() {
   setHighlight("Scouts report movement across the field");
   renderBracketTracker();
   renderSpeedControls();
+  saveState();
   syncTournamentViewState(true);
 }
 
@@ -7134,6 +7209,7 @@ function syncResolvedBattleUi(battle, options = {}) {
   renderBracketTracker();
   updateAdvanceButtonLabel();
   renderSpeedControls();
+  saveState();
   syncTournamentViewState(true);
 }
 
@@ -7296,6 +7372,7 @@ function startPerformanceCalibration() {
   renderTournamentConfigPanel();
   renderBracketTracker();
   updateAdvanceButtonLabel();
+  saveState();
   setTicker("Running a calibration battle with archers, mages, and knights.");
 }
 
@@ -7924,6 +8001,7 @@ function randomizeArenaAndWeather() {
   renderBracketTracker();
   const label = state.tournament ? getCurrentMatchLabel(state.tournament) : "Arena reset";
   setTicker(`${label} now unfolds in ${arena.name} under ${arena.weather}.`);
+  saveState();
 }
 
 function factionColor(index) {
@@ -16236,6 +16314,7 @@ function advanceTournament() {
     updateAdvanceButtonLabel();
     renderArmyEditors();
     renderSpeedControls();
+    saveState();
     syncTournamentViewState(true);
     return;
   }
@@ -16266,6 +16345,7 @@ function advanceTournament() {
     updateAdvanceButtonLabel();
     renderArmyEditors();
     renderSpeedControls();
+    saveState();
     syncTournamentViewState(true);
     return;
   }
