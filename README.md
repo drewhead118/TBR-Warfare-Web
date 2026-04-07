@@ -16,7 +16,6 @@ Optional tools used by the repo:
 - Python 3: easiest way to run the included local server command
 - Windows PowerShell: used by the included `.ps1` helper scripts and `launch-server.cmd`
 - A Chromium-based browser: recommended if you want dev features that rely on the File System Access API, such as choosing a writable export directory from inside the app
-- `OPENAI_API_KEY`: only needed for the separate image-generation workflow documented in `output/imagegen/visual-direction.md`
 
 ## Installation And Setup
 
@@ -111,6 +110,5 @@ A starter file is included at `sample-armies.csv`.
 ## Notes
 
 - Winner removal and reinforcement rules follow the requested queue logic: non-winning digital entries gain 2 troops, paperback entries gain 4.
-- The live OpenAI image generation workflow is documented in `output/imagegen/visual-direction.md`, but generating those assets requires a local `OPENAI_API_KEY`.
 - The current implementation is dependency-free and uses canvas plus localStorage for persistence.
 - Unit art can be overridden with PNG files named after the unit id, such as `archer.png`. The app checks common project subdirectories first, with `assets/unit-sprites/archer.png` as the preferred location, then falls back to the built-in SVG-style canvas rendering if no PNG is found.
