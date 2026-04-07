@@ -185,6 +185,7 @@ const PREBUILT_TERRAIN_LIBRARY = [
   { id: "15-moonroot-hollow", arenaName: "Moonroot Hollow", url: "assets/prebuilt-terrain/15-moonroot-hollow.png" },
 ];
 const TERRAIN_TEXTURE_RESOLUTION_SCALE = 3;
+const TERRAIN_REGION_TINT_RESOLUTION = 0.22;
 const GROUND_TEXTURE_PROFILE_PRESETS = {
   meadow: {
     weights: { grass: 6, dirt: 3, stone: 1, sand: 1 },
@@ -1595,6 +1596,7 @@ const state = {
     label: "Building terrain texture...",
     progress: 0,
   },
+  terrainRegionalTintCache: new Map(),
   tintedUnitSprites: new Map(),
   tintedGroundProps: new Map(),
   shadowGroundProps: new Map(),
@@ -1608,6 +1610,7 @@ const state = {
   speedIndex: 2,
   useRiggedSprites: true,
   useTerrainTexturing: true,
+  useTerrainRegionalTint: true,
   useUnitOverlapShadows: true,
   alwaysShowHealthbars: false,
   showRenderDebug: false,
@@ -1738,6 +1741,7 @@ const els = {
   balanceLabTrendColorLegend: document.getElementById("balanceLabTrendColorLegend"),
   useRiggedSpritesToggle: document.getElementById("useRiggedSpritesToggle"),
   useTerrainTexturingToggle: document.getElementById("useTerrainTexturingToggle"),
+  useTerrainRegionalTintToggle: document.getElementById("useTerrainRegionalTintToggle"),
   useUnitOverlapShadowsToggle: document.getElementById("useUnitOverlapShadowsToggle"),
   alwaysShowHealthbarsToggle: document.getElementById("alwaysShowHealthbarsToggle"),
   showRenderDebugToggle: document.getElementById("showRenderDebugToggle"),
@@ -1891,6 +1895,7 @@ async function bootstrap() {
     bindUi();
     setUseRiggedSprites(state.useRiggedSprites);
     setUseTerrainTexturing(state.useTerrainTexturing);
+    setUseTerrainRegionalTint(state.useTerrainRegionalTint);
     setUseUnitOverlapShadows(state.useUnitOverlapShadows);
     setAlwaysShowHealthbars(state.alwaysShowHealthbars);
     setShowRenderDebug(state.showRenderDebug);
@@ -1961,6 +1966,9 @@ function bindUi() {
   });
   els.useTerrainTexturingToggle?.addEventListener("change", () => {
     setUseTerrainTexturing(Boolean(els.useTerrainTexturingToggle.checked));
+  });
+  els.useTerrainRegionalTintToggle?.addEventListener("change", () => {
+    setUseTerrainRegionalTint(Boolean(els.useTerrainRegionalTintToggle.checked));
   });
   els.useUnitOverlapShadowsToggle?.addEventListener("change", () => {
     setUseUnitOverlapShadows(Boolean(els.useUnitOverlapShadowsToggle.checked));
@@ -4646,6 +4654,7 @@ function loadState() {
     state.bracketPanelCollapsed = saved.bracketPanelCollapsed === true;
     state.useRiggedSprites = saved.useRiggedSprites !== false;
     state.useTerrainTexturing = saved.useTerrainTexturing !== false;
+    state.useTerrainRegionalTint = saved.useTerrainRegionalTint !== false;
     state.useUnitOverlapShadows = saved.useUnitOverlapShadows !== false;
     state.alwaysShowHealthbars = saved.alwaysShowHealthbars === true;
     state.showRenderDebug = saved.showRenderDebug === true;
@@ -4668,6 +4677,7 @@ function saveState() {
     bracketPanelCollapsed: state.bracketPanelCollapsed,
     useRiggedSprites: state.useRiggedSprites,
     useTerrainTexturing: state.useTerrainTexturing,
+    useTerrainRegionalTint: state.useTerrainRegionalTint,
     useUnitOverlapShadows: state.useUnitOverlapShadows,
     alwaysShowHealthbars: state.alwaysShowHealthbars,
     showRenderDebug: state.showRenderDebug,
@@ -5904,6 +5914,7 @@ function setUseRiggedSprites(enabled) {
 
 function invalidateBattleTerrainTexture() {
   if (!state.battle?.terrainTexture) return;
+  state.terrainRegionalTintCache.delete(buildTerrainRegionalTintCacheKey(state.battle.terrainTexture, state.battle.arena));
   state.battle.terrainTexture.canvas = null;
   state.battle.terrainTexture.pending = false;
   state.battle.terrainTexture.ready = false;
@@ -5921,6 +5932,14 @@ function setUseTerrainTexturing(enabled) {
   } else if (state.battle) {
     state.battle.terrainTexture = createBattleTerrainTextureState(state.battle.field, state.battle.arena);
     if (!state.battle.terrainTexture.ready) queueBattleTerrainTextureGeneration(state.battle, 40);
+  }
+  saveState();
+}
+
+function setUseTerrainRegionalTint(enabled) {
+  state.useTerrainRegionalTint = Boolean(enabled);
+  if (els.useTerrainRegionalTintToggle) {
+    els.useTerrainRegionalTintToggle.checked = state.useTerrainRegionalTint;
   }
   saveState();
 }
@@ -9668,6 +9687,221 @@ function buildTerrainTexturePlanes(images, profile, width, height, tileSize) {
     planes[textureId] = buildTiledTerrainPlane(image, width, height, tileSize);
   });
   return planes;
+}
+
+function hexToRgbObject(hex) {
+  const value = (hex || "#000000").replace("#", "").trim();
+  const normalized = value.length === 3
+    ? value.split("").map((channel) => `${channel}${channel}`).join("")
+    : value.padStart(6, "0").slice(0, 6);
+  const num = Number.parseInt(normalized, 16);
+  return {
+    r: (num >> 16) & 255,
+    g: (num >> 8) & 255,
+    b: num & 255,
+  };
+}
+
+function mixRgbColors(from, to, t) {
+  const mix = clamp(Number(t) || 0, 0, 1);
+  return {
+    r: Math.round(lerp(from.r, to.r, mix)),
+    g: Math.round(lerp(from.g, to.g, mix)),
+    b: Math.round(lerp(from.b, to.b, mix)),
+  };
+}
+
+function brightenRgb(color, amount) {
+  const mix = clamp(Number(amount) || 0, -1, 1);
+  const target = mix >= 0 ? { r: 255, g: 255, b: 255 } : { r: 0, g: 0, b: 0 };
+  return mixRgbColors(color, target, Math.abs(mix));
+}
+
+function rgbToHsl(color) {
+  const r = clamp((color?.r ?? 0) / 255, 0, 1);
+  const g = clamp((color?.g ?? 0) / 255, 0, 1);
+  const b = clamp((color?.b ?? 0) / 255, 0, 1);
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const lightness = (max + min) / 2;
+  const delta = max - min;
+  if (delta === 0) return { h: 0, s: 0, l: lightness };
+  const saturation = lightness > 0.5 ? delta / (2 - max - min) : delta / (max + min);
+  let hue = 0;
+  if (max === r) {
+    hue = ((g - b) / delta) + (g < b ? 6 : 0);
+  } else if (max === g) {
+    hue = ((b - r) / delta) + 2;
+  } else {
+    hue = ((r - g) / delta) + 4;
+  }
+  return { h: hue * 60, s: saturation, l: lightness };
+}
+
+function hueToRgb(p, q, t) {
+  let value = t;
+  if (value < 0) value += 1;
+  if (value > 1) value -= 1;
+  if (value < 1 / 6) return p + ((q - p) * 6 * value);
+  if (value < 1 / 2) return q;
+  if (value < 2 / 3) return p + ((q - p) * (2 / 3 - value) * 6);
+  return p;
+}
+
+function hslToRgb(hsl) {
+  const h = (((hsl?.h ?? 0) % 360) + 360) % 360 / 360;
+  const s = clamp(hsl?.s ?? 0, 0, 1);
+  const l = clamp(hsl?.l ?? 0, 0, 1);
+  if (s === 0) {
+    const gray = Math.round(l * 255);
+    return { r: gray, g: gray, b: gray };
+  }
+  const q = l < 0.5 ? l * (1 + s) : l + s - (l * s);
+  const p = (2 * l) - q;
+  return {
+    r: Math.round(hueToRgb(p, q, h + 1 / 3) * 255),
+    g: Math.round(hueToRgb(p, q, h) * 255),
+    b: Math.round(hueToRgb(p, q, h - 1 / 3) * 255),
+  };
+}
+
+function shiftTerrainHue(color, hueShift, saturationScale = 1, lightnessShift = 0) {
+  const hsl = rgbToHsl(color);
+  return hslToRgb({
+    h: hsl.h + hueShift,
+    s: clamp(hsl.s * saturationScale, 0, 1),
+    l: clamp(hsl.l + lightnessShift, 0, 1),
+  });
+}
+
+function sampleTerrainPaletteStops(stops, value) {
+  if (!Array.isArray(stops) || !stops.length) return { r: 0, g: 0, b: 0 };
+  const clamped = clamp(Number(value) || 0, 0, 1);
+  if (clamped <= stops[0].stop) return stops[0].color;
+  for (let index = 1; index < stops.length; index += 1) {
+    const current = stops[index];
+    if (clamped > current.stop) continue;
+    const previous = stops[index - 1];
+    const range = Math.max(0.0001, current.stop - previous.stop);
+    return mixRgbColors(previous.color, current.color, (clamped - previous.stop) / range);
+  }
+  return stops[stops.length - 1].color;
+}
+
+function sampleTerrainPaletteRegionIndex(stops, value) {
+  if (!Array.isArray(stops) || !stops.length) return 0;
+  const clamped = clamp(Number(value) || 0, 0, 1);
+  for (let index = 1; index < stops.length; index += 1) {
+    const boundary = (stops[index - 1].stop + stops[index].stop) * 0.5;
+    if (clamped <= boundary) return index - 1;
+  }
+  return stops.length - 1;
+}
+
+function getTerrainPaletteBoundaryDistance(stops, value) {
+  if (!Array.isArray(stops) || stops.length < 2) return 1;
+  const clamped = clamp(Number(value) || 0, 0, 1);
+  let nearest = 1;
+  for (let index = 1; index < stops.length; index += 1) {
+    const boundary = (stops[index - 1].stop + stops[index].stop) * 0.5;
+    nearest = Math.min(nearest, Math.abs(clamped - boundary));
+  }
+  return nearest;
+}
+
+function createArenaTerrainRegionPalette(arena, seed) {
+  const ground = hexToRgbObject(arena?.ground || "#243018");
+  const top = hexToRgbObject(arena?.top || "#90b370");
+  const bottom = hexToRgbObject(arena?.bottom || "#45643a");
+  const seedFactor = (Math.abs(Math.trunc(seed || 0)) % 997) / 997;
+  const parent = mixRgbColors(bottom, top, 0.5);
+  const coolShift = -10 - (seedFactor * 6);
+  const warmShift = 9 + (seedFactor * 10);
+  const basinBase = mixRgbColors(ground, bottom, 0.24);
+  const lowlandBase = mixRgbColors(ground, top, 0.18);
+  const midlandBase = mixRgbColors(ground, parent, 0.14);
+  const uplandBase = mixRgbColors(ground, top, 0.24);
+  const ridgeBase = mixRgbColors(ground, mixRgbColors(top, parent, 0.6), 0.3);
+  const basin = shiftTerrainHue(basinBase, coolShift * 0.5, 1.03, -0.075);
+  const lowland = shiftTerrainHue(lowlandBase, coolShift * 0.68, 1.05, -0.02);
+  const midland = shiftTerrainHue(midlandBase, warmShift * 0.16, 0.985, 0);
+  const upland = shiftTerrainHue(uplandBase, warmShift * 0.58, 1.045, 0.035);
+  const ridge = shiftTerrainHue(ridgeBase, warmShift * 0.82, 1.06, 0.06);
+  return [
+    { stop: 0, color: basin },
+    { stop: 0.22 + seedFactor * 0.04, color: lowland },
+    { stop: 0.46, color: midland },
+    { stop: 0.7 - seedFactor * 0.05, color: upland },
+    { stop: 1, color: ridge },
+  ];
+}
+
+function buildTerrainRegionalTintCacheKey(terrainTexture, arena) {
+  return JSON.stringify({
+    terrain: terrainTexture?.cacheKey || `${terrainTexture?.worldWidth || 0}x${terrainTexture?.worldHeight || 0}`,
+    arenaName: arena?.name || "arena",
+    top: arena?.top || "",
+    bottom: arena?.bottom || "",
+    ground: arena?.ground || "",
+  });
+}
+
+function buildTerrainRegionalTintCanvas(terrainTexture, arena) {
+  if (!terrainTexture || !arena) return null;
+  const width = Math.max(48, Math.round((terrainTexture.width || 0) * TERRAIN_REGION_TINT_RESOLUTION));
+  const height = Math.max(32, Math.round((terrainTexture.height || 0) * TERRAIN_REGION_TINT_RESOLUTION));
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const tintCtx = canvas.getContext("2d");
+  if (!tintCtx) return null;
+  const imageData = tintCtx.createImageData(width, height);
+  const data = imageData.data;
+  const seed = (terrainTexture.seed || 0) ^ hashStringToSeed(`${arena.name}|terrain-regions`);
+  const palette = createArenaTerrainRegionPalette(arena, seed);
+  const broadConfig = { octaves: 5, persistence: 0.54, lacunarity: 2.02 };
+  const detailConfig = { octaves: 4, persistence: 0.5, lacunarity: 2.18 };
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const nx = x / Math.max(1, width);
+      const ny = y / Math.max(1, height);
+      const warpX = (sampleFractalTerrainNoise(seed + 17, nx * 2.8 + 4.1, ny * 2.8 + 1.7, detailConfig) - 0.5) * 0.22;
+      const warpY = (sampleFractalTerrainNoise(seed + 43, nx * 2.8 + 9.4, ny * 2.8 + 6.8, detailConfig) - 0.5) * 0.22;
+      const elevation = sampleFractalTerrainNoise(seed + 101, (nx + warpX) * 2.2, (ny + warpY) * 2.2, broadConfig);
+      const moisture = sampleFractalTerrainNoise(seed + 181, (nx - warpY * 0.6) * 3.8 + 5.2, (ny + warpX * 0.6) * 3.8 + 8.7, detailConfig);
+      const ridges = Math.abs(sampleFractalTerrainNoise(seed + 271, (nx + warpX * 0.5) * 7.2, (ny + warpY * 0.5) * 7.2, detailConfig) - 0.5) * 2;
+      const breakup = sampleFractalTerrainNoise(seed + 353, nx * 10.5 + 2.4, ny * 10.5 + 7.9, detailConfig);
+      const boundaryNoise = sampleFractalTerrainNoise(seed + 409, nx * 15.2 + 8.3, ny * 15.2 + 3.6, detailConfig);
+      const drift = ((1 - ny) * 0.17) + ((nx - 0.5) * 0.08 * ((seed & 1) ? 1 : -1));
+      const value = clamp((elevation * 0.56) + (moisture * 0.18) + (ridges * 0.22) + drift, 0, 1);
+      const patchValue = clamp(value + ((breakup - 0.5) * 0.075) + ((ridges - 0.5) * 0.022), 0, 1);
+      const regionIndex = sampleTerrainPaletteRegionIndex(palette, patchValue);
+      const smoothChannel = sampleTerrainPaletteStops(palette, value);
+      const regionChannel = palette[regionIndex]?.color || sampleTerrainPaletteStops(palette, patchValue);
+      const channel = mixRgbColors(smoothChannel, regionChannel, 0.58);
+      const boundaryDistance = getTerrainPaletteBoundaryDistance(palette, patchValue);
+      const seamWidth = 0.026 + ((1 - moisture) * 0.013);
+      const seamFactor = 1 - smoothstep(seamWidth, seamWidth + 0.05, boundaryDistance + ((boundaryNoise - 0.5) * 0.014));
+      const patchColor = mixRgbColors(channel, shiftTerrainHue(channel, 0.85 + (regionIndex * 0.8), 1.02, -0.03), seamFactor * 0.19);
+      const alpha = clamp(Math.round((0.78 + (ridges * 0.1) + seamFactor * 0.1 + ((1 - moisture) * 0.04)) * 255), 0, 255);
+      const pixelIndex = (y * width + x) * 4;
+      data[pixelIndex] = patchColor.r;
+      data[pixelIndex + 1] = patchColor.g;
+      data[pixelIndex + 2] = patchColor.b;
+      data[pixelIndex + 3] = alpha;
+    }
+  }
+  tintCtx.putImageData(imageData, 0, 0);
+  return canvas;
+}
+
+function getTerrainRegionalTintCanvas(terrainTexture, arena) {
+  if (!state.useTerrainRegionalTint || !terrainTexture || !arena) return null;
+  const cacheKey = buildTerrainRegionalTintCacheKey(terrainTexture, arena);
+  if (!state.terrainRegionalTintCache.has(cacheKey)) {
+    state.terrainRegionalTintCache.set(cacheKey, buildTerrainRegionalTintCanvas(terrainTexture, arena));
+  }
+  return state.terrainRegionalTintCache.get(cacheKey);
 }
 
 function buildTiledTerrainPlane(image, width, height, tileSize) {
@@ -17151,6 +17385,7 @@ function drawField(viewport, battle) {
   ctx.fillRect(0, 0, viewport.width, viewport.height);
   if (state.useTerrainTexturing && battle.terrainTexture?.canvas) {
     const profile = battle.terrainTexture.profile || arena.textureProfile || createArenaTextureProfile(arena.name);
+    const regionalTint = getTerrainRegionalTintCanvas(battle.terrainTexture, arena);
     ctx.save();
     const terrainWidth = bottom.x - top.x;
     const terrainHeight = bottom.y - top.y;
@@ -17165,6 +17400,17 @@ function drawField(viewport, battle) {
     ctx.globalCompositeOperation = "multiply";
     ctx.globalAlpha = profile.multiplyAlpha || 0.18;
     ctx.drawImage(battle.terrainTexture.canvas, top.x, top.y, terrainWidth, terrainHeight);
+    if (regionalTint) {
+      ctx.globalCompositeOperation = "color";
+      ctx.globalAlpha = 0.4;
+      ctx.drawImage(regionalTint, top.x, top.y, terrainWidth, terrainHeight);
+      ctx.globalCompositeOperation = "overlay";
+      ctx.globalAlpha = 0.24;
+      ctx.drawImage(regionalTint, top.x, top.y, terrainWidth, terrainHeight);
+      ctx.globalCompositeOperation = "soft-light";
+      ctx.globalAlpha = 0.26;
+      ctx.drawImage(regionalTint, top.x, top.y, terrainWidth, terrainHeight);
+    }
     ctx.restore();
   }
   const fieldCenter = worldToScreen(battle.field.centerX, battle.field.centerY, viewport);
