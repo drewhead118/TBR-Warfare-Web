@@ -2,9 +2,56 @@
 
 Static browser game for resolving a blogger's TBR queue through a stylized 2.5D battle simulation.
 
+## Dependencies
+
+This project does not use a build step or package manager. There is no `npm install` step and no required third-party library download for normal play.
+
+You only need:
+
+- a modern desktop browser
+- a local static file server
+
+Optional tools used by the repo:
+
+- Python 3: easiest way to run the included local server command
+- Windows PowerShell: used by the included `.ps1` helper scripts and `launch-server.cmd`
+- A Chromium-based browser: recommended if you want dev features that rely on the File System Access API, such as choosing a writable export directory from inside the app
+- `OPENAI_API_KEY`: only needed for the separate image-generation workflow documented in `output/imagegen/visual-direction.md`
+
+## Installation And Setup
+
+1. Download or clone this repository.
+2. Open a terminal in the project folder.
+3. Start a local static server.
+4. Open `http://127.0.0.1:4173/index.html` in your browser.
+
+### Quick Start With Python
+
+If Python 3 is installed, run:
+
+```powershell
+py -m http.server 4173 --bind 127.0.0.1
+```
+
+Then open [http://127.0.0.1:4173/index.html](http://127.0.0.1:4173/index.html).
+
+On Windows, you can also double-click `launch-server.cmd`, which starts the same Python server and opens the game automatically.
+
+### Is Python Required?
+
+No. Python is not required by the game itself. It is only the included convenience option for serving the files locally.
+
+If you already use another static server, that is fine too. Any option that serves this folder over `http://localhost` or `http://127.0.0.1` should work.
+
+### Browser Notes
+
+- A local server is recommended instead of opening `index.html` directly from `file://`, because the app loads project assets with `fetch()`.
+- Save data is stored in your browser via `localStorage`.
+- Some creator/dev workflows work best in Chromium-based browsers because they use the File System Access API.
+
 ## Run
 
-From this folder:
+From this folder, start a local server:
 
 ```powershell
 py -m http.server 4173 --bind 127.0.0.1
