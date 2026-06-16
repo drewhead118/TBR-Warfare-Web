@@ -193,6 +193,24 @@ For slower machines, `Max Units On Battlefield` is the most important setting. L
 
 `Auto-Calibrate Performance` runs a series of sample battles, measures FPS, and then writes back a recommended battlefield unit cap. In practice, this is the easiest way to tune the simulator if you are not sure what your machine can handle.
 
+### Baked battle replays
+
+Press `Ctrl+2` on the battle page to open `Baked Battle Studio` below the simulation pane when you want to pre-solve the current armies into a replay file.
+
+Useful controls:
+
+- `Sample Rate`: how many snapshots per second are captured for playback.
+- `Duration Mode`: stop at the natural battle end, or force a fixed test duration.
+- `Max Duration`: the safety cap for either mode.
+- `Chunk Length`: how many seconds of replay data are grouped together in each file chunk.
+- `Unit Cap Override`: optional cap for the baked battle, separate from the tournament config.
+- `Max Factions Override`: stage one large custom heat from the eligible queue instead of only baking the current tournament match.
+- `Field Scale`: let the app auto-size the battlefield for huge faction counts, or force normal, large, or massive sizing.
+- `Step Budget`: how long each browser work slice may spend baking before yielding back to the UI.
+- `Log visual and sound events`: records replay events for projectiles, spells, particles, swipes, traces, boss bubbles, and explosion sounds.
+
+`Download Replay` saves a `.tbrbake.json` document containing a versioned manifest, static unit roster, chunked unit-state frames, and an event stream. `Load Replay` restores that document for playback, pausing, stopping, timeline scrubbing, normal speed controls, and event-based sound playback. The panel also shows live bake statistics such as sim speed, ETA, unit/event counts, and estimated file size.
+
 ## 3. Built-in Tooling
 
 ### Hidden `Ctrl+1` menu
@@ -212,6 +230,8 @@ Current controls there:
 - `Build Sprite Atlas`
 - `Open Sprite Workshop`
 - `Open Balance Lab`
+
+Press `Ctrl+2` to toggle `Baked Battle Studio` below the battle pane.
 
 The FPS/culling overlay is especially useful when you are tuning large fights or checking whether a render-heavy feature is too expensive.
 

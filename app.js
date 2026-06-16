@@ -15,6 +15,22 @@ const SPEED_OPTIONS = [0.35, 0.65, 1, 1.4, 1.85];
 const SHIFT_INSPECT_SPEED = 0.12;
 const POST_BATTLE_REVIEW_SPEED = 0.5;
 const INSTANT_RESOLVE_MAX_BATTLE_SECONDS = 240;
+const BAKED_BATTLE_FORMAT = "tbr-baked-battle";
+const BAKED_BATTLE_FORMAT_VERSION = 2;
+const BAKED_BATTLE_STEP_DT = 0.05;
+const BAKED_BATTLE_MAX_FACTIONS = 500;
+const BAKED_BATTLE_BASE_EVENT_LIMIT = 250000;
+const DEFAULT_BAKE_CONFIG = Object.freeze({
+  sampleRate: 10,
+  durationMode: "natural",
+  maxDurationSeconds: INSTANT_RESOLVE_MAX_BATTLE_SECONDS,
+  chunkSeconds: 5,
+  unitCap: 0,
+  maxFactions: 0,
+  fieldScale: "auto",
+  frameBudgetMs: 14,
+  includeEffects: true,
+});
 const TOURNAMENT_FAST_FORWARD_STEP_DELAY_MS = 16;
 const AUDIO_DEFAULT_FADE_SECONDS = 1.8;
 const AUDIO_END_FADE_SECONDS = 0.4;
@@ -1604,6 +1620,13 @@ const state = {
   running: false,
   roundsApplied: 0,
   tournamentConfig: normalizeTournamentConfig(),
+  bakedBattlePanelCollapsed: true,
+  bakedBattle: {
+    config: { ...DEFAULT_BAKE_CONFIG },
+    job: null,
+    document: null,
+    replay: null,
+  },
   bracketPanelCollapsed: false,
   persistedBattleSnapshot: null,
   tournamentFastForward: null,
@@ -1706,6 +1729,30 @@ const els = {
   autoCalibratePerformanceBtn: document.getElementById("autoCalibratePerformanceBtn"),
   tournamentPaperbackOnlyInput: document.getElementById("tournamentPaperbackOnlyInput"),
   tournamentConfigSummary: document.getElementById("tournamentConfigSummary"),
+  toggleBakedBattlePanelBtn: document.getElementById("toggleBakedBattlePanelBtn"),
+  bakedBattlePanel: document.getElementById("bakedBattlePanel"),
+  bakedBattleBody: document.getElementById("bakedBattleBody"),
+  bakeSampleRateInput: document.getElementById("bakeSampleRateInput"),
+  bakeDurationModeInput: document.getElementById("bakeDurationModeInput"),
+  bakeMaxDurationInput: document.getElementById("bakeMaxDurationInput"),
+  bakeChunkSecondsInput: document.getElementById("bakeChunkSecondsInput"),
+  bakeUnitCapInput: document.getElementById("bakeUnitCapInput"),
+  bakeMaxFactionsInput: document.getElementById("bakeMaxFactionsInput"),
+  bakeFieldScaleInput: document.getElementById("bakeFieldScaleInput"),
+  bakeFrameBudgetInput: document.getElementById("bakeFrameBudgetInput"),
+  bakeIncludeEffectsInput: document.getElementById("bakeIncludeEffectsInput"),
+  startBakeBattleBtn: document.getElementById("startBakeBattleBtn"),
+  cancelBakeBattleBtn: document.getElementById("cancelBakeBattleBtn"),
+  bakeProgressFill: document.getElementById("bakeProgressFill"),
+  bakeStatus: document.getElementById("bakeStatus"),
+  bakeStats: document.getElementById("bakeStats"),
+  saveBakedBattleBtn: document.getElementById("saveBakedBattleBtn"),
+  loadBakedBattleInput: document.getElementById("loadBakedBattleInput"),
+  playBakedReplayBtn: document.getElementById("playBakedReplayBtn"),
+  pauseBakedReplayBtn: document.getElementById("pauseBakedReplayBtn"),
+  stopBakedReplayBtn: document.getElementById("stopBakedReplayBtn"),
+  bakedReplayScrubInput: document.getElementById("bakedReplayScrubInput"),
+  bakedReplayMeta: document.getElementById("bakedReplayMeta"),
   battleTicker: document.getElementById("battleTicker"),
   battleHealthChart: document.getElementById("battleHealthChart"),
   battleHealthChartCanvas: document.getElementById("battleHealthChartCanvas"),
@@ -1909,6 +1956,7 @@ async function bootstrap() {
     renderArmyEditors();
     renderBracketPanel();
     renderTournamentConfigPanel();
+    renderBakedBattlePanel();
     renderBalanceLabPanel();
     if (state.tournament || state.tournamentResult) {
       restorePersistedBattleState();
@@ -1937,9 +1985,21 @@ function bindUi() {
   els.instantResolveBtn?.addEventListener("click", instantResolveBattle);
   els.toggleBracketPanelBtn?.addEventListener("click", toggleBracketPanel);
   els.toggleTournamentConfigBtn?.addEventListener("click", toggleTournamentConfigPanel);
+  els.toggleBakedBattlePanelBtn?.addEventListener("click", toggleBakedBattlePanel);
   [els.tournamentMinFactionsInput, els.tournamentMaxFactionsInput, els.tournamentMaxUnitsInput, els.tournamentInkLordDelayInput, els.tournamentPaperbackOnlyInput]
     .filter(Boolean)
     .forEach((input) => input.addEventListener("change", commitTournamentConfigFromInputs));
+  [els.bakeSampleRateInput, els.bakeDurationModeInput, els.bakeMaxDurationInput, els.bakeChunkSecondsInput, els.bakeUnitCapInput, els.bakeMaxFactionsInput, els.bakeFieldScaleInput, els.bakeFrameBudgetInput, els.bakeIncludeEffectsInput]
+    .filter(Boolean)
+    .forEach((input) => input.addEventListener("change", commitBakeConfigFromInputs));
+  els.startBakeBattleBtn?.addEventListener("click", startBakedBattleBake);
+  els.cancelBakeBattleBtn?.addEventListener("click", cancelBakedBattleBake);
+  els.saveBakedBattleBtn?.addEventListener("click", downloadBakedBattleDocument);
+  els.loadBakedBattleInput?.addEventListener("change", loadBakedBattleFile);
+  els.playBakedReplayBtn?.addEventListener("click", playBakedReplay);
+  els.pauseBakedReplayBtn?.addEventListener("click", pauseBakedReplay);
+  els.stopBakedReplayBtn?.addEventListener("click", stopBakedReplay);
+  els.bakedReplayScrubInput?.addEventListener("input", scrubBakedReplay);
   els.autoCalibratePerformanceBtn?.addEventListener("click", startPerformanceCalibration);
   els.buildAssetAtlasBtn?.addEventListener("click", rebuildAssetAtlas);
   [els.balanceLabArmySizeInput, els.balanceLabMaxBattleSecondsInput, els.balanceLabVaryArenaToggle]
@@ -4105,6 +4165,7 @@ function stripEditorFieldsFromManifest(manifest) {
 function renderSpeedControls() {
   els.speedControls.innerHTML = "";
   const activeCombatants = getActiveBattleFactions();
+  const replayActive = isBakedReplayActive();
   const canInstantResolve = !state.performanceCalibration.active
     && !state.tournamentFastForward?.active
     && !state.tournamentResult
@@ -4113,22 +4174,28 @@ function renderSpeedControls() {
     && activeCombatants.length >= 2;
   const pauseButton = document.createElement("button");
   const canResume = state.battle && state.battle.time > 0;
-  pauseButton.className = `speed-btn${!state.running && canResume ? " active" : ""}`;
+  const replayPlaying = Boolean(state.bakedBattle.replay?.playing);
+  pauseButton.className = `speed-btn${replayActive ? (!replayPlaying ? " active" : "") : (!state.running && canResume ? " active" : "")}`;
   pauseButton.textContent = "Pause";
-  pauseButton.title = state.running
+  pauseButton.title = replayActive
+    ? (replayPlaying ? "Pause baked replay playback" : "Resume baked replay playback")
+    : state.running
     ? (state.battle?.completed ? "Pause the battlefield aftermath review" : "Pause the current battle")
     : (state.battle?.completed ? "Resume the battlefield aftermath review" : "Resume the current battle");
-  pauseButton.disabled = !state.battle || (!state.running && !canResume);
-  pauseButton.addEventListener("click", togglePauseBattle);
+  pauseButton.disabled = replayActive ? !state.bakedBattle.document : (!state.battle || (!state.running && !canResume));
+  pauseButton.addEventListener("click", replayActive ? () => {
+    if (state.bakedBattle.replay?.playing) pauseBakedReplay();
+    else playBakedReplay();
+  } : togglePauseBattle);
   els.speedControls.appendChild(pauseButton);
   SPEED_OPTIONS.forEach((speed, index) => {
     const button = document.createElement("button");
-    button.className = `speed-btn${index === state.speedIndex && !state.hover.inspectSlowActive && !state.battle?.completed ? " active" : ""}`;
+    button.className = `speed-btn${index === state.speedIndex && !state.hover.inspectSlowActive && (replayActive || !state.battle?.completed) ? " active" : ""}`;
     button.textContent = `${index + 1}`;
-    button.title = state.battle?.completed
+    button.title = state.battle?.completed && !replayActive
       ? `${POST_BATTLE_REVIEW_SPEED.toFixed(2)}x aftermath review speed is locked while the battle result is on screen`
-      : `${speed.toFixed(2)}x simulation speed`;
-    button.disabled = Boolean(state.battle?.completed);
+      : `${speed.toFixed(2)}x ${replayActive ? "replay" : "simulation"} speed`;
+    button.disabled = Boolean(state.battle?.completed && !replayActive);
     button.addEventListener("click", () => {
       state.speedIndex = index;
       renderSpeedControls();
@@ -4166,6 +4233,866 @@ function cloneData(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
+function normalizeBakeConfig(config = {}) {
+  return {
+    sampleRate: clampInt(config.sampleRate ?? DEFAULT_BAKE_CONFIG.sampleRate, 1, 60),
+    durationMode: config.durationMode === "fixed" ? "fixed" : "natural",
+    maxDurationSeconds: clamp(Number(config.maxDurationSeconds) || DEFAULT_BAKE_CONFIG.maxDurationSeconds, 5, 1800),
+    chunkSeconds: clamp(Number(config.chunkSeconds) || DEFAULT_BAKE_CONFIG.chunkSeconds, 1, 30),
+    unitCap: clampInt(config.unitCap ?? DEFAULT_BAKE_CONFIG.unitCap, 0, MAX_BATTLEFIELD_UNIT_CAP),
+    maxFactions: clampInt(config.maxFactions ?? DEFAULT_BAKE_CONFIG.maxFactions, 0, BAKED_BATTLE_MAX_FACTIONS),
+    fieldScale: ["auto", "normal", "large", "massive"].includes(config.fieldScale) ? config.fieldScale : DEFAULT_BAKE_CONFIG.fieldScale,
+    frameBudgetMs: clamp(Number(config.frameBudgetMs) || DEFAULT_BAKE_CONFIG.frameBudgetMs, 4, 100),
+    includeEffects: config.includeEffects !== false,
+  };
+}
+
+function toggleBakedBattlePanel() {
+  state.bakedBattlePanelCollapsed = !state.bakedBattlePanelCollapsed;
+  renderBakedBattlePanel();
+  saveState();
+}
+
+function commitBakeConfigFromInputs() {
+  state.bakedBattle.config = normalizeBakeConfig({
+    sampleRate: Number(els.bakeSampleRateInput?.value),
+    durationMode: els.bakeDurationModeInput?.value,
+    maxDurationSeconds: Number(els.bakeMaxDurationInput?.value),
+    chunkSeconds: Number(els.bakeChunkSecondsInput?.value),
+    unitCap: Number(els.bakeUnitCapInput?.value),
+    maxFactions: Number(els.bakeMaxFactionsInput?.value),
+    fieldScale: els.bakeFieldScaleInput?.value,
+    frameBudgetMs: Number(els.bakeFrameBudgetInput?.value),
+    includeEffects: Boolean(els.bakeIncludeEffectsInput?.checked),
+  });
+  renderBakedBattlePanel();
+  saveState();
+}
+
+function renderBakedBattlePanel() {
+  if (!els.bakedBattleBody) return;
+  const config = normalizeBakeConfig(state.bakedBattle.config);
+  state.bakedBattle.config = config;
+  if (els.bakedBattlePanel) els.bakedBattlePanel.hidden = state.bakedBattlePanelCollapsed;
+  els.toggleBakedBattlePanelBtn.textContent = state.bakedBattlePanelCollapsed ? "Show" : "Hide";
+  els.toggleBakedBattlePanelBtn.setAttribute("aria-expanded", `${!state.bakedBattlePanelCollapsed}`);
+  if (els.bakeSampleRateInput) els.bakeSampleRateInput.value = `${config.sampleRate}`;
+  if (els.bakeDurationModeInput) els.bakeDurationModeInput.value = config.durationMode;
+  if (els.bakeMaxDurationInput) els.bakeMaxDurationInput.value = `${config.maxDurationSeconds}`;
+  if (els.bakeChunkSecondsInput) els.bakeChunkSecondsInput.value = `${config.chunkSeconds}`;
+  if (els.bakeUnitCapInput) els.bakeUnitCapInput.value = `${config.unitCap}`;
+  if (els.bakeMaxFactionsInput) els.bakeMaxFactionsInput.value = `${config.maxFactions}`;
+  if (els.bakeFieldScaleInput) els.bakeFieldScaleInput.value = config.fieldScale;
+  if (els.bakeFrameBudgetInput) els.bakeFrameBudgetInput.value = `${config.frameBudgetMs}`;
+  if (els.bakeIncludeEffectsInput) els.bakeIncludeEffectsInput.checked = config.includeEffects;
+  const job = state.bakedBattle.job;
+  const doc = state.bakedBattle.document;
+  const replay = state.bakedBattle.replay;
+  const activeJob = Boolean(job && !job.cancelled);
+  if (els.startBakeBattleBtn) els.startBakeBattleBtn.disabled = activeJob;
+  if (els.cancelBakeBattleBtn) els.cancelBakeBattleBtn.disabled = !activeJob;
+  if (els.saveBakedBattleBtn) els.saveBakedBattleBtn.disabled = activeJob || !doc;
+  if (els.playBakedReplayBtn) els.playBakedReplayBtn.disabled = activeJob || !doc;
+  if (els.pauseBakedReplayBtn) els.pauseBakedReplayBtn.disabled = !replay?.playing;
+  if (els.stopBakedReplayBtn) els.stopBakedReplayBtn.disabled = !replay;
+  const duration = doc?.manifest?.durationSeconds || replay?.duration || 0;
+  if (els.bakedReplayScrubInput) {
+    els.bakedReplayScrubInput.disabled = !doc;
+    els.bakedReplayScrubInput.max = `${Math.max(0, duration)}`;
+    els.bakedReplayScrubInput.value = `${replay?.time ?? 0}`;
+  }
+  if (els.bakeProgressFill) {
+    const progress = activeJob ? job.progress : doc ? 1 : 0;
+    els.bakeProgressFill.style.width = `${Math.round(clamp(progress, 0, 1) * 100)}%`;
+  }
+  if (els.bakeStatus) {
+    if (activeJob) {
+      els.bakeStatus.textContent = `Baking ${formatHoverDuration(job.battle?.time || 0)} / ${formatHoverDuration(config.maxDurationSeconds)} at ${config.sampleRate} Hz. ${job.frameCount} frames captured.`;
+    } else if (doc) {
+      els.bakeStatus.textContent = `Replay ready: ${doc.manifest.title}. ${doc.manifest.unitCount} units, ${doc.manifest.frameCount} frames, ${formatHoverDuration(doc.manifest.durationSeconds)}.`;
+    } else {
+      els.bakeStatus.textContent = "No baked battle loaded.";
+    }
+  }
+  if (els.bakedReplayMeta) {
+    els.bakedReplayMeta.textContent = doc
+      ? `Format ${doc.formatVersion}; ${doc.chunks.length} chunks; ${doc.events?.length || 0} events; ${doc.manifest.field.width}x${doc.manifest.field.height} field.`
+      : "";
+  }
+  renderBakeStats();
+}
+
+function getBakedBattleSourceFactions(config = state.bakedBattle.config) {
+  const normalized = normalizeBakeConfig(config);
+  if (normalized.maxFactions > 0) {
+    return getTournamentEligibleFactions(state.factions)
+      .slice(0, normalized.maxFactions)
+      .map((faction) => cloneData(faction));
+  }
+  if (state.tournament) {
+    const match = getCurrentTournamentMatch(state.tournament);
+    if (match?.factionIds?.length) {
+      return match.factionIds.map((id) => findSourceFaction(id)).filter(Boolean).map((faction) => cloneData(faction));
+    }
+  }
+  return state.factions.map((faction) => cloneData(faction));
+}
+
+function createBakedBattleSimulation(config) {
+  const factions = getBakedBattleSourceFactions(config);
+  const arena = state.battle?.arena ? cloneData(state.battle.arena) : createRandomArenaVariant(0, 0, factions.length);
+  return buildBattle(factions, arena, null, {
+    preserveArenaVisuals: false,
+    regenerateTerrain: false,
+    maxUnitsOnBattlefieldOverride: config.unitCap,
+    fieldScaleMode: config.fieldScale,
+    terrainTextureField: { ...FIELD, centerX: FIELD.width / 2, centerY: FIELD.height / 2, radius: 320 },
+  });
+}
+
+function createBakeUnitCatalog() {
+  return {
+    units: [],
+    indexById: new Map(),
+  };
+}
+
+function ensureBakeUnitCatalogEntry(catalog, unit) {
+  if (catalog.indexById.has(unit.id)) return catalog.indexById.get(unit.id);
+  const index = catalog.units.length;
+  catalog.indexById.set(unit.id, index);
+  catalog.units.push({
+    id: unit.id,
+    factionId: unit.factionId,
+    type: unit.type,
+    maxHealth: unit.maxHealth,
+    statusVisualSeed: unit.statusVisualSeed || 0,
+    veteran: unit.veteran === true,
+    hostileToAll: unit.hostileToAll === true,
+    summonOwnerId: unit.summonOwnerId || null,
+    builderId: unit.builderId || null,
+    thrallOwnerId: unit.thrallOwnerId || null,
+  });
+  return index;
+}
+
+function encodeReplayUnitFlags(unit) {
+  let flags = 0;
+  if (unit.dead) flags |= 1;
+  if (unit.fled) flags |= 2;
+  if (unit.fleeing) flags |= 4;
+  if (unit.invisible) flags |= 8;
+  if (unit.veteran) flags |= 16;
+  if (unit.spawnInvulnerable) flags |= 32;
+  if (unit.possessedUnitId) flags |= 64;
+  return flags;
+}
+
+function decodeReplayUnitFlags(unit, flags) {
+  unit.dead = Boolean(flags & 1);
+  unit.fled = Boolean(flags & 2);
+  unit.fleeing = Boolean(flags & 4);
+  unit.invisible = Boolean(flags & 8);
+  unit.veteran = Boolean(flags & 16);
+  unit.spawnInvulnerable = Boolean(flags & 32);
+}
+
+function encodeReplayStatuses(unit) {
+  if (!unit.statuses?.length) return "";
+  return unit.statuses
+    .map((status) => `${status.kind}:${Math.round(status.stacks || 1)}`)
+    .join(",");
+}
+
+function decodeReplayStatuses(value) {
+  if (!value) return [];
+  return `${value}`.split(",").filter(Boolean).map((entry) => {
+    const [kind, rawStacks] = entry.split(":");
+    return {
+      kind,
+      stacks: Math.max(1, Number(rawStacks) || 1),
+      duration: 1,
+      initialDuration: 1,
+      tickTimer: 0,
+      contagionTimer: 0,
+      sourceId: null,
+      sourceFactionId: null,
+    };
+  });
+}
+
+function roundReplayNumber(value, precision = 100) {
+  return Math.round((Number(value) || 0) * precision) / precision;
+}
+
+function cloneReplayEventPayload(entry) {
+  const copy = {};
+  Object.entries(entry || {}).forEach(([key, value]) => {
+    if (key.startsWith("__")) return;
+    if (typeof value === "number") copy[key] = roundReplayNumber(value);
+    else if (typeof value === "string" || typeof value === "boolean" || value == null) copy[key] = value;
+  });
+  return copy;
+}
+
+function createBakeEventRecorder(battle, options = {}) {
+  const recorder = {
+    battle,
+    includeEffects: options.includeEffects !== false,
+    maxEvents: options.maxEvents || BAKED_BATTLE_BASE_EVENT_LIMIT,
+    nextId: 1,
+    events: [],
+    seen: new WeakSet(),
+  };
+  markExistingReplayEventItems(recorder);
+  return recorder;
+}
+
+function markExistingReplayEventItems(recorder) {
+  ["projectiles", "spells", "particles", "swipes", "traces", "stuckArrows", "bossBubbles"].forEach((key) => {
+    (recorder.battle[key] || []).forEach((entry) => recorder.seen.add(entry));
+  });
+}
+
+function pushBakeReplayEvent(recorder, event) {
+  if (!recorder || recorder.events.length >= recorder.maxEvents) return;
+  recorder.events.push({
+    id: recorder.nextId++,
+    t: roundReplayNumber(recorder.battle.time || 0, 1000),
+    ...event,
+  });
+}
+
+function collectBakeReplayEvents(recorder) {
+  if (!recorder?.includeEffects) return;
+  [
+    ["projectiles", "projectile"],
+    ["spells", "spell"],
+    ["particles", "particle"],
+    ["swipes", "swipe"],
+    ["traces", "trace"],
+    ["stuckArrows", "stuckArrow"],
+    ["bossBubbles", "bossBubble"],
+  ].forEach(([listKey, eventKind]) => {
+    (recorder.battle[listKey] || []).forEach((entry) => {
+      if (!entry || recorder.seen.has(entry)) return;
+      recorder.seen.add(entry);
+      pushBakeReplayEvent(recorder, { k: eventKind, p: cloneReplayEventPayload(entry) });
+    });
+  });
+}
+
+function recordBakeSoundEvent(kind, payload = {}) {
+  const recorder = state.simulationContext?.recorder;
+  if (!recorder?.includeEffects) return;
+  pushBakeReplayEvent(recorder, { k: "sound", p: { kind, ...cloneReplayEventPayload(payload) } });
+}
+
+function estimateReplayDocumentBytes({ frameCount = 0, unitCount = 0, eventCount = 0 }) {
+  return Math.round(9000 + frameCount * Math.max(1, unitCount) * 72 + eventCount * 180);
+}
+
+function formatBytes(bytes) {
+  const value = Math.max(0, Number(bytes) || 0);
+  if (value >= 1024 * 1024 * 1024) return `${(value / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+  if (value >= 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+  if (value >= 1024) return `${(value / 1024).toFixed(1)} KB`;
+  return `${Math.round(value)} B`;
+}
+
+function renderBakeStats() {
+  if (!els.bakeStats) return;
+  const job = state.bakedBattle.job;
+  const doc = state.bakedBattle.document;
+  if (job) {
+    const elapsedSeconds = Math.max(0.001, (performance.now() - job.startedAt) / 1000);
+    const simSeconds = Math.max(0, job.battle?.time || 0);
+    const simPerWall = simSeconds / elapsedSeconds;
+    const remainingSim = Math.max(0, job.config.maxDurationSeconds - simSeconds);
+    const eta = simPerWall > 0 ? remainingSim / simPerWall : 0;
+    const estimatedBytes = estimateReplayDocumentBytes({
+      frameCount: Math.ceil(job.config.maxDurationSeconds * job.config.sampleRate),
+      unitCount: job.catalog?.units?.length || 0,
+      eventCount: job.recorder?.events?.length || 0,
+    });
+    els.bakeStats.innerHTML = `
+      <div><span>Elapsed</span><strong>${formatHoverDuration(elapsedSeconds)}</strong></div>
+      <div><span>Sim Speed</span><strong>${simPerWall.toFixed(1)}x</strong></div>
+      <div><span>ETA</span><strong>${formatHoverDuration(eta)}</strong></div>
+      <div><span>Units Seen</span><strong>${job.catalog?.units?.length || 0}</strong></div>
+      <div><span>Events</span><strong>${job.recorder?.events?.length || 0}</strong></div>
+      <div><span>Est. File</span><strong>${formatBytes(estimatedBytes)}</strong></div>
+    `;
+    return;
+  }
+  if (doc) {
+    const estimatedBytes = estimateReplayDocumentBytes({
+      frameCount: doc.manifest.frameCount,
+      unitCount: doc.manifest.unitCount,
+      eventCount: doc.events?.length || 0,
+    });
+    els.bakeStats.innerHTML = `
+      <div><span>Duration</span><strong>${formatHoverDuration(doc.manifest.durationSeconds)}</strong></div>
+      <div><span>Frames</span><strong>${doc.manifest.frameCount}</strong></div>
+      <div><span>Units</span><strong>${doc.manifest.unitCount}</strong></div>
+      <div><span>Events</span><strong>${doc.events?.length || 0}</strong></div>
+      <div><span>Est. File</span><strong>${formatBytes(estimatedBytes)}</strong></div>
+      <div><span>Bake Time</span><strong>${formatHoverDuration(doc.manifest.bakeWallClockSeconds || 0)}</strong></div>
+    `;
+    return;
+  }
+  els.bakeStats.innerHTML = "";
+}
+
+function captureBakedBattleFrame(battle, catalog) {
+  const units = [];
+  battle.factions.forEach((faction) => {
+    faction.units.forEach((unit) => {
+      const index = ensureBakeUnitCatalogEntry(catalog, unit);
+      units.push([
+        index,
+        roundReplayNumber(unit.x),
+        roundReplayNumber(unit.y),
+        roundReplayNumber(unit.z),
+        roundReplayNumber(unit.facing, 1000),
+        roundReplayNumber(unit.displayFacingX, 100),
+        roundReplayNumber(unit.health),
+        encodeReplayUnitFlags(unit),
+        roundReplayNumber(unit.attackSwing, 1000),
+        roundReplayNumber(unit.walkTilt, 1000),
+        roundReplayNumber(unit.stride, 1000),
+        roundReplayNumber(unit.bob, 1000),
+        roundReplayNumber(unit.walkBlend, 1000),
+        roundReplayNumber(unit.turretAimAngle, 1000),
+        roundReplayNumber(unit.rotation, 1000),
+        encodeReplayStatuses(unit),
+      ]);
+    });
+  });
+  const frame = {
+    t: roundReplayNumber(battle.time, 1000),
+    u: units,
+    w: battle.pendingWinner || null,
+    c: battle.completed === true,
+  };
+  return frame;
+}
+
+function createBakedBattleChunk(index, startTime, frames) {
+  return {
+    index,
+    startTime: roundReplayNumber(startTime, 1000),
+    endTime: roundReplayNumber(frames.at(-1)?.t ?? startTime, 1000),
+    frames,
+  };
+}
+
+function finalizeBakedBattleDocument({ battle, catalog, chunks, events, config, frameCount, startedAt }) {
+  const title = `${battle.factions.map((faction) => faction.title).slice(0, 3).join(" vs ")}${battle.factions.length > 3 ? " and others" : ""}`;
+  const durationSeconds = roundReplayNumber(battle.time, 1000);
+  return {
+    format: BAKED_BATTLE_FORMAT,
+    formatVersion: BAKED_BATTLE_FORMAT_VERSION,
+    createdAt: new Date().toISOString(),
+    manifest: {
+      title,
+      app: "TBR Warfare",
+      field: cloneData(battle.field),
+      arena: cloneData(battle.arena),
+      factions: battle.factions.map((faction) => ({
+        id: faction.id,
+        title: faction.title,
+        color: faction.color,
+        coverUrl: faction.coverUrl || "",
+        armySize: faction.armySize || 0,
+        submissionType: faction.submissionType || "digital",
+        bannerPos: cloneData(faction.bannerPos),
+        homeBase: cloneData(faction.homeBase),
+        excludeFromResults: faction.excludeFromResults === true,
+      })),
+      config: cloneData(config),
+      durationSeconds,
+      sampleRate: config.sampleRate,
+      frameCount,
+      unitCount: catalog.units.length,
+      chunkCount: chunks.length,
+      eventCount: events.length,
+      includeEvents: config.includeEffects,
+      completed: battle.completed === true,
+      pendingWinner: battle.pendingWinner || null,
+      bakeWallClockSeconds: roundReplayNumber((performance.now() - startedAt) / 1000, 1000),
+    },
+    units: catalog.units,
+    events,
+    chunks,
+  };
+}
+
+async function startBakedBattleBake() {
+  if (state.bakedBattle.job) return;
+  const config = normalizeBakeConfig(state.bakedBattle.config);
+  if (getBakedBattleSourceFactions(config).length < 2) {
+    setTicker("At least two armies are required before baking a battle.");
+    return;
+  }
+  stopBakedReplay({ restoreLiveBattle: false });
+  const battle = createBakedBattleSimulation(config);
+  const catalog = createBakeUnitCatalog();
+  const recorder = createBakeEventRecorder(battle, { includeEffects: config.includeEffects });
+  const chunks = [];
+  let chunkFrames = [];
+  let chunkStartTime = 0;
+  let nextSampleAt = 0;
+  const sampleInterval = 1 / config.sampleRate;
+  const startedAt = performance.now();
+  const previousContext = state.simulationContext;
+  const job = {
+    battle,
+    config,
+    catalog,
+    recorder,
+    startedAt,
+    cancelled: false,
+    progress: 0,
+    frameCount: 0,
+  };
+  state.bakedBattle.job = job;
+  state.bakedBattle.document = null;
+  state.bakedBattle.replay = null;
+  renderBakedBattlePanel();
+  setTicker("Baking battle replay...");
+  try {
+    state.simulationContext = { active: true, battle, recorder };
+    while (!job.cancelled) {
+      const sliceStarted = performance.now();
+      while (!job.cancelled && performance.now() - sliceStarted < config.frameBudgetMs) {
+        if (battle.time + 1e-6 >= nextSampleAt) {
+          chunkFrames.push(captureBakedBattleFrame(battle, catalog));
+          job.frameCount += 1;
+          nextSampleAt += sampleInterval;
+          if (battle.time - chunkStartTime >= config.chunkSeconds && chunkFrames.length) {
+            chunks.push(createBakedBattleChunk(chunks.length, chunkStartTime, chunkFrames));
+            chunkFrames = [];
+            chunkStartTime = battle.time;
+          }
+        }
+        if (battle.time >= config.maxDurationSeconds) break;
+        if (battle.completed && config.durationMode === "natural") break;
+        stepBattle(battle, BAKED_BATTLE_STEP_DT);
+        collectBakeReplayEvents(recorder);
+      }
+      job.progress = clamp(battle.time / Math.max(1, config.maxDurationSeconds), 0, 1);
+      renderBakedBattlePanel();
+      if (battle.time >= config.maxDurationSeconds) break;
+      if (battle.completed && config.durationMode === "natural") break;
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    }
+  } finally {
+    state.simulationContext = previousContext;
+  }
+  if (chunkFrames.length) chunks.push(createBakedBattleChunk(chunks.length, chunkStartTime, chunkFrames));
+  state.bakedBattle.job = null;
+  if (job.cancelled) {
+    setTicker("Battle bake cancelled.");
+    renderBakedBattlePanel();
+    return;
+  }
+  const document = finalizeBakedBattleDocument({ battle, catalog, chunks, events: recorder.events, config, frameCount: job.frameCount, startedAt });
+  state.bakedBattle.document = document;
+  state.bakedBattle.replay = createBakedReplayState(document);
+  prepareBakedReplayBattle(state.bakedBattle.replay);
+  setTicker(`Baked replay ready: ${document.manifest.frameCount} frames captured.`);
+  renderBakedBattlePanel();
+}
+
+function cancelBakedBattleBake() {
+  if (state.bakedBattle.job) state.bakedBattle.job.cancelled = true;
+}
+
+function getBakedBattleDownloadName(document) {
+  const base = normalizeStorageSlug(document?.manifest?.title || "baked-battle", "baked-battle");
+  return `${base}-${Date.now().toString(36)}.tbrbake.json`;
+}
+
+function downloadBakedBattleDocument() {
+  const document = state.bakedBattle.document;
+  if (!document) return;
+  const blob = new Blob([JSON.stringify(document)], { type: "application/json" });
+  triggerBlobDownload(blob, getBakedBattleDownloadName(document));
+}
+
+async function loadBakedBattleFile(event) {
+  const file = event.target?.files?.[0];
+  if (!file) return;
+  try {
+    const document = JSON.parse(await file.text());
+    validateBakedBattleDocument(document);
+    stopBakedReplay({ restoreLiveBattle: false });
+    state.bakedBattle.document = document;
+    state.bakedBattle.replay = createBakedReplayState(document);
+    prepareBakedReplayBattle(state.bakedBattle.replay);
+    state.bakedBattlePanelCollapsed = false;
+    setTicker(`Loaded baked replay: ${document.manifest.title}.`);
+  } catch (error) {
+    setTicker(`Could not load baked replay: ${error.message || error}`);
+  } finally {
+    event.target.value = "";
+    renderBakedBattlePanel();
+  }
+}
+
+function validateBakedBattleDocument(document) {
+  if (!document || document.format !== BAKED_BATTLE_FORMAT) throw new Error("Not a TBR baked battle file.");
+  if (document.formatVersion !== BAKED_BATTLE_FORMAT_VERSION) throw new Error(`Unsupported baked battle version ${document.formatVersion}.`);
+  if (!Array.isArray(document.units) || !Array.isArray(document.chunks)) throw new Error("Replay file is missing units or chunks.");
+}
+
+function createBakedReplayState(document) {
+  const frames = document.chunks.flatMap((chunk) => chunk.frames || []);
+  const unitIndexById = new Map(document.units.map((unit, index) => [unit.id, index]));
+  return {
+    document,
+    frames,
+    events: (document.events || []).slice().sort((a, b) => a.t - b.t),
+    nextEventIndex: 0,
+    unitIndexById,
+    unitsByIndex: [],
+    battle: null,
+    time: 0,
+    duration: document.manifest.durationSeconds || frames.at(-1)?.t || 0,
+    playing: false,
+    lastAppliedTime: 0,
+    lastWallClockAt: 0,
+    liveBattle: null,
+  };
+}
+
+function createReplayUnit(unitInfo) {
+  return {
+    id: unitInfo.id,
+    factionId: unitInfo.factionId,
+    type: unitInfo.type,
+    x: 0,
+    y: 0,
+    z: 0,
+    facing: 0,
+    displayFacingX: 1,
+    headingCandidate: 1,
+    headingTimer: 0,
+    vx: 0,
+    vy: 0,
+    health: unitInfo.maxHealth || getUnitStats(unitInfo.type).maxHealth,
+    maxHealth: unitInfo.maxHealth || getUnitStats(unitInfo.type).maxHealth,
+    cooldown: 0,
+    bravery: 1,
+    dead: false,
+    fled: false,
+    fleeing: false,
+    liftedBySpellId: null,
+    displacedBySpellId: null,
+    activeSpellId: null,
+    killStreak: 0,
+    walkTilt: 0,
+    rotation: 0,
+    gaitPhase: 0,
+    stride: 0,
+    bob: 0,
+    walkBlend: 0,
+    attackSwing: 0,
+    focusTargetId: null,
+    guardTargetId: null,
+    invisible: false,
+    behaviorState: "replay",
+    veteran: unitInfo.veteran === true,
+    totalDamageDealt: 0,
+    totalHealingDone: 0,
+    totalKills: 0,
+    statuses: [],
+    flameExposure: {},
+    statusVisualSeed: unitInfo.statusVisualSeed || 0,
+    thrallOwnerId: unitInfo.thrallOwnerId || null,
+    thrallIds: [],
+    raisedThrall: false,
+    currentTargetKind: null,
+    currentGraveId: null,
+    hostileToAll: unitInfo.hostileToAll === true,
+    spawnInvulnerable: false,
+    turretAimAngle: 0,
+    activeSongKind: null,
+    Status: createUnitNarration(getDefaultUnitActivity(unitInfo.type)),
+    summonOwnerId: unitInfo.summonOwnerId || null,
+    builderId: unitInfo.builderId || null,
+  };
+}
+
+function prepareBakedReplayBattle(replay) {
+  if (!replay || replay.battle) return replay?.battle || null;
+  const document = replay.document;
+  const manifest = document.manifest;
+  const factions = manifest.factions.map((faction) => ({
+    ...faction,
+    units: [],
+    alive: true,
+    image: getFactionImage(faction.coverUrl, { title: faction.title }),
+  }));
+  const factionById = new Map(factions.map((faction) => [faction.id, faction]));
+  document.units.forEach((unitInfo) => {
+    const unit = createReplayUnit(unitInfo);
+    const faction = factionById.get(unit.factionId);
+    if (faction) faction.units.push(unit);
+    replay.unitsByIndex[replay.unitIndexById.get(unit.id)] = unit;
+  });
+  const field = manifest.field || { ...FIELD, centerX: FIELD.width / 2, centerY: FIELD.height / 2, radius: 320 };
+  const replayArena = manifest.arena || createArenaVariant(0, 0, factions.length);
+  const replayTextureField = (field.width * field.height) > (FIELD.width * FIELD.height * 3.5)
+    ? { ...FIELD, centerX: FIELD.width / 2, centerY: FIELD.height / 2, radius: 320 }
+    : field;
+  replay.battle = {
+    field,
+    factions,
+    graves: [],
+    projectiles: [],
+    particles: [],
+    spells: [],
+    bodyguardRescues: [],
+    swipes: [],
+    traces: [],
+    bossBubbles: [],
+    stuckArrows: [],
+    bombs: [],
+    arena: replayArena,
+    propShadowAngle: 0,
+    weatherField: createWeatherField(replayArena.weather || "clear"),
+    terrainTexture: getSharedBattleTerrainTexture(replayTextureField, replayArena, { preserveCurrentMirror: true }),
+    props: buildFieldProps(field, replayArena),
+    pendingWinner: manifest.pendingWinner || null,
+    completed: manifest.completed === true,
+    meta: { replay: true },
+    time: 0,
+    notes: { dwindled: {}, slaughter: {}, killstreaks: {}, extinguished: {}, supportOnlyRouted: {} },
+    knockoutQueue: [],
+    activeKnockout: null,
+    inklordEvent: { phase: "complete" },
+  };
+  initializeBattleHealthTimeline(replay.battle);
+  applyBakedReplayAtTime(replay, 0);
+  return replay.battle;
+}
+
+function getBakedReplayFramePair(replay, time) {
+  const frames = replay.frames;
+  if (!frames.length) return { left: null, right: null, ratio: 0 };
+  if (time <= frames[0].t) return { left: frames[0], right: frames[0], ratio: 0 };
+  let low = 0;
+  let high = frames.length - 1;
+  while (low < high) {
+    const mid = Math.ceil((low + high) / 2);
+    if (frames[mid].t <= time) low = mid;
+    else high = mid - 1;
+  }
+  const left = frames[low];
+  const right = frames[Math.min(frames.length - 1, low + 1)] || left;
+  const ratio = right === left ? 0 : clamp((time - left.t) / Math.max(0.0001, right.t - left.t), 0, 1);
+  return { left, right, ratio };
+}
+
+function applyReplayUnitEntry(unit, leftEntry, rightEntry, ratio) {
+  if (!unit || !leftEntry) return;
+  const source = rightEntry || leftEntry;
+  unit.x = lerp(leftEntry[1], source[1], ratio);
+  unit.y = lerp(leftEntry[2], source[2], ratio);
+  unit.z = lerp(leftEntry[3], source[3], ratio);
+  unit.facing = lerp(leftEntry[4], source[4], ratio);
+  unit.displayFacingX = source[5] || 1;
+  unit.health = lerp(leftEntry[6], source[6], ratio);
+  decodeReplayUnitFlags(unit, source[7] || 0);
+  unit.attackSwing = lerp(leftEntry[8] || 0, source[8] || 0, ratio);
+  unit.walkTilt = lerp(leftEntry[9] || 0, source[9] || 0, ratio);
+  unit.stride = lerp(leftEntry[10] || 0, source[10] || 0, ratio);
+  unit.bob = lerp(leftEntry[11] || 0, source[11] || 0, ratio);
+  unit.walkBlend = lerp(leftEntry[12] || 0, source[12] || 0, ratio);
+  unit.turretAimAngle = lerp(leftEntry[13] || 0, source[13] || 0, ratio);
+  unit.rotation = lerp(leftEntry[14] || 0, source[14] || 0, ratio);
+  unit.statuses = decodeReplayStatuses(source[15] || "");
+}
+
+function resetReplayTransientEffects(battle) {
+  if (!battle) return;
+  battle.projectiles = [];
+  battle.spells = [];
+  battle.particles = [];
+  battle.swipes = [];
+  battle.traces = [];
+  battle.stuckArrows = [];
+  battle.bossBubbles = [];
+}
+
+function applyReplayEventToBattle(replay, event, options = {}) {
+  const battle = replay?.battle;
+  if (!battle || !event) return;
+  const payload = cloneReplayEventPayload(event.p);
+  if (event.k === "projectile") battle.projectiles.push(payload);
+  else if (event.k === "spell") battle.spells.push(payload);
+  else if (event.k === "particle") battle.particles.push(payload);
+  else if (event.k === "swipe") battle.swipes.push(payload);
+  else if (event.k === "trace") battle.traces.push(payload);
+  else if (event.k === "stuckArrow") battle.stuckArrows.push(payload);
+  else if (event.k === "bossBubble") battle.bossBubbles.push(payload);
+  else if (event.k === "sound" && options.playSound !== false) playReplaySoundEvent(payload);
+}
+
+function playReplaySoundEvent(payload) {
+  if (!payload || payload.kind !== "explosion") return;
+  playRandomExplosionAudioAt(payload.x || 0, payload.y || 0, { force: true });
+}
+
+function applyReplayEventsBetween(replay, fromTime, toTime, options = {}) {
+  if (!replay?.events?.length || toTime < fromTime) return;
+  while (replay.nextEventIndex < replay.events.length) {
+    const event = replay.events[replay.nextEventIndex];
+    if (event.t > toTime + 1e-6) break;
+    if (event.t >= fromTime - 1e-6) applyReplayEventToBattle(replay, event, options);
+    replay.nextEventIndex += 1;
+  }
+}
+
+function replayEventsUpTo(replay, time) {
+  resetReplayTransientEffects(replay.battle);
+  replay.nextEventIndex = 0;
+  const startTime = Math.max(0, time - 1.5);
+  while (replay.nextEventIndex < replay.events.length && replay.events[replay.nextEventIndex].t < startTime) {
+    replay.nextEventIndex += 1;
+  }
+  applyReplayEventsBetween(replay, startTime, time, { playSound: false });
+}
+
+function applyBakedReplayAtTime(replay, time, options = {}) {
+  const battle = prepareBakedReplayBattle(replay);
+  const { left, right, ratio } = getBakedReplayFramePair(replay, time);
+  if (!left) return;
+  const rightByIndex = new Map((right?.u || []).map((entry) => [entry[0], entry]));
+  const unitsByIndex = replay.unitsByIndex || [];
+  unitsByIndex.forEach((unit) => {
+    if (!unit) return;
+    unit.dead = true;
+    unit.fled = true;
+  });
+  (left.u || []).forEach((leftEntry) => {
+    const unit = unitsByIndex[leftEntry[0]];
+    applyReplayUnitEntry(unit, leftEntry, rightByIndex.get(leftEntry[0]) || leftEntry, ratio);
+  });
+  if (options.incrementalEvents) {
+    applyReplayEventsBetween(replay, options.fromTime ?? replay.lastAppliedTime ?? 0, time, { playSound: options.playSound });
+  } else {
+    replayEventsUpTo(replay, time);
+  }
+  battle.time = time;
+  battle.pendingWinner = left.w || replay.document.manifest.pendingWinner || null;
+  battle.completed = left.c === true || time >= replay.duration;
+  battle.factions.forEach((faction) => {
+    faction.alive = faction.units.some((unit) => !unit.dead && !unit.fled);
+  });
+  rebuildBattleTransientCaches(battle);
+  replay.lastAppliedTime = time;
+}
+
+function updateReplayVisualEffects(battle, dt) {
+  if (!battle || dt <= 0) return;
+  battle.projectiles = (battle.projectiles || []).filter((projectile) => {
+    if (projectile.landed) {
+      projectile.timer = (projectile.timer || 0) + dt;
+      return projectile.timer < (projectile.fuse || 0.6);
+    }
+    projectile.progress = (projectile.progress || 0) + dt / Math.max(0.001, projectile.duration || 0.6);
+    return projectile.progress < 1;
+  });
+  battle.spells = (battle.spells || []).filter((spell) => {
+    spell.time = (spell.time || 0) + dt;
+    return spell.time < (spell.duration || 0.5);
+  });
+  updateParticles(battle, dt);
+  updateSwipes(battle, dt);
+  updateTraces(battle, dt);
+  updateStuckArrows(battle, dt);
+}
+
+function playBakedReplay() {
+  const document = state.bakedBattle.document;
+  if (!document) return;
+  if (!state.bakedBattle.replay) state.bakedBattle.replay = createBakedReplayState(document);
+  const replay = state.bakedBattle.replay;
+  prepareBakedReplayBattle(replay);
+  if (!replay.liveBattle) replay.liveBattle = state.battle;
+  state.running = false;
+  state.battle = replay.battle;
+  replay.playing = true;
+  replay.lastWallClockAt = performance.now();
+  initializeBattleAudio();
+  state.audio.muted = false;
+  clearBattleHover();
+  closeWinnerModal();
+  resetCamera();
+  setTicker(`Playing baked replay: ${document.manifest.title}.`);
+  renderSpeedControls();
+  renderBakedBattlePanel();
+}
+
+function pauseBakedReplay() {
+  const replay = state.bakedBattle.replay;
+  if (!replay) return;
+  replay.playing = false;
+  setTicker("Baked replay paused.");
+  renderSpeedControls();
+  renderBakedBattlePanel();
+}
+
+function stopBakedReplay(options = {}) {
+  const replay = state.bakedBattle.replay;
+  if (!replay) return;
+  replay.playing = false;
+  replay.time = 0;
+  applyBakedReplayAtTime(replay, 0);
+  if (options.restoreLiveBattle !== false && replay.liveBattle) {
+    state.battle = replay.liveBattle;
+    replay.liveBattle = null;
+  }
+  renderSpeedControls();
+  renderBakedBattlePanel();
+}
+
+function scrubBakedReplay() {
+  const replay = state.bakedBattle.replay;
+  if (!replay) return;
+  replay.time = clamp(Number(els.bakedReplayScrubInput?.value) || 0, 0, replay.duration);
+  applyBakedReplayAtTime(replay, replay.time);
+  if (state.battle !== replay.battle) {
+    if (!replay.liveBattle) replay.liveBattle = state.battle;
+    state.battle = replay.battle;
+  }
+  renderSpeedControls();
+  renderBakedBattlePanel();
+}
+
+function updateBakedReplay(dt) {
+  const replay = state.bakedBattle.replay;
+  if (!replay?.playing) return;
+  const now = performance.now();
+  const wallDt = replay.lastWallClockAt > 0 ? Math.min(0.25, (now - replay.lastWallClockAt) / 1000) : dt;
+  replay.lastWallClockAt = now;
+  const scaledDt = wallDt * getBakedReplaySpeedMultiplier();
+  const previousTime = replay.time;
+  replay.time = clamp(replay.time + scaledDt, 0, replay.duration);
+  updateReplayVisualEffects(replay.battle, scaledDt);
+  applyBakedReplayAtTime(replay, replay.time, { incrementalEvents: true, fromTime: previousTime, playSound: true });
+  if (els.bakedReplayScrubInput) els.bakedReplayScrubInput.value = `${replay.time}`;
+  if (replay.time >= replay.duration) {
+    replay.playing = false;
+    setTicker("Baked replay complete.");
+    renderSpeedControls();
+    renderBakedBattlePanel();
+  }
+}
+
 const CAMERA_MODE_ORDER = ["fit", "cinematic", "manual"];
 
 function getCameraModeLabel(mode) {
@@ -4182,6 +5109,15 @@ function getCameraModeTitle(mode) {
 
 function getBattleSpeedMultiplier() {
   if (state.battle?.completed) return POST_BATTLE_REVIEW_SPEED;
+  if (state.hover.inspectSlowActive) return SHIFT_INSPECT_SPEED;
+  return SPEED_OPTIONS[state.speedIndex];
+}
+
+function isBakedReplayActive() {
+  return Boolean(state.bakedBattle.replay?.battle && state.battle === state.bakedBattle.replay.battle);
+}
+
+function getBakedReplaySpeedMultiplier() {
   if (state.hover.inspectSlowActive) return SHIFT_INSPECT_SPEED;
   return SPEED_OPTIONS[state.speedIndex];
 }
@@ -4656,6 +5592,8 @@ function loadState() {
     state.factions = (saved.factions || []).map(withFactionDefaults);
     state.roundsApplied = saved.roundsApplied || 0;
     state.tournamentConfig = normalizeTournamentConfig(saved.tournamentConfig);
+    state.bakedBattle.config = normalizeBakeConfig(saved.bakeConfig);
+    state.bakedBattlePanelCollapsed = saved.bakedBattlePanelCollapsed !== false;
     state.bracketPanelCollapsed = saved.bracketPanelCollapsed === true;
     state.useRiggedSprites = saved.useRiggedSprites !== false;
     state.useTerrainTexturing = saved.useTerrainTexturing !== false;
@@ -4694,6 +5632,8 @@ function saveState() {
     factions: state.factions,
     roundsApplied: state.roundsApplied,
     tournamentConfig: state.tournamentConfig,
+    bakeConfig: state.bakedBattle.config,
+    bakedBattlePanelCollapsed: state.bakedBattlePanelCollapsed,
     bracketPanelCollapsed: state.bracketPanelCollapsed,
     useRiggedSprites: state.useRiggedSprites,
     useTerrainTexturing: state.useTerrainTexturing,
@@ -5545,7 +6485,7 @@ function buildHeadlessBalanceBattle(factionPool, arena) {
     const angle = (Math.PI * 2 * index) / Math.max(1, factionPool.length);
     const baseX = field.centerX + Math.cos(angle) * field.radius;
     const baseY = field.centerY + Math.sin(angle) * field.radius * 0.62;
-    const units = spawnUnitsForFaction(faction, baseX, baseY);
+    const units = spawnUnitsForFaction(faction, baseX, baseY, { field });
     return {
       ...faction,
       color: factionColor(index),
@@ -6752,6 +7692,7 @@ function sizeCanvas() {
 }
 
 function resetBattle(options = {}) {
+  stopBakedReplay({ restoreLiveBattle: false });
   cancelPerformanceCalibration({ silent: true });
   const preserveArenaVisuals = Boolean(options.preserveArenaVisuals);
   const regenerateTerrain = options.regenerateTerrain !== false;
@@ -6789,6 +7730,7 @@ function resetBattle(options = {}) {
 }
 
 function resetCurrentBattle(options = {}) {
+  stopBakedReplay({ restoreLiveBattle: false });
   cancelPerformanceCalibration({ silent: true });
   const preserveArenaVisuals = Boolean(options.preserveArenaVisuals);
   const regenerateTerrain = options.regenerateTerrain !== false;
@@ -6958,10 +7900,11 @@ function processTournamentViewCommand(rawValue) {
 }
 
 function resetCamera() {
-  state.camera.x = FIELD.width / 2;
-  state.camera.y = FIELD.height / 2;
-  state.camera.targetX = FIELD.width / 2;
-  state.camera.targetY = FIELD.height / 2;
+  const field = state.battle?.field || FIELD;
+  state.camera.x = field.width / 2;
+  state.camera.y = field.height / 2;
+  state.camera.targetX = field.width / 2;
+  state.camera.targetY = field.height / 2;
   state.camera.zoom = 1;
   state.camera.targetZoom = 1;
   state.camera.manualUntil = 0;
@@ -7098,19 +8041,61 @@ function buildActiveBattle(options = {}) {
   });
 }
 
+function createBattleFieldForFactionCount(factionCount = 2, options = {}) {
+  const mode = options.fieldScaleMode || "normal";
+  if (mode === "normal") return { ...FIELD, centerX: FIELD.width / 2, centerY: FIELD.height / 2, radius: 320 };
+  const autoScale = mode === "large"
+    ? 2.2
+    : mode === "massive"
+      ? 4.6
+      : clamp(Math.sqrt(Math.max(1, factionCount) / MAX_BATTLE_FACTIONS), 1, 6);
+  const width = Math.round(FIELD.width * autoScale);
+  const height = Math.round(FIELD.height * autoScale);
+  return {
+    width,
+    height,
+    centerX: width / 2,
+    centerY: height / 2,
+    radius: Math.min(width * 0.42, height * 0.42),
+  };
+}
+
+function getFactionBattleStartPosition(field, index, factionCount) {
+  if (factionCount <= MAX_BATTLE_FACTIONS) {
+    const angle = (Math.PI * 2 * index) / Math.max(1, factionCount);
+    return {
+      x: field.centerX + Math.cos(angle) * field.radius,
+      y: field.centerY + Math.sin(angle) * field.radius * 0.62,
+    };
+  }
+  const rand = createSeededRandom(hashStringToSeed(`mega-spawn|${field.width}|${field.height}|${factionCount}|${index}`));
+  const safePaddingX = Math.max(90, Math.min(220, field.width * 0.045));
+  const safePaddingY = Math.max(80, Math.min(190, field.height * 0.045));
+  const radiusX = Math.max(1, (field.width / 2) - safePaddingX);
+  const radiusY = Math.max(1, (field.height / 2) - safePaddingY);
+  const goldenAngle = Math.PI * (3 - Math.sqrt(5));
+  const angle = (index * goldenAngle) + (rand() - 0.5) * (Math.PI * 0.32);
+  const ringBias = rand() < 0.72;
+  const normalizedRadius = ringBias
+    ? 0.74 + rand() * 0.24
+    : Math.pow(rand(), 0.38) * 0.82;
+  return {
+    x: clamp(field.centerX + Math.cos(angle) * radiusX * normalizedRadius, safePaddingX, field.width - safePaddingX),
+    y: clamp(field.centerY + Math.sin(angle) * radiusY * normalizedRadius, safePaddingY, field.height - safePaddingY),
+  };
+}
+
 function buildBattle(factionPool = state.factions, arena = createArenaVariant(0, 0, factionPool.length), meta = null, options = {}) {
   const preserveArenaVisuals = Boolean(options.preserveArenaVisuals);
   const sceneSnapshot = options.sceneSnapshot || null;
   const canReuseScene = preserveArenaVisuals && sceneSnapshot?.arena === arena;
-  const field = { ...FIELD, centerX: FIELD.width / 2, centerY: FIELD.height / 2, radius: 320 };
+  const field = options.field || createBattleFieldForFactionCount(factionPool.length, options);
   const factions = factionPool.map((faction, index) => {
-    const angle = (Math.PI * 2 * index) / Math.max(1, factionPool.length);
-    const baseX = field.centerX + Math.cos(angle) * field.radius;
-    const baseY = field.centerY + Math.sin(angle) * field.radius * 0.62;
+    const { x: baseX, y: baseY } = getFactionBattleStartPosition(field, index, factionPool.length);
     return {
       ...faction,
       color: factionColor(index),
-      units: spawnUnitsForFaction(faction, baseX, baseY),
+      units: spawnUnitsForFaction(faction, baseX, baseY, { field }),
       bannerPos: { x: baseX, y: baseY - BANNER_FLOAT_OFFSET },
       homeBase: { x: baseX, y: baseY },
       alive: true,
@@ -7119,11 +8104,14 @@ function buildBattle(factionPool = state.factions, arena = createArenaVariant(0,
   });
   const maxUnitsOnBattlefield = options.maxUnitsOnBattlefieldOverride ?? state.tournamentConfig.maxUnitsOnBattlefield;
   const unitCapSummary = applyBattlefieldUnitCap(factions, maxUnitsOnBattlefield);
-  const terrainTexture = getSharedBattleTerrainTexture(field, arena, {
-    regenerate: options.regenerateTerrain,
-    preserveCurrentMirror: canReuseScene,
-    mirrorKey: options.terrainMirrorKey || (meta ? `${meta.tournamentRound || 0}|${meta.tournamentMatch || 0}` : ""),
-  });
+  const textureField = options.terrainTextureField || field;
+  const terrainTexture = options.skipTerrainTexture
+    ? null
+    : getSharedBattleTerrainTexture(textureField, arena, {
+      regenerate: options.regenerateTerrain,
+      preserveCurrentMirror: canReuseScene,
+      mirrorKey: options.terrainMirrorKey || (meta ? `${meta.tournamentRound || 0}|${meta.tournamentMatch || 0}` : ""),
+    });
   const battle = {
     field,
     factions,
@@ -8216,19 +9204,23 @@ function getTournamentStoryBannerTitleClass(title, columns) {
   return "";
 }
 
-function spawnUnitsForFaction(faction, baseX, baseY) {
+function spawnUnitsForFaction(faction, baseX, baseY, options = {}) {
   const total = faction.armySize + faction.fledReserve;
   const counts = compositionCounts(total, faction.composition);
   const units = [];
+  const formationRadius = clamp(34 + Math.sqrt(Math.max(1, total)) * 8, 54, options.maxSpread || 210);
+  const field = options.field || null;
   UNIT_LIBRARY.forEach((unitDef) => {
     for (let i = 0; i < (counts[unitDef.id] || 0); i += 1) {
-      const spread = 54 + Math.random() * 28;
+      const spread = formationRadius * (0.35 + Math.random() * 0.65);
       const orbit = Math.random() * Math.PI * 2;
+      const x = field ? clamp(baseX + Math.cos(orbit) * spread, 24, field.width - 24) : baseX + Math.cos(orbit) * spread;
+      const y = field ? clamp(baseY + Math.sin(orbit) * spread * 0.62, 24, field.height - 24) : baseY + Math.sin(orbit) * spread * 0.62;
       units.push(makeUnit(
         faction.id,
         unitDef.id,
-        baseX + Math.cos(orbit) * spread,
-        baseY + Math.sin(orbit) * spread * 0.62,
+        x,
+        y,
       ));
     }
   });
@@ -11266,7 +12258,9 @@ function loop(timestamp) {
     : instantFps;
   const simDt = dt * getBattleSpeedMultiplier();
   if (HAS_BATTLE_PAGE) {
-    if (state.running && state.battle) stepBattle(state.battle, simDt);
+    updateBakedReplay(dt);
+    const replayActive = isBakedReplayActive();
+    if (!replayActive && state.running && state.battle) stepBattle(state.battle, simDt);
     if (!state.running && state.battle?.preBattleCullFxActive) {
       updateParticles(state.battle, dt);
       state.battle.preBattleCullFxActive = state.battle.particles.length > 0;
@@ -11688,13 +12682,19 @@ function getOffscreenSoundAttenuation(x, y) {
   return 1 - smoothstep(30, 460, offscreenDistance);
 }
 
-function playRandomExplosionAudioAt(x, y) {
-  if (isHeadlessSimulationActive()) return;
+function playRandomExplosionAudioAt(x, y, options = {}) {
+  if (isHeadlessSimulationActive() && !options.force) {
+    recordBakeSoundEvent("explosion", { x, y });
+    return;
+  }
   initializeBattleAudio();
+  if (options.force) state.audio.muted = false;
   if (state.audio.muted || !state.audio.explosionVariants.length) return;
   const zoomVolume = getExplosionZoomBaseVolume();
   const distanceMultiplier = getOffscreenSoundAttenuation(x, y);
-  const finalVolume = clamp(zoomVolume * distanceMultiplier, 0, 1);
+  const finalVolume = options.force
+    ? clamp(Math.max(0.16, zoomVolume * Math.max(0.45, distanceMultiplier)), 0, 1)
+    : clamp(zoomVolume * distanceMultiplier, 0, 1);
   if (finalVolume <= 0.005) return;
 
   let variantIndex = Math.floor(Math.random() * state.audio.explosionVariants.length);
@@ -16841,15 +17841,30 @@ function onWindowKeyDown(event) {
     setDevPanelVisible(!state.devPanelVisible);
     return;
   }
+  if (event.ctrlKey && !event.altKey && !event.metaKey && event.code === "Digit2") {
+    event.preventDefault();
+    toggleBakedBattlePanel();
+    return;
+  }
   if (!isTypingTarget && !event.ctrlKey && !event.altKey && !event.metaKey) {
     if (event.code === "Digit0") {
       event.preventDefault();
-      if (state.running) togglePauseBattle();
+      if (isBakedReplayActive()) {
+        if (state.bakedBattle.replay?.playing) pauseBakedReplay();
+        else playBakedReplay();
+      } else if (state.running) {
+        togglePauseBattle();
+      }
       return;
     }
     if (event.code === "Space") {
       event.preventDefault();
-      togglePauseBattle();
+      if (isBakedReplayActive()) {
+        if (state.bakedBattle.replay?.playing) pauseBakedReplay();
+        else playBakedReplay();
+      } else {
+        togglePauseBattle();
+      }
       return;
     }
     const digitMatch = /^Digit([1-5])$/.exec(event.code || "");
@@ -16998,8 +18013,9 @@ function getAutoCameraTarget(battle) {
 }
 
 function getFitCameraTarget(battle) {
+  const field = battle?.field || FIELD;
   const activeUnits = getLivingBattleUnits(battle);
-  if (!activeUnits.length) return { x: FIELD.width / 2, y: FIELD.height / 2, zoom: 1 };
+  if (!activeUnits.length) return { x: field.width / 2, y: field.height / 2, zoom: 1 };
   let minX = Infinity;
   let minY = Infinity;
   let maxX = -Infinity;
@@ -17014,12 +18030,13 @@ function getFitCameraTarget(battle) {
   const viewport = getViewport();
   const baseScale = getBaseScale(viewport);
   const fitZoom = Math.min(viewport.width / Math.max(260, maxX - minX + buffer * 2), viewport.height / Math.max(220, maxY - minY + buffer * 2)) / baseScale;
-  return { x: clamp((minX + maxX) / 2, 0, FIELD.width), y: clamp((minY + maxY) / 2, 0, FIELD.height), zoom: clamp(fitZoom, 0.32, 2.25) };
+  return { x: clamp((minX + maxX) / 2, 0, field.width), y: clamp((minY + maxY) / 2, 0, field.height), zoom: clamp(fitZoom, 0.12, 2.25) };
 }
 
 function getCinematicCameraTarget(battle) {
+  const field = battle?.field || FIELD;
   const activeUnits = getLivingBattleUnits(battle);
-  if (!activeUnits.length) return { x: FIELD.width / 2, y: FIELD.height / 2, zoom: 1 };
+  if (!activeUnits.length) return { x: field.width / 2, y: field.height / 2, zoom: 1 };
   const fit = getFitCameraTarget(battle);
   const cinematic = state.camera.cinematic || (state.camera.cinematic = {
     poiId: null,
@@ -17054,8 +18071,8 @@ function getCinematicCameraTarget(battle) {
   cinematic.focusZoom = lerp(cinematic.path.startZoom, cinematic.path.endZoom, easedT);
 
   return {
-    x: clamp(cinematic.focusX, 0, FIELD.width),
-    y: clamp(cinematic.focusY, 0, FIELD.height),
+    x: clamp(cinematic.focusX, 0, field.width),
+    y: clamp(cinematic.focusY, 0, field.height),
     zoom: clamp(cinematic.focusZoom, 1.75, 4.85),
   };
 }
@@ -17227,19 +18244,20 @@ function buildCinematicCameraPois(battle, activeUnits, fit) {
 }
 
 function clampCameraToField() {
+  const field = state.battle?.field || FIELD;
   const viewport = getViewport();
   const scale = getBaseScale(viewport) * state.camera.zoom;
   const halfWorldWidth = viewport.width / scale / 2;
   const halfWorldHeight = viewport.height / scale / 2;
-  if (halfWorldWidth >= FIELD.width / 2) {
-    state.camera.x = FIELD.width / 2;
+  if (halfWorldWidth >= field.width / 2) {
+    state.camera.x = field.width / 2;
   } else {
-    state.camera.x = clamp(state.camera.x, halfWorldWidth, FIELD.width - halfWorldWidth);
+    state.camera.x = clamp(state.camera.x, halfWorldWidth, field.width - halfWorldWidth);
   }
-  if (halfWorldHeight >= FIELD.height / 2) {
-    state.camera.y = FIELD.height / 2;
+  if (halfWorldHeight >= field.height / 2) {
+    state.camera.y = field.height / 2;
   } else {
-    state.camera.y = clamp(state.camera.y, halfWorldHeight, FIELD.height - halfWorldHeight);
+    state.camera.y = clamp(state.camera.y, halfWorldHeight, field.height - halfWorldHeight);
   }
 }
 
@@ -17248,7 +18266,8 @@ function getViewport() {
 }
 
 function getBaseScale(viewport) {
-  return Math.min(viewport.width / FIELD.width, viewport.height / FIELD.height);
+  const field = state.battle?.field || FIELD;
+  return Math.min(viewport.width / field.width, viewport.height / field.height);
 }
 
 function worldToScreen(x, y, viewport) {
@@ -17448,10 +18467,11 @@ function drawBattleHealthChart(battle) {
 
 function drawField(viewport, battle) {
   const arena = battle.arena || createArenaVariant(0, 0, battle.factions.length);
+  const field = battle.field || FIELD;
   ctx.fillStyle = arena.ground;
   ctx.fillRect(0, 0, viewport.width, viewport.height);
   const top = worldToScreen(0, 0, viewport);
-  const bottom = worldToScreen(FIELD.width, FIELD.height, viewport);
+  const bottom = worldToScreen(field.width, field.height, viewport);
   const gradient = ctx.createLinearGradient(0, top.y, 0, bottom.y);
   gradient.addColorStop(0, arena.top);
   gradient.addColorStop(0.5, shadeColor(arena.top, -0.18));
@@ -17512,8 +18532,10 @@ function drawField(viewport, battle) {
 }
 
 function drawGroundDecor(viewport, battle) {
-  for (let i = 0; i < 28; i += 1) {
-    const point = worldToScreen((i * 63) % FIELD.width, 90 + ((i * 97) % (FIELD.height - 180)), viewport);
+  const field = battle.field || FIELD;
+  const decorCount = clampInt(Math.round(28 * Math.sqrt((field.width * field.height) / (FIELD.width * FIELD.height))), 28, 140);
+  for (let i = 0; i < decorCount; i += 1) {
+    const point = worldToScreen((i * 163) % field.width, 90 + ((i * 197) % Math.max(1, field.height - 180)), viewport);
     ctx.fillStyle = i % 2 ? hexToRgba(battle.arena?.top || "#8fa27f", 0.12) : "rgba(75,95,50,0.08)";
     ctx.beginPath();
     ctx.ellipse(point.x, point.y, 38 * point.scale / 2.2, 16 * point.scale / 2.2, 0, 0, Math.PI * 2);

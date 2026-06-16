@@ -203,6 +203,96 @@
             </div>
           </div>
         </div>
+        <section id="bakedBattlePanel" class="panel-section baked-battle-panel" hidden>
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Ctrl+2 Studio</p>
+              <h2>Baked Battle Studio</h2>
+            </div>
+            <button id="toggleBakedBattlePanelBtn" class="ghost small" type="button" aria-expanded="false">Hide</button>
+          </div>
+          <p class="hint">Pre-solve the current armies into a streamed replay file for large-battle playback and testing.</p>
+          <div id="bakedBattleBody" class="baked-battle-body">
+            <div class="field-grid baked-battle-grid">
+              <label>
+                <span>Sample Rate</span>
+                <select id="bakeSampleRateInput">
+                  <option value="5">5 Hz</option>
+                  <option value="10">10 Hz</option>
+                  <option value="15">15 Hz</option>
+                  <option value="20">20 Hz</option>
+                  <option value="30">30 Hz</option>
+                </select>
+              </label>
+              <label>
+                <span>Duration Mode</span>
+                <select id="bakeDurationModeInput">
+                  <option value="natural">Natural battle end</option>
+                  <option value="fixed">Fixed test duration</option>
+                </select>
+              </label>
+              <label>
+                <span>Max Duration (s)</span>
+                <input id="bakeMaxDurationInput" type="number" min="5" max="1800" value="240">
+              </label>
+              <label>
+                <span>Chunk Length (s)</span>
+                <input id="bakeChunkSecondsInput" type="number" min="1" max="30" value="5">
+              </label>
+              <label>
+                <span>Unit Cap Override</span>
+                <input id="bakeUnitCapInput" type="number" min="0" max="5000" value="0">
+              </label>
+              <label>
+                <span>Max Factions Override</span>
+                <input id="bakeMaxFactionsInput" type="number" min="0" max="500" value="0">
+              </label>
+              <label>
+                <span>Field Scale</span>
+                <select id="bakeFieldScaleInput">
+                  <option value="auto">Auto</option>
+                  <option value="normal">Normal</option>
+                  <option value="large">Large</option>
+                  <option value="massive">Massive</option>
+                </select>
+              </label>
+              <label>
+                <span>Step Budget (ms)</span>
+                <input id="bakeFrameBudgetInput" type="number" min="4" max="100" value="14">
+              </label>
+            </div>
+            <label class="checkbox-row">
+              <input id="bakeIncludeEffectsInput" type="checkbox" checked>
+              <span>Log visual and sound events for playback</span>
+            </label>
+            <div class="button-row">
+              <button id="startBakeBattleBtn" class="secondary small" type="button">Bake Battle</button>
+              <button id="cancelBakeBattleBtn" class="ghost small" type="button" disabled>Cancel Bake</button>
+            </div>
+            <div class="baked-battle-progress" aria-label="Bake progress">
+              <div id="bakeProgressFill" class="baked-battle-progress-fill"></div>
+            </div>
+            <p id="bakeStatus" class="hint baked-battle-status">No baked battle loaded.</p>
+            <div id="bakeStats" class="baked-battle-stats"></div>
+            <div class="button-row">
+              <button id="saveBakedBattleBtn" class="ghost small" type="button" disabled>Download Replay</button>
+              <label class="ghost small file-button">
+                Load Replay
+                <input id="loadBakedBattleInput" type="file" accept=".json,.tbrbake,.tbrbake.json,application/json">
+              </label>
+            </div>
+            <div class="baked-replay-controls">
+              <button id="playBakedReplayBtn" class="secondary small" type="button" disabled>Play</button>
+              <button id="pauseBakedReplayBtn" class="ghost small" type="button" disabled>Pause</button>
+              <button id="stopBakedReplayBtn" class="ghost small" type="button" disabled>Stop</button>
+              <label>
+                <span>Replay Time</span>
+                <input id="bakedReplayScrubInput" type="range" min="0" max="0" step="0.05" value="0" disabled>
+              </label>
+            </div>
+            <p id="bakedReplayMeta" class="hint baked-battle-meta"></p>
+          </div>
+        </section>
       </main>
     </div>
 

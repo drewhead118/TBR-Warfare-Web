@@ -842,6 +842,96 @@ button:active { transform: translateY(1px); }
 .tournament-config-summary {
   margin: 0;
 }
+.baked-battle-panel {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+  box-shadow: none;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.03), transparent 30%),
+    rgba(24, 17, 12, 0.82);
+}
+.baked-battle-body {
+  display: grid;
+  gap: 12px;
+}
+.baked-battle-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.baked-battle-progress {
+  overflow: hidden;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(255, 241, 217, 0.08);
+}
+.baked-battle-progress-fill {
+  width: 0%;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #9ed8ff, #ffd991);
+  box-shadow: 0 0 18px rgba(158, 216, 255, 0.28);
+  transition: width 160ms ease;
+}
+.baked-battle-status,
+.baked-battle-meta {
+  margin: 0;
+}
+.baked-battle-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+  gap: 10px;
+}
+.baked-battle-stats div {
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 231, 194, 0.1);
+  background: rgba(255, 241, 217, 0.05);
+}
+.baked-battle-stats span {
+  display: block;
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.baked-battle-stats strong {
+  display: block;
+  margin-top: 4px;
+  color: var(--accent-soft);
+  font-size: 0.95rem;
+}
+.baked-replay-controls {
+  display: grid;
+  grid-template-columns: auto auto auto minmax(160px, 1fr);
+  align-items: end;
+  gap: 10px;
+}
+.baked-replay-controls label {
+  display: grid;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
+.baked-replay-controls input[type="range"] {
+  width: 100%;
+}
+.file-button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 0.88rem;
+  font-weight: 800;
+}
+.file-button input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+}
 .bracket-actions {
   margin-top: -4px;
 }
@@ -1054,7 +1144,7 @@ label span {
   flex-direction: column;
   padding: 18px;
   height: calc(100vh - 36px);
-  overflow: hidden;
+  overflow: auto;
 }
 .battle-header {
   display: flex;
@@ -1494,7 +1584,7 @@ canvas.is-dragging { cursor: grabbing; }
   .top-shell {
     gap: 10px;
   }
-  .status-panel, .field-grid, .composition-grid, .tournament-config-grid {
+  .status-panel, .field-grid, .composition-grid, .tournament-config-grid, .baked-battle-grid, .baked-replay-controls {
     grid-template-columns: 1fr;
   }
   .army-list {
