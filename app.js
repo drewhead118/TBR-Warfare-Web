@@ -1706,6 +1706,7 @@ const els = {
   advanceQueueBtn: document.getElementById("advanceQueueBtn"),
   randomizeArenaBtn: document.getElementById("randomizeArenaBtn"),
   seedSampleBtn: document.getElementById("seedSampleBtn"),
+  fullscreenBattleBtn: document.getElementById("fullscreenBattleBtn"),
   viewTournamentStoryBtn: document.getElementById("viewTournamentStoryBtn"),
   csvInput: document.getElementById("csvInput"),
   csvFileInput: document.getElementById("csvFileInput"),
@@ -1796,6 +1797,7 @@ const els = {
   propResizeToggle: document.getElementById("propResizeToggle"),
   disableShiftInspectTooltipCooldownToggle: document.getElementById("disableShiftInspectTooltipCooldownToggle"),
   knockoutAnnouncement: document.getElementById("knockoutAnnouncement"),
+  killAllUnitsBtn: document.getElementById("killAllUnitsBtn"),
   bossAnnouncement: document.getElementById("bossAnnouncement"),
   winnerCard: document.getElementById("winnerCard"),
   winnerModal: document.getElementById("winnerModal"),
@@ -1981,6 +1983,9 @@ function bindUi() {
   els.resetTournamentBtn?.addEventListener("click", handleResetTournamentClick);
   els.advanceQueueBtn.addEventListener("click", applyWinnerToQueue);
   els.randomizeArenaBtn.addEventListener("click", randomizeArenaAndWeather);
+  els.fullscreenBattleBtn?.addEventListener("click", toggleBattleFullscreen);
+  document.addEventListener("fullscreenchange", handleBattleFullscreenChange);
+  document.addEventListener("mousemove", handleBattleFullscreenMouseMove);
   els.viewTournamentStoryBtn.addEventListener("click", openTournamentPage);
   els.instantResolveBtn?.addEventListener("click", instantResolveBattle);
   els.toggleBracketPanelBtn?.addEventListener("click", toggleBracketPanel);
@@ -2002,6 +2007,7 @@ function bindUi() {
   els.bakedReplayScrubInput?.addEventListener("input", scrubBakedReplay);
   els.autoCalibratePerformanceBtn?.addEventListener("click", startPerformanceCalibration);
   els.buildAssetAtlasBtn?.addEventListener("click", rebuildAssetAtlas);
+  els.killAllUnitsBtn?.addEventListener("click", killAllUnitsForSuddenDeathTest);
   [els.balanceLabArmySizeInput, els.balanceLabMaxBattleSecondsInput, els.balanceLabVaryArenaToggle]
     .filter(Boolean)
     .forEach((input) => input.addEventListener("change", commitBalanceLabConfigFromInputs));
@@ -4227,6 +4233,57 @@ function renderSpeedControls() {
             ? "At least two armies are required"
             : "Instant resolve is unavailable right now";
   }
+  updateFullscreenBattleButton();
+}
+
+function getBattleFullscreenPanel() {
+  return els.canvas?.closest(".battle-panel") || null;
+}
+
+function isBattleFullscreenActive() {
+  return document.fullscreenElement === getBattleFullscreenPanel();
+}
+
+function updateFullscreenBattleButton() {
+  if (!els.fullscreenBattleBtn) return;
+  const active = isBattleFullscreenActive();
+  els.fullscreenBattleBtn.textContent = active ? "Exit Fullscreen" : "Fullscreen";
+  els.fullscreenBattleBtn.title = active
+    ? "Exit fullscreen battle view"
+    : "Fill the screen with the battle simulator";
+}
+
+function setFullscreenControlsVisible(visible) {
+  const panel = getBattleFullscreenPanel();
+  if (!panel) return;
+  panel.classList.toggle("show-fullscreen-controls", visible);
+}
+
+function handleBattleFullscreenMouseMove(event) {
+  if (!isBattleFullscreenActive()) return;
+  setFullscreenControlsVisible(event.clientY <= 96);
+}
+
+function handleBattleFullscreenChange() {
+  const active = isBattleFullscreenActive();
+  setFullscreenControlsVisible(active);
+  updateFullscreenBattleButton();
+  sizeCanvas();
+}
+
+async function toggleBattleFullscreen() {
+  const panel = getBattleFullscreenPanel();
+  if (!panel) return;
+  try {
+    if (isBattleFullscreenActive()) {
+      await document.exitFullscreen?.();
+    } else {
+      await panel.requestFullscreen?.();
+      setFullscreenControlsVisible(true);
+    }
+  } catch (error) {
+    setTicker(`Fullscreen could not be changed: ${error.message || error}`);
+  }
 }
 
 function cloneData(value) {
@@ -5624,6 +5681,7 @@ function createPersistedBattleSnapshot() {
     meta: state.battle.meta ? cloneData(state.battle.meta) : null,
     completed: state.battle.completed === true,
     pendingWinner: state.battle.pendingWinner || null,
+    suddenDeath: state.battle.suddenDeath ? cloneData(state.battle.suddenDeath) : null,
   };
 }
 
@@ -5673,6 +5731,11 @@ function restorePersistedBattleState() {
     ? `${state.tournament.currentRoundIndex}|${state.tournament.currentMatchIndex}`
     : "";
   state.battle = buildActiveBattle({ regenerateTerrain: false, terrainMirrorKey });
+  if (persistedSnapshot?.completed) {
+    state.battle.completed = true;
+    state.battle.pendingWinner = persistedSnapshot.pendingWinner || null;
+    state.battle.suddenDeath = persistedSnapshot.suddenDeath ? cloneData(persistedSnapshot.suddenDeath) : null;
+  }
   primeBattleWeatherAudioSelection();
   syncBattleWeatherAudio(0.35);
   if (!state.battle.terrainTexture?.ready) queueBattleTerrainTextureGeneration(state.battle);
@@ -5691,12 +5754,19 @@ function restorePersistedBattleState() {
     showTournamentVictoryCard(state.tournamentResult);
     setTicker("The last completed tournament has been restored.");
   } else {
-    els.battleState.textContent = state.tournament ? getCurrentMatchLabel(state.tournament) : "Ready";
-    els.winnerLabel.textContent = "None yet";
-    closeWinnerModal();
-    setTicker(state.tournament
-      ? `${getCurrentMatchLabel(state.tournament)} has been restored and is ready to replay.`
-      : "The saved battle has been restored.");
+    if (state.battle?.completed) {
+      syncResolvedBattleUi(state.battle, { showWinnerModal: true });
+      setTicker(battleRequiresSuddenDeath()
+        ? "A restored mutual destruction result requires SUDDEN DEATH."
+        : "The saved battle result has been restored.");
+    } else {
+      els.battleState.textContent = state.tournament ? getCurrentMatchLabel(state.tournament) : "Ready";
+      els.winnerLabel.textContent = "None yet";
+      closeWinnerModal();
+      setTicker(state.tournament
+        ? `${getCurrentMatchLabel(state.tournament)} has been restored and is ready to replay.`
+        : "The saved battle has been restored.");
+    }
   }
   syncTournamentViewState(true);
 }
@@ -6522,6 +6592,8 @@ function buildHeadlessBalanceBattle(factionPool, arena) {
     terrainTexture: null,
     props: [],
     pendingWinner: null,
+    suddenDeath: null,
+    lastLivingResultFactionIds: [],
     completed: false,
     meta: { headless: true },
     time: 0,
@@ -6587,6 +6659,13 @@ function resolveHeadlessBattleTimeout(battle) {
       return bHealth - aHealth;
     });
   battle.pendingWinner = ranked[0]?.faction?.id || null;
+  if (battle.pendingWinner) {
+    battle.suddenDeath = null;
+  } else if (battle.meta?.suddenDeath) {
+    selectInkLordSuddenDeathWinner(battle, battle.lastLivingResultFactionIds);
+  } else {
+    battle.suddenDeath = createSuddenDeathState(battle, battle.lastLivingResultFactionIds);
+  }
   battle.completed = true;
   stopInkLordEvent(battle);
 }
@@ -7005,6 +7084,37 @@ function setDisableShiftInspectTooltipCooldown(enabled) {
     els.disableShiftInspectTooltipCooldownToggle.checked = state.disableShiftInspectTooltipCooldown;
   }
   saveState();
+}
+
+function killAllUnitsForSuddenDeathTest() {
+  if (!state.battle || state.battle.completed) {
+    setTicker("Start an unfinished battle before using Kill All Units.");
+    return;
+  }
+  const livingFactionIds = getLivingResultFactions(state.battle).map((faction) => faction.id);
+  if (livingFactionIds.length < 2) {
+    setTicker("Kill All Units needs at least two living armies to test sudden death.");
+    return;
+  }
+  state.battle.lastLivingResultFactionIds = livingFactionIds;
+  state.battle.factions.forEach((faction) => {
+    faction.units.forEach((unit) => {
+      if (unit.dead || unit.fled) return;
+      unit.health = 0;
+      unit.dead = true;
+      unit.liftedBySpellId = null;
+      unit.displacedBySpellId = null;
+      const unitDef = getUnitDefinition(unit.type);
+      if (unitDef?.leavesGrave !== false) spawnGrave(unit, state.battle);
+    });
+    faction.alive = false;
+  });
+  state.battle.transientCache = null;
+  state.running = false;
+  stepBattle(state.battle, 0);
+  setTicker(battleRequiresSuddenDeath()
+    ? "Dev wipeout triggered mutual destruction. Use SUDDEN DEATH to continue."
+    : "Dev wipeout resolved the battle.");
 }
 
 function setDevPanelVisible(visible) {
@@ -8137,6 +8247,8 @@ function buildBattle(factionPool = state.factions, arena = createArenaVariant(0,
       ? sceneSnapshot.props
       : buildFieldProps(field, arena),
     pendingWinner: null,
+    suddenDeath: null,
+    lastLivingResultFactionIds: [],
     completed: false,
     meta: unitCapSummary.totalRemoved > 0
       ? { ...(meta || {}), unitCapSummary }
@@ -8172,7 +8284,9 @@ function syncResolvedBattleUi(battle, options = {}) {
   els.battleState.textContent = state.tournament ? `${getCurrentMatchLabel(state.tournament)} complete` : "Complete";
   if (winner) {
     els.winnerLabel.textContent = winner.title;
-    if (instantResolve) {
+    if (isInkLordSelectedWinnerBattle(battle)) {
+      setTicker(`The InkLord has selected a winner to please his royal Inkliness: ${winner.title}`);
+    } else if (instantResolve) {
       setTicker(timedOut
         ? `${winner.title} claims the instant resolve on battlefield state.`
         : `${winner.title} wins the instant resolve.`);
@@ -8196,6 +8310,99 @@ function syncResolvedBattleUi(battle, options = {}) {
   }
   renderBracketTracker();
   updateAdvanceButtonLabel();
+  renderSpeedControls();
+  saveState();
+  syncTournamentViewState(true);
+}
+
+function getSuddenDeathFactions(battle = state.battle) {
+  const ids = Array.isArray(battle?.suddenDeath?.factionIds) ? battle.suddenDeath.factionIds : [];
+  return ids.map((id) => findSourceFaction(id)).filter(Boolean);
+}
+
+function battleRequiresSuddenDeath(battle = state.battle) {
+  return Boolean(battle?.completed && !battle.pendingWinner && getSuddenDeathFactions(battle).length >= 2);
+}
+
+function createSuddenDeathState(battle, factionIds) {
+  const uniqueIds = [...new Set((factionIds || []).filter(Boolean))];
+  if (uniqueIds.length < 2) return null;
+  return {
+    required: true,
+    factionIds: uniqueIds,
+    createdAt: Date.now(),
+    sourceMatchLabel: state.tournament ? getCurrentMatchLabel(state.tournament) : "Queue battle",
+  };
+}
+
+function selectInkLordSuddenDeathWinner(battle, factionIds = []) {
+  const candidates = [...new Set((factionIds || []).filter(Boolean))]
+    .map((id) => getResultFactions(battle).find((faction) => faction.id === id) || findSourceFaction(id))
+    .filter(Boolean);
+  const pool = candidates.length ? candidates : getResultFactions(battle);
+  const winner = pool[Math.floor(Math.random() * pool.length)] || null;
+  battle.pendingWinner = winner?.id || null;
+  battle.suddenDeath = null;
+  battle.meta = {
+    ...(battle.meta || {}),
+    inkLordSelectedWinner: winner ? {
+      factionId: winner.id,
+      title: winner.title,
+    } : null,
+  };
+  return winner;
+}
+
+function isInkLordSelectedWinnerBattle(battle = state.battle) {
+  return Boolean(battle?.meta?.inkLordSelectedWinner?.factionId && battle.pendingWinner === battle.meta.inkLordSelectedWinner.factionId);
+}
+
+function startSuddenDeathBattle() {
+  if (!battleRequiresSuddenDeath()) {
+    setTicker("Sudden death is only available after a mutual destruction result.");
+    return;
+  }
+  const factions = getSuddenDeathFactions();
+  const previousMeta = state.battle?.meta || null;
+  const originalResults = getResultFactions(state.battle).map((faction) => ({
+    id: faction.id,
+    fled: faction.units.filter((unit) => unit.fled).length,
+    perished: faction.units.filter((unit) => unit.dead).length,
+    growth: faction.submissionType === "paperback" ? 4 : 2,
+  }));
+  const roundIndex = previousMeta?.tournamentRound || state.tournament?.currentRoundIndex || 0;
+  const matchIndex = previousMeta?.tournamentMatch || state.tournament?.currentMatchIndex || 0;
+  const arena = createRandomArenaVariant(roundIndex, matchIndex, factions.length);
+  if (state.tournament) {
+    const match = getCurrentTournamentMatch(state.tournament);
+    if (match) match.arena = arena;
+  }
+  state.running = false;
+  state.sessionTerrainTexture = null;
+  state.battle = buildBattle(factions.map((faction) => cloneData(faction)), arena, {
+    ...(previousMeta || {}),
+    suddenDeath: true,
+    suddenDeathSourceFactionIds: factions.map((faction) => faction.id),
+    suddenDeathOriginalResults: originalResults,
+  }, {
+    regenerateTerrain: true,
+    terrainMirrorKey: nextTerrainReflectionKey("sudden-death"),
+  });
+  primeBattleWeatherAudioSelection();
+  syncBattleWeatherAudio(0.35);
+  if (!state.battle.terrainTexture?.ready) queueBattleTerrainTextureGeneration(state.battle);
+  resetCamera();
+  closeWinnerModal();
+  clearBattleHover();
+  clearKnockoutAnnouncement();
+  clearBossAnnouncement();
+  endBattleAudio();
+  els.battleState.textContent = state.tournament ? `${getCurrentMatchLabel(state.tournament)} sudden death` : "Sudden Death";
+  els.winnerLabel.textContent = "None yet";
+  setTicker(`SUDDEN DEATH: ${factions.map((faction) => faction.title).join(" vs ")} return to decide the result.`);
+  renderBracketTracker();
+  updateAdvanceButtonLabel();
+  renderArmyEditors();
   renderSpeedControls();
   saveState();
   syncTournamentViewState(true);
@@ -8612,6 +8819,7 @@ function recordTournamentHeatStats(tournament, battle, winnerId) {
   if (!stats || !battle) return;
   stats.completedHeats += 1;
   const resultFactions = getResultFactions(battle);
+  const resultFactionIds = new Set(resultFactions.map((faction) => faction.id));
   resultFactions.forEach((faction) => {
     const perished = faction.units.filter((unit) => unit.dead).length;
     const routed = faction.units.filter((unit) => unit.fled).length;
@@ -8623,7 +8831,14 @@ function recordTournamentHeatStats(tournament, battle, winnerId) {
       stats.winsByFaction[faction.id] = (stats.winsByFaction[faction.id] || 0) + 1;
     }
   });
-  stats.eliminatedArmies += resultFactions.filter((faction) => faction.id !== winnerId).length;
+  const originalOnlyResults = (battle.meta?.suddenDeathOriginalResults || [])
+    .filter((entry) => entry?.id && !resultFactionIds.has(entry.id));
+  originalOnlyResults.forEach((entry) => {
+    stats.totalPerished += Math.max(0, Number(entry.perished) || 0);
+    stats.totalRouted += Math.max(0, Number(entry.fled) || 0);
+    stats.survivingTroopsByFaction[entry.id] = 0;
+  });
+  stats.eliminatedArmies += resultFactions.filter((faction) => faction.id !== winnerId).length + originalOnlyResults.length;
 }
 
 function buildTournamentResult(tournament, championId) {
@@ -8727,7 +8942,15 @@ async function startTournamentFastForward(command) {
       });
       if (!state.battle?.completed) {
         instantResolveBattle({ silent: true });
+        if (battleRequiresSuddenDeath()) {
+          setTicker("Fast forward paused for a mutual destruction heat. Use SUDDEN DEATH to resolve it.");
+          break;
+        }
       } else {
+        if (battleRequiresSuddenDeath()) {
+          setTicker("Fast forward paused for a mutual destruction heat. Use SUDDEN DEATH to resolve it.");
+          break;
+        }
         advanceTournament();
       }
       await waitForTournamentFastForwardStep();
@@ -12281,6 +12504,10 @@ function loop(timestamp) {
 
 function stepBattle(battle, dt) {
   battle.time += dt;
+  if (!battle.completed) {
+    const livingBeforeStep = getLivingResultFactions(battle).map((faction) => faction.id);
+    if (livingBeforeStep.length) battle.lastLivingResultFactionIds = livingBeforeStep;
+  }
   rebuildBattleTransientCaches(battle);
   updateInkLordEvent(battle, dt);
   updateBodyguardRescues(battle, dt);
@@ -12320,7 +12547,12 @@ function stepBattle(battle, dt) {
     return;
   }
   if (!battle.completed && contenders.length === 0) {
-    battle.pendingWinner = null;
+    if (battle.meta?.suddenDeath) {
+      selectInkLordSuddenDeathWinner(battle, battle.lastLivingResultFactionIds);
+    } else {
+      battle.pendingWinner = null;
+      battle.suddenDeath = createSuddenDeathState(battle, battle.lastLivingResultFactionIds);
+    }
     battle.completed = true;
     stopInkLordEvent(battle);
     endBattleAudio();
@@ -17105,6 +17337,9 @@ function showWinnerCard(winner, battle) {
   const alive = winner?.units.filter((unit) => !unit.dead && !unit.fled).length ?? 0;
   const routed = winner?.units.filter((unit) => unit.fled).length ?? 0;
   const tournamentMode = Boolean(state.tournament);
+  const inkLordSelectedWinner = isInkLordSelectedWinnerBattle(battle);
+  const suddenDeathFactions = getSuddenDeathFactions(battle);
+  const suddenDeathAvailable = !winner && suddenDeathFactions.length >= 2;
   const others = getResultFactions(battle)
     .filter((faction) => faction.id !== winner?.id)
     .map((faction) => {
@@ -17124,7 +17359,9 @@ function showWinnerCard(winner, battle) {
       <div class="winner-header-copy">
         <span class="winner-kicker">${tournamentMode ? "Heat Won" : "Victory Confirmed"}</span>
         <h3>${winner.title}</h3>
-        <p>${alive} soldiers held the field. ${routed} routed survivors were carried off.${tournamentMode ? " This army advances in the bracket." : ""}</p>
+        <p>${inkLordSelectedWinner
+          ? `The InkLord has selected a winner to please his royal Inkliness: ${escapeHtml(winner.title)}`
+          : `${alive} soldiers held the field. ${routed} routed survivors were carried off.${tournamentMode ? " This army advances in the bracket." : ""}`}</p>
       </div>
     </div>
     <div class="victory-list">
@@ -17146,10 +17383,18 @@ function showWinnerCard(winner, battle) {
       <div class="winner-header-copy">
         <span class="winner-kicker">Battle Complete</span>
         <h3>Mutual destruction</h3>
-        <p>No title survived the field.</p>
+        <p>${suddenDeathAvailable
+          ? `${suddenDeathFactions.map((faction) => escapeHtml(faction.title)).join(" vs ")} fell together. Sudden death must decide who advances.`
+          : "No title survived the field."}</p>
       </div>
     </div>
+    ${suddenDeathAvailable ? `
+      <div class="winner-actions">
+        <button id="suddenDeathBtn" class="accent" type="button">SUDDEN DEATH</button>
+      </div>
+    ` : ""}
   `;
+  els.winnerCard.querySelector("#suddenDeathBtn")?.addEventListener("click", startSuddenDeathBattle);
   hydrateDeferredCoverImages(els.winnerCard, { priority: true });
   els.winnerModal.classList.remove("hidden");
   renderArmyEditors();
@@ -17248,6 +17493,11 @@ function applyWinnerToQueue() {
     setTicker("Finish a battle before applying results.");
     return;
   }
+  if (battleRequiresSuddenDeath()) {
+    showWinnerCard(null, state.battle);
+    setTicker("Mutual destruction requires SUDDEN DEATH before the result can advance.");
+    return;
+  }
   if (state.tournament) {
     advanceTournament();
     return;
@@ -17257,6 +17507,31 @@ function applyWinnerToQueue() {
 
 function finalizeSingleBattle() {
   const hadWinner = Boolean(state.battle.pendingWinner);
+  const suddenDeathOriginalResults = Array.isArray(state.battle.meta?.suddenDeathOriginalResults)
+    ? state.battle.meta.suddenDeathOriginalResults
+    : null;
+  if (suddenDeathOriginalResults) {
+    const originalById = new Map(suddenDeathOriginalResults.map((entry) => [entry.id, entry]));
+    const rematchById = new Map(getResultFactions(state.battle).map((faction) => [faction.id, faction]));
+    state.factions = state.factions.flatMap((faction) => {
+      if (faction.id === state.battle.pendingWinner) return [];
+      const original = originalById.get(faction.id);
+      const rematch = rematchById.get(faction.id);
+      const growth = original?.growth ?? (faction.submissionType === "paperback" ? 4 : 2);
+      const fled = rematch
+        ? rematch.units.filter((unit) => unit.fled).length
+        : Math.max(0, Number(original?.fled) || 0);
+      return [withFactionDefaults({ ...faction, armySize: faction.armySize + growth + fled, fledReserve: 0 })];
+    });
+    state.roundsApplied += 1;
+    saveState();
+    syncCsvInput();
+    renderArmyEditors();
+    resetBattle();
+    setTicker(hadWinner ? "Sudden death resolved the result. Remaining armies have been reinforced." : "No winner emerged. All surviving titles regroup with reinforcements.");
+    syncTournamentViewState(true);
+    return;
+  }
   state.factions = getResultFactions(state.battle).flatMap((faction) => {
     if (faction.id === state.battle.pendingWinner) return [];
     const growth = faction.submissionType === "paperback" ? 4 : 2;
@@ -17273,6 +17548,11 @@ function finalizeSingleBattle() {
 }
 
 function advanceTournament() {
+  if (battleRequiresSuddenDeath()) {
+    showWinnerCard(null, state.battle);
+    setTicker("Mutual destruction requires SUDDEN DEATH before the bracket can advance.");
+    return;
+  }
   const tournament = state.tournament;
   const round = tournament.rounds[tournament.currentRoundIndex];
   const match = round.matches[tournament.currentMatchIndex];
@@ -17281,13 +17561,28 @@ function advanceTournament() {
   match.winnerId = winnerId;
   match.status = "complete";
   recordTournamentHeatStats(tournament, state.battle, winnerId);
-  getResultFactions(state.battle).forEach((faction) => {
+  const suddenDeathOriginalResults = Array.isArray(state.battle.meta?.suddenDeathOriginalResults)
+    ? state.battle.meta.suddenDeathOriginalResults
+    : null;
+  const resultFactionsForElimination = suddenDeathOriginalResults
+    ? suddenDeathOriginalResults.map((entry) => ({
+      id: entry.id,
+      units: [],
+      submissionType: findSourceFaction(entry.id)?.submissionType || "digital",
+      suddenDeathRecord: entry,
+    }))
+    : getResultFactions(state.battle);
+  resultFactionsForElimination.forEach((faction) => {
     if (faction.id === winnerId) return;
     const record = tournament.eliminated[faction.id];
     if (!record.eliminated) {
       record.eliminated = true;
-      record.fled = faction.units.filter((unit) => unit.fled).length;
-      record.growth = faction.submissionType === "paperback" ? 4 : 2;
+      record.fled = faction.suddenDeathRecord
+        ? Math.max(0, Number(faction.suddenDeathRecord.fled) || 0)
+        : faction.units.filter((unit) => unit.fled).length;
+      record.growth = faction.suddenDeathRecord
+        ? Math.max(0, Number(faction.suddenDeathRecord.growth) || 0)
+        : faction.submissionType === "paperback" ? 4 : 2;
     }
   });
 
@@ -19660,6 +19955,10 @@ function renderBracketTracker() {
 function updateAdvanceButtonLabel() {
   if (state.tournamentResult) {
     els.advanceQueueBtn.textContent = shouldUseTournament(state.factions) ? "Start Next Tournament" : "Apply Result To Queue";
+    return;
+  }
+  if (battleRequiresSuddenDeath()) {
+    els.advanceQueueBtn.textContent = "SUDDEN DEATH Required";
     return;
   }
   if (state.tournament && !state.tournament.complete) {
